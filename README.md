@@ -3,7 +3,7 @@
 This project is a replacement for the [old](https://github.com/rosteleset/frs) one. Main differences:
 * PostgreSQL is used as a DBMS.
 * The project uses [userver](https://github.com/userver-framework/userver), an open-source asynchronous framework.
-* Strict adherence to data types in API requests. For example, if a numeric field is expected, it cannot be enclosed in quotation marks.
+* Strict adherence to data types in [API](https://rosteleset.github.io/falprs/) requests. For example, if a numeric field is expected, it cannot be enclosed in quotation marks.
 * Added a license plate recognition system (LPRS).
 
 ### Content
@@ -44,7 +44,7 @@ The service works with four neural networks: VDNet, VCNet, LPDNet and LPRNet. VD
 
 <a id="lprs_scheme"></a>
 ### General scheme of interaction with LPRS 
- To interact with the service, an API is used, a detailed description of which is in the repository in the file **docs/openapi.yaml**. First you need to register the video streams that the system will work with. The API method **addStream** is used for this. Main parameters:
+ To interact with the service, an [API](https://rosteleset.github.io/falprs/) is used, a detailed description of which is in the repository in the file **docs/openapi.yaml**. First you need to register the video streams that the system will work with. The API method **addStream** is used for this. Main parameters:
  - **streamId** - internal for your backend (external for LPRS) video stream identifier;
  - **config** - configuration parameters.
 Example request body:
@@ -92,7 +92,7 @@ At the moment, FRS uses three models in its work:
 
 <a id="frs_scheme"></a>
 ### General scheme of interaction with FRS
-To interact with the service, an API is used, a detailed description of which is in the repository in the file **docs/openapi.yaml**. First of all, your backend registers video streams using the **addStream** API call. The main parameters of the method are:
+To interact with the service, an [API](https://rosteleset.github.io/falprs/) is used, a detailed description of which is in the repository in the file **docs/openapi.yaml**. First of all, your backend registers video streams using the **addStream** API call. The main parameters of the method are:
 - **streamId** - internal for the backend (external for FRS) identifier of the video stream;
 - **url** is the URL for capturing a frame from the video stream. FRS does not decode video, but works with individual frames (screenshots). For example, the URL might look like ***http://hostname/cgi-bin/images_cgi?channel=0&user=admin&pwd=password***
 - **callback** is the URL that FRS will use when recognizing a registered person. For example, ***http://backend-address/face_recognized?stream_id=1***
