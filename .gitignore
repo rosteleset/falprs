@@ -1,0 +1,16 @@
+# Visual Studio Code
+.vscode/
+
+# CLion
+.idea/
+
+# Build results
+[Dd]ebug/
+[Rr]elease/
+[Bb]uild*/
+
+# Tempopary data
+[Tt]emp/
+
+# Cache data
+.cache/

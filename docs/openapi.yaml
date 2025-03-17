@@ -1,0 +1,2271 @@
+openapi: 3.0.3
+info:
+  title: Face and License Plate Recognition System
+  description: |
+    Face and License Plate Recognition System (FALPRS) is a web service that uses API for serving requests with POST method.
+    Request and response are JSON objects. Response has the following format:
+    
+    | Name        | Type    | Description        |
+    |-------------|---------|--------------------|
+    | code        | integer | result's code      |
+    | message     | string  | short message      |
+    | data        | object  | payload (optional) |
+
+    HTTP response codes `2хх` are considered to be successful, all others are errors, `3xx` redirects are not used.
+    Examples:
+    ```
+    {
+      "code": 200,
+      "message": "Ok",
+      "data": ...
+    }
+    ```
+      
+    ```
+    {
+      "code": 400,
+      "message": "Bad Request"
+    }
+    ```
+    In a description of API methods the returning values are specified without `data` wrapper. All specified JSON types must be strictly followed. For compatibility with the previous version of FRS, an exception is made only for the streamId parameter, which can be an integer.
+  version: 1.0.0
+tags:
+  - name: Host --> FRS
+  - name: FRS --> Host
+  - name: Host --> LPRS
+  - name: LPRS --> Host
+paths:
+
+#FRS
+  /frs/api/addStream:
+    post:
+      tags:
+        - Host --> FRS
+      summary: Add Video Stream
+      description: Registers new video stream and it's configuration parameters in the system's database
+      operationId: frs_addStream
+      parameters:
+        - in: header
+          name: Authorization
+          description: Bearer authorization token
+          schema:
+            type: string
+          required: false
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+              - streamId
+              properties:
+                streamId:
+                  $ref: '#/components/schemas/streamId'
+                url:
+                  description: "Host's video stream identifier"
+                  type: string
+                  format: url
+                  example: https://my.video.stream/capture
+                callback:
+                  description: URL for sending facial recognition events
+                  type: string
+                  format: url
+                  example: https://my.host/callback?streamId=1
+                faces:
+                  description: List of registered face descriptors
+                  type: array
+                  items:
+                    type: integer
+                config:
+                  $ref: '#/components/schemas/FRSDefaultVStreamConfig'
+            example:
+              streamId: '1234'
+              url: 'https://host/getImage'
+              callback: 'https://host/faceRecognized'
+              config:
+                tolerance: 0.8
+                face-enlarge-scale: 1.6
+      responses:
+        '204':
+          description: Successful operation
+        '400':
+          description: Bad request
+
+  /frs/api/listStreams:
+    post:
+      tags:
+        - Host --> FRS
+      summary: List Video Streams
+      description: Returns a list of video streams and bounded face descriptors
+      operationId: frs_listStreams
+      parameters:
+        - in: header
+          name: Authorization
+          description: Bearer authorization token
+          schema:
+            type: string
+          required: false
+      responses:
+        '200':
+          description: Successful operation
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  required:
+                    - streamId
+                  properties:
+                    streamId:
+                      $ref: '#/components/schemas/streamId'
+                    url:
+                      description: "Host's video stream identifier"
+                      type: string
+                      format: url
+                    callback:
+                      description: URL for sending facial recognition events
+                      type: string
+                      format: url
+                    faces:
+                      description: List of registered face descriptors
+                      type: array
+                      items:
+                        type: integer
+                    config:
+                      $ref: '#/components/schemas/FRSDefaultVStreamConfig'
+              example:
+                - streamId: '1234'
+                  faces: [123, 456, 789]
+                - streamId: '1236'
+                  faces: [456, 789, 910]
+        '204':
+          description: No content
+        '400':
+          description: Bad request
+
+  /frs/api/removeStream:
+    post:
+      tags:
+        - Host --> FRS
+      summary: Remove Video Stream
+      description: Removes video stream and it's configuration parameters from the system's database
+      operationId: frs_removeStream
+      parameters:
+        - in: header
+          name: Authorization
+          description: Bearer authorization token
+          schema:
+            type: string
+          required: false
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - streamId
+              properties:
+                streamId:
+                  $ref: '#/components/schemas/streamId'
+            example:
+              streamId: '1234'
+      responses:
+        '204':
+          description: Successful operation
+        '400':
+          description: Bad request
+
+  /frs/api/addFaces:
+    post:
+      tags:
+        - Host --> FRS
+      summary: Bind Registered Face Descriptors to the Video Stream
+      description: Binds a list of registered face descriptors to a video stream
+      operationId: frs_addFaces
+      parameters:
+        - in: header
+          name: Authorization
+          description: Bearer authorization token
+          schema:
+            type: string
+          required: false
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - streamId
+                - faces
+              properties:
+                streamId:
+                  $ref: '#/components/schemas/streamId'
+                faces:
+                  description: List of registered face descriptors
+                  type: array
+                  items:
+                    type: integer
+            example:
+              streamId: '1234'
+              faces: [123, 234, 4567]
+      responses:
+        '204':
+          description: Successful operation
+        '400':
+          description: Bad request
+
+  /frs/api/removeFaces:
+    post:
+      tags:
+        - Host --> FRS
+      summary: Unbind Registered Face Descriptors from the Video Stream
+      description: Unbinds a list of registered face descriptors from a video stream
+      operationId: frs_removeFaces
+      parameters:
+        - in: header
+          name: Authorization
+          description: Bearer authorization token
+          schema:
+            type: string
+          required: false
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - streamId
+                - faces
+              properties:
+                streamId:
+                  $ref: '#/components/schemas/streamId'
+                faces:
+                  description: List of registered face descriptors
+                  type: array
+                  items:
+                    type: integer
+            example:
+              streamId: '1234'
+              faces: [123, 234, 4567]
+      responses:
+        '204':
+          description: Successful operation
+        '400':
+          description: Bad request
+
+  /frs/api/deleteFaces:
+    post:
+      tags:
+        - Host --> FRS
+      summary: Delete Face Descriptors
+      description: Deletes registered face descriptors from the system's database
+      operationId: frs_deleteFaces
+      parameters:
+        - in: header
+          name: Authorization
+          description: Bearer authorization token
+          schema:
+            type: string
+          required: false
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - faces
+              properties:
+                faces:
+                  description: List of registered face descriptors
+                  type: array
+                  items:
+                    type: integer
+            example:
+              faces: [123, 234, 4567]
+      responses:
+        '204':
+          description: Successful operation
+        '400':
+          description: Bad request
+
+  /frs/api/listAllFaces:
+    post:
+      tags:
+        - Host --> FRS
+      summary: List All Registered Face Descriptors
+      description: Returns a list of all registered face descriptors
+      operationId: frs_listAllFaces
+      parameters:
+        - in: header
+          name: Authorization
+          description: Bearer authorization token
+          schema:
+            type: string
+          required: false
+      responses:
+        '200':
+          description: Successful operation
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  required: true
+                  items:
+                    description: List of registered face descriptors
+                    type: integer
+              example:
+                [456, 789, 910]
+        '204':
+          description: No content
+        '400':
+          description: Bad request
+
+  /frs/api/registerFace:
+    post:
+      tags:
+        - Host --> FRS
+      summary: Register Face Descriptor
+      description: Creates a face descriptor and binds it to the video stream
+      operationId: frs_registerFace
+      parameters:
+        - in: header
+          name: Authorization
+          description: Bearer authorization token
+          schema:
+            type: string
+          required: false
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - streamId
+                - url
+              properties:
+                streamId:
+                  $ref: '#/components/schemas/streamId'
+                url:
+                  description: Registration image URL
+                  type: string
+                  format: url
+                  example: https://my.server/image.jpg
+                left:
+                  description: X coordinate of the upper left corner of the rectangular face area
+                  type: integer
+                  default: 0
+                top:
+                  description: Y coordinate of the upper left corner of the rectangular face area
+                  type: integer
+                  default: 0
+                width:
+                  description: width of rectangular face area (0 - full image width)
+                  type: integer
+                  default: 0
+                height:
+                  description: width of rectangular face area (0 - full image height)
+                  type: integer
+                  default: 0
+            example:
+              streamId: '1234'
+              url: "https://my.server/image.jpg"
+              left: 537
+              top: 438
+              width: 142
+              height: 156
+      responses:
+        '200':
+          description: Successful operation
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  faceId:
+                    description: Registered face descriptor
+                    type: integer
+                  faceImage:
+                    description: Registered descriptor's face image URL
+                    type: string
+                    format: url
+                  left:
+                    description: X coordinate of the upper left corner of the rectangular face area
+                    type: integer
+                    default: 0
+                  top:
+                    description: Y coordinate of the upper left corner of the rectangular face area
+                    type: integer
+                    default: 0
+                  width:
+                    description: width of rectangular face area (0 - full image width)
+                    type: integer
+                    default: 0
+                  height:
+                    description: width of rectangular face area (0 - full image height)
+                    type: integer
+                    default: 0
+              example:
+                faceId: 4567
+                faceImage: 'data:image/jpeg,base64,...'
+                left: 537
+                top: 438
+                width: 142
+                height: 156
+        '400':
+          description: Bad request
+
+  /frs/api/motionDetection:
+    post:
+      tags:
+        - Host --> FRS
+      summary: Motion detection notification
+      description: |
+        Starts or ends the cycled processing pipeline for video stream. Pipeline consists of searching faces by means of face detection neural network.
+        Then after filtering each founded face is recognized by another neural network.
+        Successful results, if any, are send as event data using `callback` parameter of the video stream.
+        After delay (configuration parameter `delay-between-frames`) the pipeline starts again.
+      operationId: frs_motionDetection
+      parameters:
+        - in: header
+          name: Authorization
+          description: Bearer authorization token
+          schema:
+            type: string
+          required: false
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - streamId
+                - start
+              properties:
+                streamId:
+                  $ref: '#/components/schemas/streamId'
+                start:
+                  description: Sign of the beginning or end of movement
+                  type: boolean
+            example:
+              streamId: '1234'
+              start: true
+      responses:
+        '204':
+          description: Successful operation
+        '400':
+          description: Bad request
+
+
+  /frs/api/doorIsOpen:
+    post:
+      tags:
+        - Host --> FRS
+      summary: Door Open Notification
+      description: Stops processing pipeline for video stream
+      operationId: frs_doorIsOpen
+      parameters:
+        - in: header
+          name: Authorization
+          description: Bearer authorization token
+          schema:
+            type: string
+          required: false
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - streamId
+              properties:
+                streamId:
+                  $ref: '#/components/schemas/streamId'
+            example:
+              streamId: '1234'
+      responses:
+        '204':
+          description: Successful operation
+        '400':
+          description: Bad request
+
+  /frs/api/bestQuality:
+    post:
+      tags:
+        - Host --> FRS
+      summary: Get the "Best" Shot From FRS Log
+      description: Returns information about the best frame that contains a face
+      operationId: frs_bestQuality
+      parameters:
+        - in: header
+          name: Authorization
+          description: Bearer authorization token
+          schema:
+            type: string
+          required: false
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                streamId:
+                  $ref: '#/components/schemas/streamId'
+                date:
+                  description: Event date (required if streamId is specified)
+                  type: string
+                  format: date-time
+                eventId:
+                  description: Event identifier from the FRS log (required if streamId is not specified); if specified, then other parameters are ignored
+                  type: integer
+                  format: int64
+                uuid:
+                  description: UUID of host event
+                  type: string
+                  format: uuid
+            example:
+              eventId: 12345
+      responses:
+        '200':
+          description: Successful operation
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  screenshotUrl:
+                    description: Frame URL
+                    type: string
+                    format: url
+                  left:
+                    description: X coordinate of the upper left corner of the rectangular face area
+                    type: integer
+                    default: 0
+                  top:
+                    description: Y coordinate of the upper left corner of the rectangular face area
+                    type: integer
+                    default: 0
+                  width:
+                    description: width of rectangular face area (0 - full image width)
+                    type: integer
+                    default: 0
+                  height:
+                    description: width of rectangular face area (0 - full image height)
+                    type: integer
+                    default: 0
+              example:
+                screenshotUrl: 'https://falprs.host/frs/screenshots/group_1/2024-04-10/6/8/2/0/6820da5c-efe9-4b49-81fd-1f5ba33d3ee1.jpg'
+                left: 537
+                top: 438
+                width: 142
+                height: 156
+        '204':
+          description: No content
+        '400':
+          description: Bad request
+
+  /frs/api/getEvents:
+    post:
+      tags:
+        - Host --> FRS
+      summary: Get List of Events From FRS Log
+      description: Returns information about the best frame that contains a face
+      operationId: frs_getEvents
+      parameters:
+        - in: header
+          name: Authorization
+          description: Bearer authorization token
+          schema:
+            type: string
+          required: false
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - streamId
+                - dateStart
+                - dateEnd
+              properties:
+                streamId:
+                  $ref: '#/components/schemas/streamId'
+                dateStart:
+                  description: Start date of the event interval
+                  type: string
+                  format: date-time
+                dateEnd:
+                  description: End date of the event interval
+                  type: string
+                  format: date-time
+            example:
+              eventId: 12345
+              dateStart: '2021-08-17 08:00:10 +00:00'
+              dateEnd: '2021-08-17 09:00:10 +00:00'
+      responses:
+        '200':
+          description: Successful operation
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  required:
+                    - date
+                    - screenshotUrl
+                    - quality
+                    - left
+                    - top
+                    - width
+                    - height
+                  properties:
+                    date:
+                      description: Event date
+                      type: string
+                      format: date-time
+                    faceId:
+                      description: Registered face descriptor
+                      type: integer
+                    screenshotUrl:
+                      description: Frame URL
+                      type: string
+                      format: url
+                    quality:
+                      description: Face "quality" parameter
+                      type: number
+                      format: float
+                    left:
+                      description: X coordinate of the upper left corner of the rectangular face area
+                      type: integer
+                      default: 0
+                    top:
+                      description: Y coordinate of the upper left corner of the rectangular face area
+                      type: integer
+                      default: 0
+                    width:
+                      description: width of rectangular face area (0 - full image width)
+                      type: integer
+                      default: 0
+                    height:
+                      description: width of rectangular face area (0 - full image height)
+                      type: integer
+                      default: 0
+              example:
+                - date: '2021-08-17T08:00:15.834+00:00'
+                  quality: 890
+                  screenshotUrl: 'https://...'
+                  left: 537
+                  top: 438
+                  width: 142
+                  height: 156
+                - date: '2021-08-17T08:30:15.071+00:00'
+                  faceId: 1234
+                  quality: 562
+                  screenshotUrl: 'https://...'
+                  left: 837
+                  top: 338
+                  width: 175
+                  height: 182
+        '204':
+          description: No content
+        '400':
+          description: Bad request
+  /frs/api/setCommonConfig:
+    post:
+      tags:
+        - Host --> FRS
+      summary: Set Common Config Parameters
+      description: |
+        Sets common configuration parameters in the system's database
+      operationId: frs_setCommonConfig
+      parameters:
+        - in: header
+          name: Authorization
+          description: Bearer authorization token
+          schema:
+            type: string
+          required: false
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/FRSCommonConfig'
+            example:
+              callback-timeout: 3s
+      responses:
+        '204':
+          description: Successful operation
+        '400':
+          description: Bad request
+  /frs/api/getCommonConfig:
+    post:
+      tags:
+        - Host --> FRS
+      summary: Get Common Config Parameters
+      description: |
+        Returns video stream default configuration parameters from the system's database
+      operationId: frs_getCommonConfig
+      parameters:
+        - in: header
+          name: Authorization
+          description: Bearer authorization token
+          schema:
+            type: string
+          required: false
+      responses:
+        '200':
+          description: Successful operation
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FRSCommonConfig'
+              example:
+                callback-timeout: 2s
+                flag-copy-event-data: false
+                dnn-fd-model-name: scrfd
+                dnn-fd-input-width: 320
+                dnn-fd-input-height: 320
+                dnn-fd-input-tensor-name: input.1
+                dnn-fc-model-name: genet
+                dnn-fc-input-width: 192
+                dnn-fc-input-height: 192
+                dnn-fc-input-tensor-name: input.1
+                dnn-fc-output-tensor-name: "419"
+                dnn-fc-output-size: 3
+                dnn-fr-model-name: "arcface"
+                dnn-fr-input-width: 112
+                dnn-fr-input-height: 112
+                dnn-fr-input-tensor-name: input.1
+                dnn-fr-output-tensor-name: "683"
+                dnn-fr-output-size: 512
+                comments-blurry-face: The face image is not clear enough for registration.
+                comments-descriptor-creation-error: Failed to register descriptor.
+                comments-descriptor-exists: The descriptor already exists."
+                comments-inference-error: 'Error: Triton Inference Server request failed.'
+                comments-new-descriptor: A new descriptor has been created.
+                comments-no-faces: There are no faces in the image.
+                comments-non-frontal-face: The face in the image must be frontal.
+                comments-non-normal-face-class: A person wearing a mask or dark glasses.
+                comments-partial-face: The face must be fully visible in the image.
+                comments-url-image-error: Failed to receive image.
+                sg-max-descriptor-count: 1000
+        '204':
+          description: No content
+        '400':
+          description: Bad request
+  /frs/api/setStreamDefaultConfig:
+    post:
+      tags:
+        - Host --> FRS
+      summary: Set Video Stream Default Config
+      description: |
+        Sets video stream default configuration parameters in the system's database
+      operationId: frs_setStreamDefaultConfig
+      parameters:
+        - in: header
+          name: Authorization
+          description: Bearer authorization token
+          schema:
+            type: string
+          required: false
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/FRSDefaultVStreamConfig'
+            example:
+              max-capture-error-count: 3
+      responses:
+        '204':
+          description: Successful operation
+        '400':
+          description: Bad request
+  /frs/api/getStreamDefaultConfig:
+    post:
+      tags:
+        - Host --> FRS
+      summary: Get Video Stream Default Config
+      description: |
+        Returns video stream default configuration parameters from the system's database
+      operationId: frs_getStreamDefaultConfig
+      parameters:
+        - in: header
+          name: Authorization
+          description: Bearer authorization token
+          schema:
+            type: string
+          required: false
+      responses:
+        '200':
+          description: Successful operation
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FRSDefaultVStreamConfig'
+        '204':
+          description: No content
+        '400':
+          description: Bad request
+
+  /frs/api/addSpecialGroup:
+    post:
+      tags:
+        - Host --> FRS
+      summary: Add a Special Group
+      description: Registers new special group
+      operationId: frs_addSpecialGroup
+      parameters:
+        - in: header
+          name: Authorization
+          description: Bearer authorization token
+          schema:
+            type: string
+          required: false
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - groupName
+              properties:
+                groupName:
+                  description: Name of the special group
+                  type: string
+                maxDescriptorCount:
+                  description: Maximum number of descriptors in a special group
+                  type: integer
+                  default: 1000
+            example:
+              groupName: My special group
+              maxDescriptorCount: 200
+      responses:
+        '200':
+          description: Successful operation
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - groupId
+                  - accessApiToken
+                properties:
+                  groupId:
+                    $ref: '#/components/schemas/groupId'
+                  accessApiToken:
+                    description: Authorization token for calling API methods
+                    type: string
+                    format: uuid
+              example:
+                groupId: 2
+                accessApiToken: 7f66b071-45cf-4fe5-bd2f-503d132d8746
+        '400':
+          description: Bad request
+
+  /frs/api/updateSpecialGroup:
+    post:
+      tags:
+        - Host --> FRS
+      summary: Update a Special Group
+      description: Updates special group parameters
+      operationId: frs_updateSpecialGroup
+      parameters:
+        - in: header
+          name: Authorization
+          description: Bearer authorization token
+          schema:
+            type: string
+          required: false
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - groupId
+              properties:
+                groupId:
+                  $ref: '#/components/schemas/groupId'
+                groupName:
+                  description: New name of the special group
+                  type: string
+                maxDescriptorCount:
+                  description: New maximum number of descriptors in a special group
+                  type: integer
+            example:
+              groupId: 2
+              maxDescriptorCount: 300
+      responses:
+        '204':
+          description: Successful operation
+        '400':
+          description: Bad request
+
+  /frs/api/deleteSpecialGroup:
+    post:
+      tags:
+        - Host --> FRS
+      summary: Delete a Special Group
+      description: Removes all special group data, including face descriptors
+      operationId: frs_deleteSpecialGroup
+      parameters:
+        - in: header
+          name: Authorization
+          description: Bearer authorization token
+          schema:
+            type: string
+          required: false
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - groupId
+              properties:
+                groupId:
+                  $ref: '#/components/schemas/groupId'
+            example:
+              groupId: 2
+      responses:
+        '204':
+          description: Successful operation
+        '400':
+          description: Bad request
+
+  /frs/api/listSpecialGroups:
+    post:
+      tags:
+        - Host --> FRS
+      summary: List All Special Groups
+      description: Returns a list with special groups data
+      operationId: frs_listSpecialGroups
+      parameters:
+        - in: header
+          name: Authorization
+          description: Bearer authorization token
+          schema:
+            type: string
+            required: false
+      responses:
+        '200':
+          description: Successful operation
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  required:
+                    - groupId
+                    - groupName
+                    - accessApiToken
+                    - maxDescriptorCount
+                  properties:
+                    groupId:
+                      $ref: '#/components/schemas/groupId'
+                    groupName:
+                      description: Name of the special group
+                      type: string
+                    accessApiToken:
+                      description: Authorization token for calling special group API methods
+                      type: string
+                      format: uuid
+                    maxDescriptorCount:
+                      description: Maximum number of descriptors in a special group
+                      type: integer
+                    callback:
+                      description: URL for sending facial recognition events
+                      type: string
+                      format: url
+              example:
+                - groupId: 1
+                  groupName: 'My special group'
+                  accessApiToken: 026daa55-dbba-4809-9ad3-640631b08e4b
+                  maxDescriptorCount: 200
+        '204':
+          description: No content
+        '400':
+          description: Bad request
+
+  /frs/api/sgRegisterFace:
+    post:
+      tags:
+        - Host --> FRS
+      summary: Register a Face Descriptor in a Special Group
+      description: Creates a face descriptor and binds it to the special group
+      operationId: frs_sgRegisterFace
+      parameters:
+        - in: header
+          name: Authorization
+          description: Bearer special group authorization token
+          schema:
+            type: string
+          required: true
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - url
+              properties:
+                url:
+                  description: Registration image URL
+                  type: string
+                  format: url
+                  example: https://my.server/image.jpg
+                left:
+                  description: X coordinate of the upper left corner of the rectangular face area
+                  type: integer
+                  default: 0
+                top:
+                  description: Y coordinate of the upper left corner of the rectangular face area
+                  type: integer
+                  default: 0
+                width:
+                  description: width of rectangular face area (0 - full image width)
+                  type: integer
+                  default: 0
+                height:
+                  description: width of rectangular face area (0 - full image height)
+                  type: integer
+                  default: 0
+            example:
+              url: "https://my.server/image.jpg"
+              left: 537
+              top: 438
+              width: 142
+              height: 156
+      responses:
+        '200':
+          description: Successful operation
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  faceId:
+                    description: Registered face descriptor
+                    type: integer
+                  faceImage:
+                    description: Registered descriptor's face image URL
+                    type: string
+                    format: url
+                  left:
+                    description: X coordinate of the upper left corner of the rectangular face area
+                    type: integer
+                    default: 0
+                  top:
+                    description: Y coordinate of the upper left corner of the rectangular face area
+                    type: integer
+                    default: 0
+                  width:
+                    description: width of rectangular face area (0 - full image width)
+                    type: integer
+                    default: 0
+                  height:
+                    description: width of rectangular face area (0 - full image height)
+                    type: integer
+                    default: 0
+              example:
+                faceId: 4567
+                faceImage: 'data:image/jpeg,base64,...'
+                left: 537
+                top: 438
+                width: 142
+                height: 156
+        '400':
+          description: Bad request
+
+  /frs/api/sgDeleteFaces:
+    post:
+      tags:
+        - Host --> FRS
+      summary: Delete Face Descriptors from a Special Group
+      description: Deletes face descriptors registered in a special group from the system's database
+      operationId: frs_sgDeleteFaces
+      parameters:
+        - in: header
+          name: Authorization
+          description: Bearer special group authorization token
+          schema:
+            type: string
+          required: true
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - faces
+              properties:
+                faces:
+                  description: List of registered face descriptors
+                  type: array
+                  items:
+                    type: integer
+            example:
+              faces: [123, 234, 4567]
+      responses:
+        '204':
+          description: Successful operation
+        '400':
+          description: Bad request
+
+  /frs/api/sgListFaces:
+    post:
+      tags:
+        - Host --> FRS
+      summary: Get a List of Special Group Person Descriptors
+      description: Returns a list of special group person descriptors
+      operationId: frs_sgListFaces
+      parameters:
+        - in: header
+          name: Authorization
+          description: Bearer special group authorization token
+          schema:
+            type: string
+          required: true
+      responses:
+        '200':
+          description: Successful operation
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  required:
+                    - faceId
+                    - faceImage
+                  properties:
+                    faceId:
+                      description: Registered face descriptor
+                      type: integer
+                    faceImage:
+                      description: Registered descriptor's face image URL
+                      type: string
+                      format: url
+              example:
+                - faceId: 123
+                  faceImage: 'data:image/jpeg,base64,...'
+                - faceId: 456
+                  faceImage: 'data:image/jpeg,base64,...'
+                - faceId: 789
+                  faceImage: 'data:image/jpeg,base64,...'
+        '204':
+          description: No content
+        '400':
+          description: Bad request
+
+  /frs/api/sgSearchFaces:
+    post:
+      tags:
+        - Host --> FRS
+      summary: Search for Registered Faces
+      description: Returns a list with information about found registered persons
+      operationId: frs_sgSearchFaces
+      parameters:
+        - in: header
+          name: Authorization
+          description: Bearer special group authorization token
+          schema:
+            type: string
+          required: true
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - faces
+                - dateStart
+                - dateEnd
+                - similarityThreshold
+              properties:
+                faces:
+                  description: List of the registered face descriptors to search for
+                  type: array
+                  items:
+                    type: integer
+                dateStart:
+                  description: Search start date
+                  type: string
+                  format: yyyy-mm-dd
+                dateEnd:
+                  description: Search end date
+                  type: string
+                  format: yyyy-mm-dd
+                useLogs:
+                  description: Flag to use FRS log during search
+                  type: boolean
+                  default: true
+                useEvents:
+                  description: Flag to use events during search
+                  type: boolean
+                  default: true
+                similarityThreshold:
+                  description: Search similarity threshold number from 0.0 to 1.0
+                  type: number
+                  format: float
+            example:
+              faces: [123, 234, 4567]
+              dateStart: '2024-08-17'
+              dateEnd: '2024-08-27'
+              similarityThreshold: 0.5
+      responses:
+        '200':
+          description: Successful operation
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  required:
+                    - date
+                    - eventId
+                    - uuid
+                    - url
+                    - faceId
+                    - similarity
+                  properties:
+                    date:
+                      description: Event or FRS log date
+                      type: string
+                      format: date-time
+                    eventId:
+                      description: Event identifier from the FRS log
+                      type: string
+                    uuid:
+                      description: UUID of host event or empty
+                      type: string
+                      format: uuid
+                    url:
+                      description: Url of the screenshot
+                      type: string
+                      format: url
+                    faceId:
+                      description: Registered face descriptor
+                      type: integer
+                    similarity:
+                      description: Similarity of the found face
+                      type: number
+                      format: float
+              example:
+                - date: 2024-08-23T08:34:28.901038859+00:00
+                  eventId: 940788aa3497477ba5e91b309ff3caaf
+                  uuid: bea2c82d-5ee2-4c70-b2ad-11349273c80a
+                  url: 'https://...'
+                  faceId: 123
+                  similarity: 0.623
+        '204':
+          description: No content
+        '400':
+          description: Bad request
+
+  /frs/api/sgUpdateGroup:
+    post:
+      tags:
+        - Host --> FRS
+      summary: Update Special Group Settings
+      description: Updates special group settings
+      operationId: frs_sgUpdateGroup
+      parameters:
+        - in: header
+          name: Authorization
+          description: Bearer special group authorization token
+          schema:
+            type: string
+          required: true
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - callback
+              properties:
+                callback:
+                  description: URL for sending facial recognition events
+                  type: string
+                  format: url
+            example:
+              callback: 'https://my.host/callbackSpecialGroup'
+      responses:
+        '204':
+          description: Successful operation
+        '400':
+          description: Bad request
+
+  /frs/api/sgRenewToken:
+    post:
+      tags:
+        - Host --> FRS
+      summary: Renew Special Group Authorization Token
+      description: Renews a special group's authorization token
+      operationId: frs_sgRenewToken
+      parameters:
+        - in: header
+          name: Authorization
+          description: Bearer special group authorization token
+          schema:
+            type: string
+          required: true
+      responses:
+        '200':
+          description: Successful operation
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - accessApiToken
+                properties:
+                  accessApiToken:
+                    description: New authorization token for calling API methods
+                    type: string
+                    format: uuid
+              example:
+                accessApiToken: bd64b1ac-53ef-3ee5-fd2f-203d1e2d174e
+        '400':
+          description: Bad request
+
+  /frs_callback:
+    post:
+      tags:
+        - FRS --> Host
+      description: Sends a face recognition event
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - faceId
+                - eventId
+              properties:
+                faceId:
+                  description: Registered face descriptor
+                  type: integer
+                eventId:
+                  description: Event identifier from the FRS log
+                  type: integer
+                  format: int64
+            example:
+              faceId: 4567
+              eventId: 1002
+      responses:
+        '200':
+          description: Successful operation
+        '204':
+          description: No content
+
+  /frs_callback_special_group:
+    post:
+      tags:
+        - FRS --> Host
+      description: Sends an event about face recognition in a special group
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - faceId
+                - screenshot
+                - date
+              properties:
+                faceId:
+                  description: Registered face descriptor
+                  type: integer
+                screenshot:
+                  description: Frame URL
+                  type: string
+                  format: url
+                date:
+                  description: Event date
+                  type: string
+                  format: date-time
+            example:
+              faceId: 45678
+              screenshot: 'https://falprs.host/frs/screenshots/group_1/2024-04-10/6/8/2/0/6820da5c-efe9-4b49-81fd-1f5ba33d3ee1.jpg'
+              date: '2021-08-17T08:00:15.834+00:00'
+      responses:
+        '200':
+          description: Successful operation
+        '204':
+          description: No content
+
+# LPRS
+  /lprs/api/addStream:
+    post:
+      tags:
+        - Host --> LPRS
+      summary: Add Video Stream
+      description: Registers new video stream and it's configuration parameters in the system's database
+      operationId: lprs_addStream
+      parameters:
+        - in: header
+          name: Authorization
+          description: Bearer authorization token
+          schema:
+            type: string
+          required: false
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+              - streamId
+              properties:
+                streamId:
+                  $ref: '#/components/schemas/streamId'
+                config:
+                  allOf:
+                    - $ref: '#/components/schemas/LPRSInternalVStreamConfig'
+                    - $ref: '#/components/schemas/LPRSDefaultVStreamConfig'
+      responses:
+        '204':
+          description: Successful operation
+        '400':
+          description: Bad request
+
+  /lprs/api/removeStream:
+    post:
+      tags:
+        - Host --> LPRS
+      summary: Remove Video Stream
+      description: Removes video stream and it's configuration parameters from the system's database
+      operationId: lprs_removeStream
+      parameters:
+        - in: header
+          name: Authorization
+          description: Bearer authorization token
+          schema:
+            type: string
+          required: false
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - streamId
+              properties:
+                streamId:
+                  $ref: '#/components/schemas/streamId'
+      responses:
+        '204':
+          description: Successful operation
+        '400':
+          description: Bad request
+
+  /lprs/api/listStreams:
+    post:
+      tags:
+        - Host --> LPRS
+      summary: List Video Streams
+      description: Returns a list of registered video streams
+      operationId: lprs_listStreams
+      parameters:
+        - in: header
+          name: Authorization
+          description: Bearer authorization token
+          schema:
+            type: string
+          required: false
+      responses:
+        '200':
+          description: Successful operation
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    streamId:
+                      $ref: '#/components/schemas/streamId'
+                    config:
+                      allOf:
+                        - $ref: '#/components/schemas/LPRSInternalVStreamConfig'
+                        - $ref: '#/components/schemas/LPRSDefaultVStreamConfig'
+        '204':
+          description: No content
+        '400':
+          description: Bad request
+
+  /lprs/api/startWorkflow:
+    post:
+      tags:
+        - Host --> LPRS
+      summary: Start Workflow for Video Stream
+      description: |
+        Starts the cycled processing pipeline for video stream. Pipeline consists of searching license plate numbers by means of LPDNet.
+        Then each founded license plate is recognized by LPRNet. Successful results, if any, are send as event data using `callback-url` configuration parameter of the video stream.
+        After delay (configuration parameter `delay-between-frames`) the pipeline starts again.
+      operationId: lprs_startWorkflow
+      parameters:
+        - in: header
+          name: Authorization
+          description: Bearer authorization token
+          schema:
+            type: string
+          required: false
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - streamId
+              properties:
+                streamId:
+                  $ref: '#/components/schemas/streamId'
+      responses:
+        '204':
+          description: Successful operation
+        '400':
+          description: Bad request
+
+  /lprs/api/stopWorkflow:
+    post:
+      tags:
+        - Host --> LPRS
+      summary: Stop Workflow for Video Stream
+      description: |
+        Stops cycled processing pipeline for video stream
+      operationId: lprs_stopWorkflow
+      parameters:
+        - in: header
+          name: Authorization
+          description: Bearer authorization token
+          schema:
+            type: string
+          required: false
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - streamId
+              properties:
+                streamId:
+                  $ref: '#/components/schemas/streamId'
+      responses:
+        '204':
+          description: Successful operation
+        '400':
+          description: Bad request
+
+  /lprs/api/getEventData:
+    post:
+      tags:
+        - Host --> LPRS
+      summary: Get Event Data
+      description: |
+        Returns detailed information about the recognition event. The request must specify the `eventId` parameter or both `streamId` and `date`. If `eventId` is specified, the method simply retrieves the data by identifier and sends it back. Otherwise, the method looks for the nearest event by video stream identifier in the interval determined by the `event-log-before` and `event-log-after` configuration parameters and the specified date.
+      operationId: lprs_getEventData
+      parameters:
+        - in: header
+          name: Authorization
+          description: Bearer authorization token
+          schema:
+            type: string
+          required: false
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                eventId:
+                  type: integer
+                streamId:
+                  $ref: '#/components/schemas/streamId'
+                date:
+                  type: string
+                  format: date-time
+            examples:
+              Example 1:
+                value:
+                  eventId: 1001
+              Example 2:
+                value:
+                  streamId: 1234
+                  date: '2024-04-22T07:20:23.822638+00:00'
+      responses:
+        '200':
+          description: Successful operation
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  date:
+                    description: Event date
+                    type: string
+                    format: date-time
+                  screenshotUrl:
+                    type: string
+                    format: url
+                  vehicles:
+                    description: Information about found vehicles with licence plates or special vehicles
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        box:
+                          description: 'Bounding box of the vehicle: top left corner, right bottom corner'
+                          type: array
+                          items:
+                            type: integer
+                        isSpecial:
+                          description: Flag of the special vehicle
+                          type: boolean
+                        confidence:
+                          description: Confidence of the vehicle
+                          type: number
+                        plates:
+                          description: Information about recognized license plate numbers
+                          type: array
+                          items:
+                            type: object
+                            properties:
+                              box:
+                                description: 'Bounding box of the number: top left corner, right bottom corner'
+                                type: array
+                                items:
+                                  type: integer
+                              type:
+                                description: Type of the license plate
+                                type: string
+                                enum: [ "ru_1", "ru_1a" ]
+                              kpts:
+                                description: Coordinates of the four key points of the license plate
+                                type: array
+                                items:
+                                  type: integer
+                              number:
+                                description: Recognized number
+                                type: string
+                              score:
+                                description: Score of the recognized number in the range from 0.0 to 1.0
+                                type: number
+                example:
+                  date: '2024-04-22T20:10:63.142027+00:00'
+                  screenshotUrl: 'https://my.falprs.server/lprs/screenshots/2023-05-25/5/3/a/1/53a17e96-e06c-4aec-a8fe-b578e92da56a.jpg'
+                  vehicles:
+                    - box: [1394, 23, 2561, 1041]
+                      isSpecial: false
+                      confidence: 0.7123
+                      plates:
+                        - box: [1547, 767, 1724, 869]
+                          type: ru_1
+                          number: P938BC68
+                          score: 0.36463412642478945
+                          kpts: [1555, 769, 1725, 828, 1715, 868, 1545, 806]
+        '204':
+          description: No content
+        '400':
+          description: Bad request
+
+  /lprs/api/setStreamDefaultConfig:
+    post:
+      tags:
+        - Host --> LPRS
+      summary: Set Video Stream Default Config
+      description: |
+        Sets video stream default configuration parameters in the system's database
+      operationId: lprs_setStreamDefaultConfig
+      parameters:
+        - in: header
+          name: Authorization
+          description: Bearer authorization token
+          schema:
+            type: string
+          required: false
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LPRSDefaultVStreamConfig'
+            example:
+              ban-iou-threshold: 0.75
+              max-capture-error-count: 3
+      responses:
+        '204':
+          description: Successful operation
+        '400':
+          description: Bad request
+
+  /lprs/api/getStreamDefaultConfig:
+    post:
+      tags:
+        - Host --> LPRS
+      summary: Get Video Stream Default Config
+      description: |
+        Returns video stream default configuration parameters from the system's database
+      operationId: lprs_getStreamDefaultConfig
+      parameters:
+        - in: header
+          name: Authorization
+          description: Bearer authorization token
+          schema:
+            type: string
+          required: false
+      responses:
+        '200':
+          description: Successful operation
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LPRSDefaultVStreamConfig'
+        '204':
+          description: No content
+        '400':
+          description: Bad request
+
+  /lprs_callback:
+    post:
+      tags:
+        - LPRS --> Host
+      description: Sends information about recognition event
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - streamId
+                - date
+                - eventId
+                - hasSpecial
+              properties:
+                streamId:
+                  $ref: '#/components/schemas/streamId'
+                date:
+                  description: Event date
+                  type: string
+                  format: date-time
+                eventId:
+                  description: LPRS event identifier
+                  type: integer
+                  format: int64
+                plates:
+                  description: Short information about recognized license plate numbers
+                  type: array
+                  items:
+                    type: object
+                    properties:
+                       type:
+                         description: Type of the license plate
+                         type: string
+                         enum: [ "ru_1", "ru_1a" ]
+                       number:
+                         description: Recognized number
+                         type: string
+                hasSpecial:
+                  type: boolean
+            example:
+              streamId: 1234
+              date: '2024-08-22T07:44:59.844270217+00:00'
+              eventId: 1002
+              plates:
+                - type: ru1
+                  number: O232PX68
+              hasSpecial: false
+      responses:
+        '200':
+          description: Successful operation
+        '204':
+          description: No content
+
+components:
+  schemas:
+    streamId:
+      type: string
+      description: Host's video stream identifier
+      example: "1234"
+    groupId:
+      description: Special group identifier
+      type: integer
+    FRSCommonConfig:
+      description: FRS Common Config Parameters
+      type: object
+      properties:
+        callback-timeout:
+          description: Maximum waiting time for a response from the host during a callback
+          type: string
+          pattern: ^\d+(ms|[smhd])$
+          default: 2s
+        flag-copy-event-data:
+          description: Flag for copying event data to a separate directory
+          type: boolean
+          default: false
+        dnn-fd-model-name:
+          description: Face detection model name in Triton Inference Server
+          type: string
+          default: 'scrfd'
+        dnn-fd-input-width:
+          description: Width of the input image of the face detection model
+          type: integer
+          default: 320
+        dnn-fd-input-height:
+          description: Height of the input image for the face detection model
+          type: integer
+          default: 320
+        dnn-fd-input-tensor-name:
+          description: Name of the input tensor for the face detection model
+          type: string
+          default: 'input.1'
+        dnn-fc-model-name:
+          description: Face class model name in Triton Inference Server
+          type: string
+          default: 'genet'
+        dnn-fc-input-width:
+          description: Width of the input image of the face class model
+          type: integer
+          default: 192
+        dnn-fc-input-height:
+          description: Height of the input image for the face class model
+          type: integer
+          default: 192
+        dnn-fc-input-tensor-name:
+          description: Name of the input tensor for the face class model
+          type: string
+          default: 'input.1'
+        dnn-fc-output-tensor-name:
+          description: Name of the output tensor for the face class model
+          type: string
+          default: '419'
+        dnn-fc-output-size:
+          description: Number of output array elements to obtain the face class
+          type: integer
+          default: 3
+        dnn-fr-model-name:
+          description: Face recognition model name in Triton Inference Server
+          type: string
+          default: 'arcface'
+        dnn-fr-input-width:
+          description: Width of the input image of the face recognition model
+          type: integer
+          default: 112
+        dnn-fr-input-height:
+          description: Height of the input image for the face recognition model
+          type: integer
+          default: 112
+        dnn-fr-input-tensor-name:
+          description: Name of the input tensor for the face recognition model
+          type: string
+          default: 'input.1'
+        dnn-fr-output-tensor-name:
+          description: Name of the output tensor for the face recognition model
+          type: string
+          default: '683'
+        dnn-fr-output-size:
+          description: Number of output array elements to obtain a descriptor
+          type: integer
+          default: 512
+        comments-blurry-face:
+          description: Blurred face message
+          type: string
+          default: 'The face image is not clear enough for registration.'
+        comments-descriptor-creation-error:
+          description: Error message when creating a face descriptor
+          type: string
+          default: 'Failed to register descriptor.'
+        comments-descriptor-exists:
+          description: Message that a face descriptor already exists
+          type: string
+          default: 'The descriptor already exists.'
+        comments-inference-error:
+          description: Inference error message
+          type: string
+          default: 'Error: Triton Inference Server request failed.'
+        comments-new-descriptor:
+          description: Message about created face descriptor
+          type: string
+          default: 'A new descriptor has been created.'
+        comments-no-faces:
+          description: Message about missing faces in the image
+          type: string
+          default: 'There are no faces in the image.'
+        comments-non-frontal-face:
+          description: Message that the face is not frontal
+          type: string
+          default: 'The face in the image must be frontal.'
+        comments-partial-face:
+          description: Message that the face is not fully visible in the image
+          type: string
+          default: 'The face must be fully visible in the image.'
+        comments-url-image-error:
+          description: Error message when receiving an image
+          type: string
+          default: 'Failed to receive image.'
+        sg-max-descriptor-count:
+          description: Maximum allowed number of descriptors in the special group
+          type: integer
+          default: 1000
+    FRSDefaultVStreamConfig:
+      type: object
+      properties:
+        best-quality-interval-after:
+          description: Period after the time point to find the best frame
+          type: string
+          pattern: ^\d+(ms|[smhd])$
+          default: 2s
+        best-quality-interval-before:
+          description: Period before the time point to find the best frame
+          type: string
+          pattern: ^\d+(ms|[smhd])$
+          default: 5s
+        blur:
+          description: Lower threshold for face blur
+          type: number
+          format: float
+          default: 300.0
+        blur-max:
+          description: Upper threshold for face blur
+          type: number
+          format: float
+          default: 13000.0
+        capture-timeout:
+          description: Timeout for receiving screenshot from the video stream
+          type: string
+          pattern: ^\d+(ms|[smhd])$
+          default: 2s
+        delay-after-error:
+          description: Delay for processing workflow after error
+          type: string
+          pattern: ^\d+(ms|[smhd])$
+          default: 30s
+        delay-between-frames:
+          description: Interval between processing video stream screenshots
+          type: string
+          pattern: ^\d+(ms|[smhd])$
+          default: 1s
+        dnn-fd-inference-server:
+          description: URL of Triton Inference Server for face detection inference
+          type: string
+          default: 127.0.0.1:8000
+        dnn-fc-inference-server:
+          description: URL of Triton Inference Server for face class inference
+          type: string
+          default: 127.0.0.1:8000
+        dnn-fr-inference-server:
+          description: URL of Triton Inference Server for face recognition inference
+          type: string
+          default: 127.0.0.1:8000
+        face-class-confidence:
+          description: Probability threshold for detecting a face mask or dark glasses
+          type: number
+          format: float
+          default: 0.7
+        face-confidence:
+          description: Face detection probability threshold
+          type: number
+          format: float
+          default: 0.7
+        face-enlarge-scale:
+          description: Expansion factor of rectangular face storage area
+          type: number
+          format: float
+          default: 1.5
+        logs-level:
+          description: Logs level
+          type: string
+          enum: [ trace, debug, info, warning, error, critical, none ]
+          default: info
+        margin:
+          description: Percentage offset from frame edges to reduce work area
+          type: number
+          format: float
+          default: 5.0
+        max-capture-error-count:
+          description: Retry count for receiving screenshot from the video stream
+          type: integer
+          default: 3
+        open-door-duration:
+          description: Timeout for receiving screenshot from the video stream
+          type: string
+          pattern: ^\d+(ms|[smhd])$
+          default: 10s
+        tolerance:
+          description: Tolerance parameter
+          type: number
+          format: float
+          default: 0.5
+        title:
+          description: Video stream title
+          type: string
+        title-height-ratio:
+          description: Ratio of OSD height to frame height
+          type: number
+          format: float
+          default: 0.033
+        osd-datetime-format:
+          description: Date and time format in OSD
+          type: string
+          default: '%Y-%m-%d %H:%M:%S'
+        work-area:
+          description: List of coordinates of the upper left corner, width and height of the rectangular area in percentage
+          type: array
+          items:
+            type: float
+          example: [20.00, 20.00, 60.00, 60.00]
+    LPRSInternalVStreamConfig:
+      description: Configuration of the video stream
+      type: object
+      properties:
+        screenshot-url:
+          description: URL for capturing screenshots
+          type: string
+          format: url
+          example: https://my.video.stream/capture
+        callback-url:
+          description: URL for sending license plate recognition events
+          type: string
+          format: url
+          example: https://my.host/callback?streamId=1
+        work-area:
+          description: List of convex polygonal areas for searching license plates. Each polygon is specified by a list of points. Each point is specified by a list of two coordinates in percent.
+          type: array
+          items:
+            type: array
+            items:
+              type: array
+              items:
+                type: float
+          example: [
+            [
+              [ 10.23, 24.23 ],
+              [ 56.12, 43.75 ],
+              [ 83.45, 90.02 ],
+              [ 10.18, 90.03 ]
+            ],
+            [
+              [ 33.10, 33.10 ],
+              [ 86.14, 44.26 ],
+              [ 51.09, 79.11 ]
+            ]
+          ]
+    LPRSDefaultVStreamConfig:
+      type: object
+      properties:
+        vd-net-inference-server:
+          description: 'VDNet: URL for Triton Inference Server'
+          type: string
+          default: 127.0.0.1:8000
+        vd-net-model-name:
+          description: 'VDNet: model name'
+          type: string
+          default: 'vdnet_yolo'
+        vd-net-input-width:
+          description: 'VDNet: input image width'
+          type: integer
+          default: 640
+        vd-net-input-height:
+          description: 'VDNet: input image height'
+          type: integer
+          default: 640
+        vd-net-input-tensor-name:
+          description: 'VDNet: name of the input tensor'
+          type: string
+          default: 'images'
+        vd-net-output-tensor-name:
+          description: 'VDNet: name of the output tensor'
+          type: string
+          default: 'output0'
+        vc-net-inference-server:
+          description: 'VCNet: URL for Triton Inference Server'
+          type: string
+          default: 127.0.0.1:8000
+        vc-net-model-name:
+          description: 'VCNet: model name'
+          type: string
+          default: 'vcnet_vit'
+        vc-net-input-width:
+          description: 'VCNet: input image width'
+          type: integer
+          default: 224
+        vc-net-input-height:
+          description: 'VCNet: input image height'
+          type: integer
+          default: 224
+        vc-net-input-tensor-name:
+          description: 'VCNet: name of the input tensor'
+          type: string
+          default: 'input'
+        vc-net-output-tensor-name:
+          description: 'VCNet: name of the output tensor'
+          type: string
+          default: 'output'
+        lpd-net-inference-server:
+          description: 'LPDNet: URL for Triton Inference Server'
+          type: string
+          default: 127.0.0.1:8000
+        lpd-net-model-name:
+          description: 'LPDNet: model name'
+          type: string
+          default: 'lpdnet_yolo'
+        lpd-net-input-width:
+          description: 'LPDNet: input image width'
+          type: integer
+          default: 640
+        lpd-net-input-height:
+          description: 'LPDNet: input image height'
+          type: integer
+          default: 640
+        lpd-net-input-tensor-name:
+          description: 'LPDNet: name of the input tensor'
+          type: string
+          default: 'images'
+        lpd-net-output-tensor-name:
+          description: 'LPDNet: name of the output tensor'
+          type: string
+          default: 'output0'
+        lpr-net-inference-server:
+          description: 'LPRNet: URL for Triton Inference Server'
+          type: string
+          default: 127.0.0.1:8000
+        lpr-net-model-name:
+          description: 'LPRNet: model name'
+          type: string
+          default: 'lprnet_yolo'
+        lpr-net-input-width:
+          description: 'LPRNet: input image width'
+          type: integer
+          default: 160
+        lpr-net-input-height:
+          description: 'LPRNet: input image height'
+          type: integer
+          default: 160
+        lpr-net-input-tensor-name:
+          description: 'LPRNet: name of the input tensor'
+          type: string
+          default: 'images'
+        callback-timeout:
+          description: Maximum waiting time for a response from the host during a callback
+          type: string
+          pattern: ^\d+(ms|[smhd])$
+          default: 2s
+        vehicle-confidence:
+          description: 'VDNet: probability threshold for detecting a vehicle'
+          type: number
+          default: 0.5
+        vehicle-iou-threshold:
+          description: 'VDNet: intersection over union threshold value for NMS algorithm'
+          type: number
+          default: 0.45
+        vehicle-area-ratio-threshold:
+          description: 'VDNet: area ratio threshold to filter small vehicles'
+          type: number
+          default: 0.01
+        special-confidence:
+          description: 'VCNet: probability threshold for special vehicle classification'
+          type: number
+          default: 0.7
+        plate-confidence:
+          description: 'LPDNet: probability threshold to consider that license plate number is found'
+          type: number
+          default: 0.6
+        char-score:
+          description: "LPRNet: probability threshold for each license's character to consider that it's recognized"
+          type: number
+          default: 0.4
+        max-capture-error-count:
+          description: Retry count for receiving screenshot from the video stream
+          type: integer
+          default: 3
+        capture-timeout:
+          description: Timeout for receiving screenshot from the video stream
+          type: string
+          pattern: ^\d+(ms|[smhd])$
+          default: 2s
+        event-log-before:
+          description: Interval for searching event before the given date
+          type: string
+          pattern: ^\d+(ms|[smhd])$
+          default: 10s
+        event-log-after:
+          description: Interval for searching event after the given date
+          type: string
+          pattern: ^\d+(ms|[smhd])$
+          default: 5s
+        delay-between-frames:
+          description: Interval between processing video stream screenshots
+          type: string
+          pattern: ^\d+(ms|[smhd])$
+          default: 1s
+        ban-duration:
+          description: License plate ban duration (0s - disabled)
+          type: string
+          pattern: ^\d+(ms|[smhd])$
+          default: 30s
+        ban-duration-area:
+          description: Duration of license plate ban according to its position (0s - disabled)
+          type: string
+          pattern: ^\d+(ms|[smhd])$
+          default: 12h
+        ban-iou-threshold:
+          description: Intersection over union threshold value for banning a car number by position
+          type: number
+          default: 0.7
+        delay-after-error:
+          description: Delay for processing workflow after error
+          type: string
+          pattern: ^\d+(ms|[smhd])$
+          default: 30s
+        logs-level:
+          description: Logs level
+          type: string
+          enum: [ trace, debug, info, warning, error, critical, none ]
+          default: info
+        min-plate-height:
+          description: Minimum license plate height in pixels (0 - without restrictions)
+          type: integer
+          default: 0
+        flag-save-failed:
+          description: Flag for saving screenshots with invalid license plate numbers
+          type: boolean
+          default: false
+        flag-process-special:
+          description: Flag for processing special vehicles
+          type: boolean
+          default: false

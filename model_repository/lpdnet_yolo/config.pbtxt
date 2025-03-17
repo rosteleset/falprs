@@ -1,0 +1,11 @@
+name: "lpdnet_yolo"
+platform: "tensorrt_plan"
+default_model_filename: "lpdnet_yolo.engine"
+max_batch_size: 8
+dynamic_batching { }
+instance_group [
+  {
+    kind: KIND_GPU
+    count: 1
+  }
+]

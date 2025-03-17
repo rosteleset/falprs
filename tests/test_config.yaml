@@ -1,0 +1,223 @@
+# yaml
+components_manager:
+    coro_pool:
+        initial_size: 500             # Preallocate 500 coroutines at startup.
+        max_size: 1000                # Do not keep more than 1000 preallocated coroutines.
+
+    task_processors:                  # Task processor is an executor for coroutine tasks
+
+        main-task-processor:          # Make a task processor for CPU-bound couroutine tasks.
+            worker_threads: 4         # Process tasks in 4 threads.
+            thread_name: main-worker  # OS will show the threads of this task processor with 'main-worker' prefix.
+
+        fs-task-processor:            # Make a separate task processor for filesystem bound tasks.
+            thread_name: fs-worker
+            worker_threads: 32
+
+        monitor-task-processor:       # for monitoring
+            thread_name: mon-worker
+            worker_threads: 2
+
+    default_task_processor: main-task-processor
+
+    components:                                        # Configuring components that were registered via component_list
+        server:
+            listener:                                  # configuring the main listening socket...
+                port: 9071                             # ...to listen on this port and...
+                task_processor: main-task-processor    # ...process incoming requests on this task processor.
+            listener-monitor:
+                port: 9072                             # Listen on localhost:8186 for developer/utility requests
+                connection:
+                    in_buffer_size: 32768
+                    requests_queue_size_threshold: 100
+                task_processor: monitor-task-processor
+        logging:
+            fs-task-processor: fs-task-processor
+            loggers:
+                default:
+                    file_path: '/tmp/test_falprs/logs/log.txt'
+                    format: tskv
+                    level: error
+                    overflow_behavior: discard  # Drop logs if the system is too busy to write them down.
+                lprs:
+                    file_path: '/tmp/test_falprs/logs/lprs-log.txt'
+                    format: tskv
+                    level: debug
+                    overflow_behavior: discard  # Drop logs if the system is too busy to write them down.
+                frs:
+                    file_path: '/tmp/test_falprs/logs/frs-log.txt'
+                    format: tskv
+                    level: debug
+                    overflow_behavior: discard  # Drop logs if the system is too busy to write them down.
+
+        tracer:                                 # Component that helps to trace execution times and requests in logs.
+            service-name: api-http
+
+        dynamic-config:                      # Dynamic config storage options
+            defaults:
+                POSTGRES_CONNECTION_POOL_SETTINGS:
+                    lprs-postgresql-database:
+                        max_pool_size: 15
+                        max_queue_size: 200
+                        min_pool_size: 8
+                    frs-postgresql-database:
+                        max_pool_size: 15
+                        max_queue_size: 200
+                        min_pool_size: 8
+                POSTGRES_HANDLERS_COMMAND_CONTROL:
+                    /v1/key-value:
+                        DELETE:
+                            network_timeout_ms: 500
+                            statement_timeout_ms: 250
+                POSTGRES_QUERIES_COMMAND_CONTROL:
+                    sample_select_value:
+                        network_timeout_ms: 70
+                        statement_timeout_ms: 40
+                    sample_transaction_insert_key_value:
+                        network_timeout_ms: 200
+                        statement_timeout_ms: 150
+                POSTGRES_STATEMENT_METRICS_SETTINGS:
+                    key-value-database:
+                        max_statement_metrics: 5
+        dns-client:
+            fs-task-processor: fs-task-processor
+
+        testsuite-support:
+
+        http-client:
+            fs-task-processor: fs-task-processor
+
+        handler-ping:
+            path: /ping
+            method: GET
+            task_processor: main-task-processor
+            throttling_enabled: false
+            url_trailing_slash: strict-match
+
+        fs-cache-main:
+            dir: /tmp/test_falprs/static/                       # Path to the directory with files
+            update-period: 10s                                  # update cache each N seconds
+            fs-task-processor: fs-task-processor                # Run it on blocking task processor
+
+        handler-static:                                         # Static handler.
+            fs-cache-component: fs-cache-main
+            path: /*                                            # Registering handlers '/*' find files.
+            method: GET                                         # Handle only GET requests.
+            task_processor: main-task-processor                 # Run it on CPU bound task processor
+
+        handler-log-level:
+            path: /service/log-level/{level}
+            method: GET,PUT
+            task_processor: monitor-task-processor
+
+        handler-on-log-rotate:
+            path: /service/on-log-rotate/
+            method: POST
+            task_processor: monitor-task-processor
+
+# LPRS
+        lprs-api-http:
+            path: /lprs/api/{method}
+            method: POST
+            task_processor: main-task-processor  # Run it on CPU bound task processor
+
+        lprs-postgresql-database:
+            dbconnection: 'postgresql://test_falprs:123@localhost:5432/test_lprs'
+            blocking_task_processor: fs-task-processor
+
+        lprs-groups-pg-cache:
+            pgcomponent: lprs-postgresql-database
+            update-interval: 5s
+            update-types: only-full
+
+        lprs-vstreams-config-pg-cache:
+            pgcomponent: lprs-postgresql-database
+            update-interval: 5s
+            update-types: only-full
+
+        lprs-vstream-group-pg-cache:
+            pgcomponent: lprs-postgresql-database
+            update-interval: 5s
+            update-types: only-full
+
+        lprs-workflow:
+            task_processor: main-task-processor                           # Run it on CPU bound task processor
+            fs-task-processor: fs-task-processor
+            config:
+                allow-group-id-without-auth: 1                            # Allow use of a group with a specified identifier without authorization
+                ban-maintenance-interval: 5s                              # Interval for ban maintenance (0 - disabled)
+                events-log-maintenance-interval: 2h                       # Interval for events log maintenance (default - 2 hours; 0 - disabled)
+                events-log-ttl: 3h                                        # Time to live for events log (default - 4 hours)
+                screenshots-path: '/tmp/test_falprs/static/lprs/'         # Local path for saving events' screenshots
+                screenshots-url-prefix: 'http://localhost:9071/lprs/'     # Web URL prefix for events' screenshots
+                failed-path: '/tmp/test_falprs/static/lprs/failed/'       # Local path for saving unrecognized license plates screenshots
+                failed-ttl: 2d                                            # Time to live for the unrecognized license plates screenshots (default - 60 days)
+
+# FRS
+        frs-api-http:
+            path: /frs/api/{method}
+            method: POST
+            task_processor: main-task-processor  # Run it on CPU bound task processor
+
+        frs-postgresql-database:
+            dbconnection: 'postgresql://test_falprs:123@localhost:5432/test_frs'
+            blocking_task_processor: fs-task-processor
+
+        frs-groups-pg-cache:
+            pgcomponent: frs-postgresql-database
+            update-interval: 1m
+            update-types: only-full
+
+        frs-config-pg-cache:
+            pgcomponent: frs-postgresql-database
+            update-interval: 1m
+            update-types: only-full
+
+        frs-vstreams-config-pg-cache:
+            pgcomponent: frs-postgresql-database
+            update-interval: 5s
+            full-update-interval: 30s
+            update-correction: 1s
+            update-types: full-and-incremental
+
+        frs-face-descriptor-pg-cache:
+            pgcomponent: frs-postgresql-database
+            update-interval: 5s
+            full-update-interval: 10m
+            update-correction: 1s
+            update-types: full-and-incremental
+
+        frs-vstream-descriptors-pg-cache:
+            pgcomponent: frs-postgresql-database
+            update-interval: 5s
+            full-update-interval: 10m
+            update-correction: 1s
+            update-types: full-and-incremental
+
+        frs-sg-config-pg-cache:
+            pgcomponent: frs-postgresql-database
+            update-interval: 5s
+            update-types: only-full
+
+        frs-sg-descriptors-pg-cache:
+            pgcomponent: frs-postgresql-database
+            update-interval: 5s
+            full-update-interval: 10m
+            update-correction: 1s
+            update-types: full-and-incremental
+
+        frs-workflow:
+            task_processor: main-task-processor                                   # Run it on CPU bound task processor
+            fs-task-processor: fs-task-processor
+            config:
+                allow-group-id-without-auth: 1                                    # Allow use of a group with a specified identifier without authorization
+                screenshots-path: '/tmp/test_falprs/static/frs/screenshots/'      # Local path for saving faces screenshots
+                screenshots-url-prefix: 'http://localhost:9071/frs/screenshots/'  # Web URL prefix for faces screenshots
+                events-path: '/tmp/falprs/static/frs/events/'                     # Local path for saving events' screenshots
+                clear-old-log-faces: 1d                                           # Period for launching cleaning of outdated logs from the log_faces table
+                log-faces-ttl: 4h                                                 # TTL of logs from the log_faces table
+                flag-deleted-maintenance-interval: 10s                            # Maintenance period for records marked for deletion
+                flag-deleted-ttl: 5m                                              # TTL of records marked for deletion
+                copy-events-maintenance-interval: 30s                             # Event data copy maintenance period
+                clear-old-events: 1d                                              # Period for launching cleaning of outdated events
+                events-ttl: 2h                                                    # TTL of the copied events

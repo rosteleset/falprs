@@ -1,0 +1,3 @@
+__pycache__
+.pytest_cache
+dnn_stats_data.json

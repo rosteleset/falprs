@@ -1,0 +1,18 @@
+[Unit]
+Description=Face and License Plate Recognition System
+Wants=network.target
+After=syslog.target network-online.target postgresql.service
+
+[Service]
+Type=simple
+WorkingDirectory=/opt/falprs
+ExecStart=/opt/falprs/falprs -c config.yaml
+Restart=on-failure
+RestartSec=10
+KillMode=control-group
+User=falprs
+Group=falprs
+StandardError=file:/var/log/falprs/error.log
+
+[Install]
+WantedBy=multi-user.target
