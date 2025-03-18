@@ -191,13 +191,22 @@ alter database lprs owner to falprs;
 ```bash
 psql --version
 ```
-Рабочая директория проекта задаётся переменной **FALPRS_WORKDIR** (значение по-умолчанию */opt/falprs*), версия Triton Inference Server задаётся переменной **TRITON_VERSION**. Например, сборка для Ubuntu 22.04:
-```bash
-sudo LLVM_VERSION=15 PG_VERSION=14 TRITON_VERSION=24.09 ~/falprs/scripts/build_falprs.sh
-```
-Для Ubuntu 24.04:
+Рабочая директория проекта задаётся переменной **FALPRS_WORKDIR** (значение по-умолчанию */opt/falprs*), версия контейнера с Triton Inference Server задаётся переменной **TRITON_VERSION**. 
+
+##### Таблица поддержки Compute Capability и последней версии контейнера
+|Compute Capability|Архитектура GPU|Версия контейнера|TensorRT|
+|--|--|--|--|
+|6.x|Pascal|24.04|8.6.3|
+|7.0|Volta|24.09|10.4.0.26|
+
+Если у вас GPU с Compute Capability 7.5 или выше, то вы можете использовать самую последнюю версию [контейнера](https://catalog.ngc.nvidia.com/orgs/nvidia/containers/tritonserver/tags). Например, сборка для Ubuntu 24.04:
 ```bash
 sudo LLVM_VERSION=18 PG_VERSION=16 TRITON_VERSION=24.09 ~/falprs/scripts/build_falprs.sh
+```
+Для Ubuntu 22.04:
+```bash
+sudo LLVM_VERSION=15 PG_VERSION=14 TRITON_VERSION=24.09 ~/falprs/scripts/build_falprs.sh
+
 ```
 
 <a id="create_models"></a>

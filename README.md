@@ -1,4 +1,5 @@
 
+
 ## [![Generic badge](https://img.shields.io/badge/LANG-RU-blue.svg)](./README_ru.md) Description of the FALPRS project
 This project is a replacement for the [old](https://github.com/rosteleset/frs) one. Main differences:
 * PostgreSQL is used as a DBMS.
@@ -191,13 +192,21 @@ To build the project, you can use the script **scripts/build_falprs.sh**. The pr
 ```bash
 psql --version
 ```
-The project's working directory is specified by the **FALPRS_WORKDIR** variable (default value */opt/falprs*), the Triton Inference Server version is specified by the **TRITON_VERSION** variable. For example, build for Ubuntu 22.04:
-```bash
-sudo LLVM_VERSION=15 PG_VERSION=14 TRITON_VERSION=24.09 ~/falprs/scripts/build_falprs.sh
-```
-For Ubuntu 24.04:
+The project's working directory is specified by the **FALPRS_WORKDIR** variable (default value */opt/falprs*), the version of the container with Triton Inference Server is specified by the **TRITON_VERSION** variable.
+
+##### Compute Capability and Latest Container Version Support Matrix
+|Compute Capability|GPU Architecture|Container Version|TensorRT|
+|--|--|--|--|
+|6.x|Pascal|24.04|8.6.3|
+|7.0|Volta|24.09|10.4.0.26|
+
+If you have a GPU with Compute Capability 7.5 or higher, you can use the latest version of the [container](https://catalog.ngc.nvidia.com/orgs/nvidia/containers/tritonserver/tags). For example, build for Ubuntu 24.04:
 ```bash
 sudo LLVM_VERSION=18 PG_VERSION=16 TRITON_VERSION=24.09 ~/falprs/scripts/build_falprs.sh
+```
+For Ubuntu 22.04:
+```bash
+sudo LLVM_VERSION=15 PG_VERSION=14 TRITON_VERSION=24.09 ~/falprs/scripts/build_falprs.sh
 ```
 
 <a id="create_models"></a>
