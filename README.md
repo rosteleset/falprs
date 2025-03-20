@@ -269,7 +269,7 @@ cd ~/falprs/examples/lprs
 ```
 Check that the stream is in the database:
 ```bash
-./test_list_streams.sh
+./test_list_streams.sh | jq
 ```
 The response must contain a json file. Wait a minute for new data to appear in the FALPRS cache, execute the command:
 ```bash
@@ -311,15 +311,15 @@ cd ~/falprs/examples/frs
 ```
 Check that the stream is in the database:
 ```bash
-./test_list_streams.sh
+./test_list_streams.sh | jq
 ```
 The response must contain a json file. Wait 10 seconds for the new data to enter the FALPRS cache, and execute the face registration command:
 ```bash
-./test_register_face.sh
+./test_register_face.sh | jq
 ```
 Check that the person is in the database:
 ```bash
-./test_list_all_faces.sh
+./test_list_all_faces.sh | jq
 ```
 The response must contain a json file. Wait 10 seconds for the new data to enter the FALPRS cache, execute the command:
 ```bash

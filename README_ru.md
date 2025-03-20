@@ -269,7 +269,7 @@ cd ~/falprs/examples/lprs
 ```
 Проверяем, что поток попал в базу данных:
 ```bash
-./test_list_streams.sh
+./test_list_streams.sh | jq
 ```
 В ответе должен быть json-файл. Ждём минуту, чтобы новые данные попали в кэш FALPRS, выполняем команду:
 ```bash
@@ -311,15 +311,15 @@ cd ~/falprs/examples/frs
 ```
 Проверяем, что поток попал в базу данных:
 ```bash
-./test_list_streams.sh
+./test_list_streams.sh | jq
 ```
 В ответе должен быть json-файл. Ждём 10 секунд, чтобы новые данные попали в кэш FALPRS, выполняем команду регистрации лица:
 ```bash
-./test_register_face.sh
+./test_register_face.sh | jq
 ```
 Проверяем, что лицо попало в базу данных:
 ```bash
-./test_list_all_faces.sh
+./test_list_all_faces.sh | jq
 ```
 В ответе должен быть json-файл. Ждём 10 секунд, чтобы новые данные попали в кэш FALPRS, выполняем команду:
 ```bash
