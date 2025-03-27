@@ -315,7 +315,7 @@ Check that the stream is in the database:
 ```
 The response must contain a json file. Wait 10 seconds for the new data to enter the FALPRS cache, and execute the face registration command:
 ```bash
-./test_register_face.sh | jq
+./test_register_face.sh
 ```
 Check that the person is in the database:
 ```bash

@@ -9,6 +9,8 @@
 #include <userver/engine/sleep.hpp>
 #include <userver/engine/wait_all_checked.hpp>
 #include <userver/fs/write.hpp>
+#include <userver/http/common_headers.hpp>
+#include <userver/http/content_type.hpp>
 #include <userver/yaml_config/merge_schemas.hpp>
 
 #include "lprs_api.hpp"
@@ -663,6 +665,7 @@ properties:
             // clang-format off
             auto response = http_client_.CreateRequest()
               .post(config.callback_url)
+              .headers({{userver::http::headers::kContentType, userver::http::content_type::kApplicationJson.ToString()}})
               .data(userver::formats::json::ToString(json_callback.ExtractValue()))
               .timeout(config.callback_timeout)
               .perform();

@@ -9,6 +9,8 @@
 #include <userver/engine/sleep.hpp>
 #include <userver/formats/serialize/common_containers.hpp>
 #include <userver/fs/write.hpp>
+#include <userver/http/common_headers.hpp>
+#include <userver/http/content_type.hpp>
 #include <userver/yaml_config/merge_schemas.hpp>
 
 #include "frs_api.hpp"
@@ -885,6 +887,7 @@ properties:
             {
               auto delivery_response = http_client_.CreateRequest()
                            .post(config.callback_url)
+                           .headers({{userver::http::headers::kContentType, userver::http::content_type::kApplicationJson.ToString()}})
                            .data(ToString(json_data.ExtractValue()))
                            .timeout(common_config.callback_timeout)
                            .perform();
@@ -1001,6 +1004,7 @@ properties:
                 {
                   auto delivery_response = http_client_.CreateRequest()
                                .post(sg_group_callback_url)
+                               .headers({{userver::http::headers::kContentType, userver::http::content_type::kApplicationJson.ToString()}})
                                .data(ToString(json_data.ExtractValue()))
                                .timeout(common_config.callback_timeout)
                                .perform();
