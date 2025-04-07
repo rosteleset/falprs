@@ -208,7 +208,8 @@ namespace Frs
         url = $2,
         callback_url = $3,
         flag_deleted = false,
-        config = $4
+        config = $4,
+        last_updated = now()
       where
         id_group = $1
         and id_vstream = $5
