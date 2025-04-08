@@ -107,27 +107,7 @@ std::optional<T> convertToInt(const userver::formats::json::Value& value)
   return result;
 }
 
-inline std::string convertToString(const userver::formats::json::Value& value)
-{
-  if (value.IsMissing())
-    return {};
-
-  if (value.IsNull())
-    return {};
-
-  if (value.IsString())
-    return value.As<std::string>();
-
-  if (value.IsInt() || value.IsInt64() || value.IsUInt64())
-    return std::to_string(value.As<int64_t>());
-
-  if (value.IsDouble())
-    return std::to_string(value.As<double>());
-
-  return {};
-}
-
-inline std::string convertToString(const userver::formats::json::Value& value, const std::string& default_value)
+inline std::string convertToString(const userver::formats::json::Value& value, const std::string& default_value = {})
 {
   if (value.IsMissing())
     return default_value;
