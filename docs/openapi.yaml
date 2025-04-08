@@ -7,7 +7,7 @@ info:
     
     | Name        | Type    | Description        |
     |-------------|---------|--------------------|
-    | code        | integer | result's code      |
+    | code        | string  | result's code      |
     | message     | string  | short message      |
     | data        | object  | payload (optional) |
 
@@ -15,7 +15,7 @@ info:
     Examples:
     ```
     {
-      "code": 200,
+      "code": "200",
       "message": "Ok",
       "data": ...
     }
@@ -23,11 +23,11 @@ info:
       
     ```
     {
-      "code": 400,
+      "code": "400",
       "message": "Bad Request"
     }
     ```
-    In a description of API methods the returning values are specified without `data` wrapper. All specified JSON types must be strictly followed. For compatibility with the previous version of FRS, an exception is made only for the streamId parameter, which can be an integer.
+    In a description of API methods the returning values are specified without `data` wrapper.
   version: 1.0.0
 tags:
   - name: Host --> FRS

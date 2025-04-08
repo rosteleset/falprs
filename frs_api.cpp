@@ -4,6 +4,7 @@
 #include <userver/components/component_context.hpp>
 #include <userver/formats/serialize/common_containers.hpp>
 
+#include "converters.hpp"
 #include "frs_api.hpp"
 
 namespace Frs
@@ -88,7 +89,7 @@ namespace Frs
         }
 
         userver::formats::json::ValueBuilder response;
-        response[P_CODE] = std::to_string(static_cast<int>(userver::server::http::HttpStatus::kOk));
+        response[P_CODE] = std::to_string(userver::server::http::HttpStatus::kOk);
         response[P_MESSAGE] = MESSAGE_REQUEST_COMPLETED;
         response[P_DATA] = std::move(data);
 
@@ -230,7 +231,7 @@ namespace Frs
       }
 
       userver::formats::json::ValueBuilder response;
-      response[P_CODE] = std::to_string(static_cast<int>(userver::server::http::HttpStatus::kOk));
+      response[P_CODE] = std::to_string(userver::server::http::HttpStatus::kOk);
       response[P_MESSAGE] = MESSAGE_REQUEST_COMPLETED;
       response[P_DATA] = std::move(data);
 
@@ -238,53 +239,6 @@ namespace Frs
     }
 
     throw userver::server::handlers::ClientError(ExternalBody{ERROR_UNKNOWN_METHOD});
-  }
-
-  std::optional<int32_t> Api::convertToInt(const userver::formats::json::Value& value)
-  {
-    if (value.IsMissing())
-      return {};
-
-    if (value.IsNull())
-      return {};
-
-    std::optional<int32_t> result;
-    try
-    {
-      int32_t k;
-      if (absl::SimpleAtoi(value.ConvertTo<std::string>(), &k))
-        result = k;
-      else
-        result.reset();
-    } catch (const std::exception&)
-    {
-      result.reset();
-    }
-
-    return result;
-  }
-
-  // For compatibility with previous version of FRS.
-  // userver uses JSON data types strictly, i.e. expects streamId to be string only (for example, {"streamId": 1} is incorrect).
-  // Previous FRS version allows streamId to be integer, so we must convert integer value to string representation
-  std::string Api::convertToString(const userver::formats::json::Value& value)
-  {
-    if (value.IsMissing())
-      return {};
-
-    if (value.IsNull())
-      return {};
-
-    if (value.IsString())
-      return value.As<std::string>();
-
-    if (value.IsInt() || value.IsInt64() || value.IsUInt64())
-      return std::to_string(value.As<int64_t>());
-
-    if (value.IsDouble())
-      return std::to_string(value.As<double>());
-
-    return {};
   }
 
   int32_t Api::checkToken(const absl::string_view token) const
@@ -562,7 +516,7 @@ namespace Frs
 
   userver::formats::json::Value Api::bestQuality(const int32_t id_group, const userver::formats::json::Value& json) const
   {
-    const auto id_log = convertToInt(json[P_LOG_EVENT_ID]);
+    const auto id_log = convertToInt<int32_t>(json[P_LOG_EVENT_ID]);
     if (!(id_log || (json.HasMember(P_STREAM_ID) && !json[P_STREAM_ID].IsNull() && json.HasMember(P_DATE) && !json[P_DATE].IsNull())))
       throw userver::server::handlers::ClientError(ExternalBody{absl::Substitute("Required members `$0` or `$1` and `$2` not found or invalid.",
         P_LOG_EVENT_ID, P_STREAM_ID, P_DATE)});

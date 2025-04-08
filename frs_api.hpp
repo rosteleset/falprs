@@ -508,8 +508,6 @@ namespace Frs
     const SGConfigCache& sg_config_cache_;
     Workflow& workflow_;
 
-    static std::optional<int32_t> convertToInt(const userver::formats::json::Value& value);
-    static std::string convertToString(const userver::formats::json::Value& value);
     int32_t checkToken(absl::string_view token) const;
     int32_t checkSGToken(absl::string_view token) const;
     int32_t getVStreamId(int32_t id_group, absl::string_view vstream_ext) const;

@@ -8,6 +8,8 @@
 #include <userver/cache/base_postgres_cache.hpp>
 #include <userver/storages/postgres/io/bytea.hpp>
 
+#include "converters.hpp"
+
 namespace Frs
 {
   template <typename Key, typename Value>
@@ -160,15 +162,15 @@ namespace Frs
 
   static VStreamConfig updateVStreamConfig(const userver::formats::json::Value& json)
   {
-    VStreamConfig config;
+    VStreamConfig config{};
     config.best_quality_interval_after = json.HasMember(ConfigParams::BEST_QUALITY_INTERVAL_AFTER)
                                            ? userver::utils::StringToDuration(json[ConfigParams::BEST_QUALITY_INTERVAL_AFTER].As<std::string>())
                                            : config.best_quality_interval_after;
     config.best_quality_interval_before = json.HasMember(ConfigParams::BEST_QUALITY_INTERVAL_BEFORE)
                                             ? userver::utils::StringToDuration(json[ConfigParams::BEST_QUALITY_INTERVAL_BEFORE].As<std::string>())
                                             : config.best_quality_interval_before;
-    config.blur = json[ConfigParams::BLUR].As<decltype(config.blur)>(config.blur);
-    config.blur_max = json[ConfigParams::BLUR_MAX].As<decltype(config.blur_max)>(config.blur_max);
+    config.blur = convertToNumber(json[ConfigParams::BLUR], config.blur);
+    config.blur_max = convertToNumber(json[ConfigParams::BLUR_MAX], config.blur_max);
     config.capture_timeout = json.HasMember(ConfigParams::CAPTURE_TIMEOUT)
                                ? userver::utils::StringToDuration(json[ConfigParams::CAPTURE_TIMEOUT].As<std::string>())
                                : config.capture_timeout;
@@ -181,20 +183,20 @@ namespace Frs
     config.dnn_fd_inference_server = json[ConfigParams::DNN_FD_INFERENCE_SERVER].As<decltype(config.dnn_fd_inference_server)>(config.dnn_fd_inference_server);
     config.dnn_fc_inference_server = json[ConfigParams::DNN_FC_INFERENCE_SERVER].As<decltype(config.dnn_fc_inference_server)>(config.dnn_fc_inference_server);
     config.dnn_fr_inference_server = json[ConfigParams::DNN_FR_INFERENCE_SERVER].As<decltype(config.dnn_fr_inference_server)>(config.dnn_fr_inference_server);
-    config.face_class_confidence = json[ConfigParams::FACE_CLASS_CONFIDENCE_THRESHOLD].As<decltype(config.face_class_confidence)>(config.face_class_confidence);
-    config.face_confidence = json[ConfigParams::FACE_CONFIDENCE_THRESHOLD].As<decltype(config.face_confidence)>(config.face_confidence);
-    config.face_enlarge_scale = json[ConfigParams::FACE_ENLARGE_SCALE].As<decltype(config.face_enlarge_scale)>(config.face_enlarge_scale);
+    config.face_class_confidence = convertToNumber(json[ConfigParams::FACE_CLASS_CONFIDENCE_THRESHOLD], config.face_class_confidence);
+    config.face_confidence = convertToNumber(json[ConfigParams::FACE_CONFIDENCE_THRESHOLD], config.face_confidence);
+    config.face_enlarge_scale = convertToNumber(json[ConfigParams::FACE_ENLARGE_SCALE], config.face_enlarge_scale);
     config.logs_level = json.HasMember(ConfigParams::LOGS_LEVEL)
                           ? userver::logging::LevelFromString(json[ConfigParams::LOGS_LEVEL].As<std::string>())
                           : config.logs_level;
-    config.margin = json[ConfigParams::MARGIN].As<decltype(config.margin)>(config.margin);
-    config.max_capture_error_count = json[ConfigParams::MAX_CAPTURE_ERROR_COUNT].As<decltype(config.max_capture_error_count)>(config.max_capture_error_count);
+    config.margin = convertToNumber(json[ConfigParams::MARGIN], config.margin);
+    config.max_capture_error_count = convertToNumber(json[ConfigParams::MAX_CAPTURE_ERROR_COUNT], config.max_capture_error_count);
     config.open_door_duration = json.HasMember(ConfigParams::OPEN_DOOR_DURATION)
                                   ? userver::utils::StringToDuration(json[ConfigParams::OPEN_DOOR_DURATION].As<std::string>())
                                   : config.open_door_duration;
-    config.tolerance = json[ConfigParams::TOLERANCE].As<decltype(config.tolerance)>(config.tolerance);
+    config.tolerance = convertToNumber(json[ConfigParams::TOLERANCE], config.tolerance);
     config.title = json[ConfigParams::TITLE].As<decltype(config.title)>(config.title);
-    config.title_height_ratio = json[ConfigParams::TITLE_HEIGHT_RATIO].As<decltype(config.title_height_ratio)>(config.title_height_ratio);
+    config.title_height_ratio = convertToNumber(json[ConfigParams::TITLE_HEIGHT_RATIO], config.title_height_ratio);
     config.osd_dt_format = json[ConfigParams::CONF_OSD_DT_FORMAT].As<decltype(config.osd_dt_format)>(config.osd_dt_format);
     if (json.HasMember(ConfigParams::WORK_AREA) && json[ConfigParams::WORK_AREA].IsArray())
       config.work_area = json[ConfigParams::WORK_AREA].As<decltype(config.work_area)>();

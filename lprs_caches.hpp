@@ -7,6 +7,8 @@
 #include <opencv2/opencv.hpp>
 #include <userver/cache/base_postgres_cache.hpp>
 
+#include "converters.hpp"
+
 namespace Lprs
 {
   template <typename Key, typename Value>
@@ -148,43 +150,43 @@ namespace Lprs
 
     config.vd_net_inference_server = json[ConfigParams::VD_NET_INFERENCE_SERVER].As<decltype(config.vd_net_inference_server)>(config.vd_net_inference_server);
     config.vd_net_model_name = json[ConfigParams::VD_NET_MODEL_NAME].As<decltype(config.vd_net_model_name)>(config.vd_net_model_name);
-    config.vd_net_input_width = json[ConfigParams::VD_NET_INPUT_WIDTH].As<decltype(config.vd_net_input_width)>(config.vd_net_input_width);
-    config.vd_net_input_height = json[ConfigParams::VD_NET_INPUT_HEIGHT].As<decltype(config.vd_net_input_height)>(config.vd_net_input_height);
+    config.vd_net_input_width = convertToNumber(json[ConfigParams::VD_NET_INPUT_WIDTH], config.vd_net_input_width);
+    config.vd_net_input_height = convertToNumber(json[ConfigParams::VD_NET_INPUT_HEIGHT], config.vd_net_input_height);
     config.vd_net_input_tensor_name = json[ConfigParams::VD_NET_INPUT_TENSOR_NAME].As<decltype(config.vd_net_input_tensor_name)>(config.vd_net_input_tensor_name);
     config.vd_net_output_tensor_name = json[ConfigParams::VD_NET_OUTPUT_TENSOR_NAME].As<decltype(config.vd_net_output_tensor_name)>(config.vd_net_output_tensor_name);
 
     config.vc_net_inference_server = json[ConfigParams::VC_NET_INFERENCE_SERVER].As<decltype(config.vc_net_inference_server)>(config.vc_net_inference_server);
     config.vc_net_model_name = json[ConfigParams::VC_NET_MODEL_NAME].As<decltype(config.vc_net_model_name)>(config.vc_net_model_name);
-    config.vc_net_input_width = json[ConfigParams::VC_NET_INPUT_WIDTH].As<decltype(config.vc_net_input_width)>(config.vc_net_input_width);
-    config.vc_net_input_height = json[ConfigParams::VC_NET_INPUT_HEIGHT].As<decltype(config.vc_net_input_height)>(config.vc_net_input_height);
+    config.vc_net_input_width = convertToNumber(json[ConfigParams::VC_NET_INPUT_WIDTH], config.vc_net_input_width);
+    config.vc_net_input_height = convertToNumber(json[ConfigParams::VC_NET_INPUT_HEIGHT], config.vc_net_input_height);
     config.vc_net_input_tensor_name = json[ConfigParams::VC_NET_INPUT_TENSOR_NAME].As<decltype(config.vc_net_input_tensor_name)>(config.vc_net_input_tensor_name);
     config.vc_net_output_tensor_name = json[ConfigParams::VC_NET_OUTPUT_TENSOR_NAME].As<decltype(config.vc_net_output_tensor_name)>(config.vc_net_output_tensor_name);
 
     config.lpd_net_inference_server = json[ConfigParams::LPD_NET_INFERENCE_SERVER].As<decltype(config.lpd_net_inference_server)>(config.lpd_net_inference_server);
     config.lpd_net_model_name = json[ConfigParams::LPD_NET_MODEL_NAME].As<decltype(config.lpd_net_model_name)>(config.lpd_net_model_name);
-    config.lpd_net_input_width = json[ConfigParams::LPD_NET_INPUT_WIDTH].As<decltype(config.lpd_net_input_width)>(config.lpd_net_input_width);
-    config.lpd_net_input_height = json[ConfigParams::LPD_NET_INPUT_HEIGHT].As<decltype(config.lpd_net_input_height)>(config.lpd_net_input_height);
+    config.lpd_net_input_width = convertToNumber(json[ConfigParams::LPD_NET_INPUT_WIDTH], config.lpd_net_input_width);
+    config.lpd_net_input_height = convertToNumber(json[ConfigParams::LPD_NET_INPUT_HEIGHT], config.lpd_net_input_height);
     config.lpd_net_input_tensor_name = json[ConfigParams::LPD_NET_INPUT_TENSOR_NAME].As<decltype(config.lpd_net_input_tensor_name)>(config.lpd_net_input_tensor_name);
     config.lpd_net_output_tensor_name = json[ConfigParams::LPD_NET_OUTPUT_TENSOR_NAME].As<decltype(config.lpd_net_output_tensor_name)>(config.lpd_net_output_tensor_name);
 
     config.lpr_net_inference_server = json[ConfigParams::LPR_NET_INFERENCE_SERVER].As<decltype(config.lpr_net_inference_server)>(config.lpr_net_inference_server);
     config.lpr_net_model_name = json[ConfigParams::LPR_NET_MODEL_NAME].As<decltype(config.lpr_net_model_name)>(config.lpr_net_model_name);
-    config.lpr_net_input_width = json[ConfigParams::LPR_NET_INPUT_WIDTH].As<decltype(config.lpr_net_input_width)>(config.lpr_net_input_width);
-    config.lpr_net_input_height = json[ConfigParams::LPR_NET_INPUT_HEIGHT].As<decltype(config.lpr_net_input_height)>(config.lpr_net_input_height);
+    config.lpr_net_input_width = convertToNumber(json[ConfigParams::LPR_NET_INPUT_WIDTH], config.lpr_net_input_width);
+    config.lpr_net_input_height = convertToNumber(json[ConfigParams::LPR_NET_INPUT_HEIGHT], config.lpr_net_input_height);
     config.lpr_net_input_tensor_name = json[ConfigParams::LPR_NET_INPUT_TENSOR_NAME].As<decltype(config.lpr_net_input_tensor_name)>(config.lpr_net_input_tensor_name);
     config.lpr_net_output_tensor_name = json[ConfigParams::LPR_NET_OUTPUT_TENSOR_NAME].As<decltype(config.lpr_net_output_tensor_name)>(config.lpr_net_output_tensor_name);
 
     config.callback_timeout = json.HasMember(ConfigParams::CALLBACK_TIMEOUT)
                                 ? userver::utils::StringToDuration(json[ConfigParams::CALLBACK_TIMEOUT].As<std::string>())
                                 : config.callback_timeout;
-    config.plate_confidence = json[ConfigParams::PLATE_CONFIDENCE].As<decltype(config.plate_confidence)>(config.plate_confidence);
-    config.char_score = json[ConfigParams::CHAR_SCORE].As<decltype(config.char_score)>(config.char_score);
-    config.char_iou_threshold = json[ConfigParams::CHAR_IOU_THRESHOLD].As<decltype(config.char_iou_threshold)>(config.char_iou_threshold);
-    config.max_capture_error_count = json[ConfigParams::MAX_CAPTURE_ERROR_COUNT].As<decltype(config.max_capture_error_count)>(config.max_capture_error_count);
-    config.vehicle_confidence = json[ConfigParams::VEHICLE_CONFIDENCE].As<decltype(config.vehicle_confidence)>(config.vehicle_confidence);
-    config.vehicle_iou_threshold = json[ConfigParams::VEHICLE_IOU_THRESHOLD].As<decltype(config.vehicle_iou_threshold)>(config.vehicle_iou_threshold);
-    config.vehicle_area_ratio_threshold = json[ConfigParams::VEHICLE_AREA_RATIO_THRESHOLD].As<decltype(config.vehicle_area_ratio_threshold)>(config.vehicle_area_ratio_threshold);
-    config.special_confidence = json[ConfigParams::SPECIAL_CONFIDENCE].As<decltype(config.special_confidence)>(config.special_confidence);
+    config.plate_confidence = convertToNumber(json[ConfigParams::PLATE_CONFIDENCE], config.plate_confidence);
+    config.char_score = convertToNumber(json[ConfigParams::CHAR_SCORE], config.char_score);
+    config.char_iou_threshold = convertToNumber(json[ConfigParams::CHAR_IOU_THRESHOLD], config.char_iou_threshold);
+    config.max_capture_error_count = convertToNumber(json[ConfigParams::MAX_CAPTURE_ERROR_COUNT], config.max_capture_error_count);
+    config.vehicle_confidence = convertToNumber(json[ConfigParams::VEHICLE_CONFIDENCE], config.vehicle_confidence);
+    config.vehicle_iou_threshold = convertToNumber(json[ConfigParams::VEHICLE_IOU_THRESHOLD], config.vehicle_iou_threshold);
+    config.vehicle_area_ratio_threshold = convertToNumber(json[ConfigParams::VEHICLE_AREA_RATIO_THRESHOLD], config.vehicle_area_ratio_threshold);
+    config.special_confidence = convertToNumber(json[ConfigParams::SPECIAL_CONFIDENCE], config.special_confidence);
     config.capture_timeout = json.HasMember(ConfigParams::CAPTURE_TIMEOUT)
                                ? userver::utils::StringToDuration(json[ConfigParams::CAPTURE_TIMEOUT].As<std::string>())
                                : config.capture_timeout;
@@ -203,13 +205,13 @@ namespace Lprs
     config.ban_duration_area = json.HasMember(ConfigParams::BAN_DURATION_AREA)
                                  ? userver::utils::StringToDuration(json[ConfigParams::BAN_DURATION_AREA].As<std::string>())
                                  : config.ban_duration_area;
-    config.ban_iou_threshold = json[ConfigParams::BAN_IOU_THRESHOLD].As<decltype(config.ban_iou_threshold)>(config.ban_iou_threshold);
+    config.ban_iou_threshold = convertToNumber(json[ConfigParams::BAN_IOU_THRESHOLD], config.ban_iou_threshold);
     config.delay_after_error = json.HasMember(ConfigParams::DELAY_AFTER_ERROR)
                                  ? userver::utils::StringToDuration(json[ConfigParams::DELAY_AFTER_ERROR].As<std::string>())
                                  : config.delay_after_error;
-    config.min_plate_height = json[ConfigParams::MIN_PLATE_HEIGHT].As<decltype(config.min_plate_height)>(config.min_plate_height);
-    config.flag_save_failed = json[ConfigParams::FLAG_SAVE_FAILED].As<decltype(config.flag_save_failed)>(config.flag_save_failed);
-    config.flag_process_special = json[ConfigParams::FLAG_PROCESS_SPECIAL].As<decltype(config.flag_process_special)>(config.flag_process_special);
+    config.min_plate_height = convertToNumber(json[ConfigParams::MIN_PLATE_HEIGHT], config.min_plate_height);
+    config.flag_save_failed = convertToBool(json[ConfigParams::FLAG_SAVE_FAILED], config.flag_save_failed);
+    config.flag_process_special = convertToBool(json[ConfigParams::FLAG_PROCESS_SPECIAL], config.flag_process_special);
     config.screenshot_url = json[ConfigParams::SCREENSHOT_URL].As<decltype(config.screenshot_url)>(config.screenshot_url);
     config.callback_url = json[ConfigParams::CALLBACK_URL].As<decltype(config.callback_url)>(config.callback_url);
     config.logs_level = json.HasMember(ConfigParams::LOGS_LEVEL)

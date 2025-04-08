@@ -139,7 +139,7 @@ namespace Lprs
   void Api::addStream(int32_t id_group, const userver::formats::json::Value& json) const
   {
     requireMemberThrow(json, PARAM_STREAM_ID);
-    auto ext_id = json[PARAM_STREAM_ID].As<std::string>();
+    const auto ext_id = convertToString(json[PARAM_STREAM_ID]);
     if (json.HasMember(PARAM_CONFIG) && !json[PARAM_CONFIG].IsObject())
       throw userver::server::handlers::ClientError(ExternalBody{absl::Substitute("Invalid member `$0`.", PARAM_CONFIG)});
 
@@ -171,7 +171,7 @@ namespace Lprs
   void Api::removeStream(const int32_t id_group, const userver::formats::json::Value& json) const
   {
     requireMemberThrow(json, PARAM_STREAM_ID);
-    const auto ext_id = json[PARAM_STREAM_ID].As<std::string>();
+    const auto ext_id = convertToString(json[PARAM_STREAM_ID]);
     auto trx = pg_cluster_->Begin(userver::storages::postgres::ClusterHostType::kMaster, {});
     try
     {
@@ -209,14 +209,14 @@ namespace Lprs
   void Api::startWorkflow(const int32_t id_group, const userver::formats::json::Value& json) const
   {
     requireMemberThrow(json, PARAM_STREAM_ID);
-    auto vstream_key = absl::Substitute("$0_$1", id_group, json[PARAM_STREAM_ID].As<std::string>());
+    auto vstream_key = absl::Substitute("$0_$1", id_group, convertToString(json[PARAM_STREAM_ID]));
     workflow_.startWorkflow(std::move(vstream_key));
   }
 
   void Api::stopWorkflow(const int32_t id_group, const userver::formats::json::Value& json) const
   {
     requireMemberThrow(json, PARAM_STREAM_ID);
-    auto vstream_key = absl::Substitute("$0_$1", id_group, json[PARAM_STREAM_ID].As<std::string>());
+    auto vstream_key = absl::Substitute("$0_$1", id_group, convertToString(json[PARAM_STREAM_ID]));
     workflow_.stopWorkflow(std::move(vstream_key), false);
   }
 
@@ -259,7 +259,7 @@ namespace Lprs
         std::chrono::milliseconds event_log_after{};
         // scope for accessing cache
         {
-          const auto vstream_key = absl::Substitute("$0_$1", id_group, json[PARAM_STREAM_ID].As<std::string>());
+          const auto vstream_key = absl::Substitute("$0_$1", id_group, convertToString(json[PARAM_STREAM_ID]));
           const auto cache = vstreams_config_cache_.Get();
           if (!cache->getData().contains(vstream_key))
             return {};
