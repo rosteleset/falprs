@@ -4,9 +4,10 @@
 
 #include <absl/strings/numbers.h>
 #include <userver/formats/json.hpp>
+#include <userver/logging/level.hpp>
 
 template <typename T>
-T convertToNumber(const userver::formats::json::Value& value, T default_value)
+T convertToNumber(const userver::formats::json::Value& value, const T default_value)
 {
   if (value.IsMissing())
     return default_value;
@@ -124,4 +125,68 @@ inline std::string convertToString(const userver::formats::json::Value& value)
     return std::to_string(value.As<double>());
 
   return {};
+}
+
+inline std::string convertToString(const userver::formats::json::Value& value, const std::string& default_value)
+{
+  if (value.IsMissing())
+    return default_value;
+
+  if (value.IsNull())
+    return default_value;
+
+  if (value.IsString())
+    return value.As<std::string>();
+
+  if (value.IsInt() || value.IsInt64() || value.IsUInt64())
+    return std::to_string(value.As<int64_t>());
+
+  if (value.IsDouble())
+    return std::to_string(value.As<double>());
+
+  return {};
+}
+
+inline std::chrono::milliseconds convertToDuration(const userver::formats::json::Value& value, const std::chrono::milliseconds default_value)
+{
+  if (value.IsMissing())
+    return default_value;
+
+  if (value.IsNull())
+    return default_value;
+
+  if (value.IsString())
+  {
+    try
+    {
+      return userver::utils::StringToDuration(value.As<std::string>());
+    } catch (std::exception&)
+    {
+    }
+    return default_value;
+  }
+
+  return default_value;
+}
+
+inline userver::logging::Level convertToLevel(const userver::formats::json::Value& value, const userver::logging::Level default_value)
+{
+  if (value.IsMissing())
+    return default_value;
+
+  if (value.IsNull())
+    return default_value;
+
+  if (value.IsString())
+  {
+    try
+    {
+      return userver::logging::LevelFromString(value.As<std::string>());
+    } catch (std::exception&)
+    {
+    }
+    return default_value;
+  }
+
+  return default_value;
 }

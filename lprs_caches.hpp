@@ -148,37 +148,35 @@ namespace Lprs
   {
     VStreamConfig config;
 
-    config.vd_net_inference_server = json[ConfigParams::VD_NET_INFERENCE_SERVER].As<decltype(config.vd_net_inference_server)>(config.vd_net_inference_server);
-    config.vd_net_model_name = json[ConfigParams::VD_NET_MODEL_NAME].As<decltype(config.vd_net_model_name)>(config.vd_net_model_name);
+    config.vd_net_inference_server = convertToString(json[ConfigParams::VD_NET_INFERENCE_SERVER], config.vd_net_inference_server);
+    config.vd_net_model_name = convertToString(json[ConfigParams::VD_NET_MODEL_NAME], config.vd_net_model_name);
     config.vd_net_input_width = convertToNumber(json[ConfigParams::VD_NET_INPUT_WIDTH], config.vd_net_input_width);
     config.vd_net_input_height = convertToNumber(json[ConfigParams::VD_NET_INPUT_HEIGHT], config.vd_net_input_height);
-    config.vd_net_input_tensor_name = json[ConfigParams::VD_NET_INPUT_TENSOR_NAME].As<decltype(config.vd_net_input_tensor_name)>(config.vd_net_input_tensor_name);
-    config.vd_net_output_tensor_name = json[ConfigParams::VD_NET_OUTPUT_TENSOR_NAME].As<decltype(config.vd_net_output_tensor_name)>(config.vd_net_output_tensor_name);
+    config.vd_net_input_tensor_name = convertToString(json[ConfigParams::VD_NET_INPUT_TENSOR_NAME], config.vd_net_input_tensor_name);
+    config.vd_net_output_tensor_name = convertToString(json[ConfigParams::VD_NET_OUTPUT_TENSOR_NAME], config.vd_net_output_tensor_name);
 
-    config.vc_net_inference_server = json[ConfigParams::VC_NET_INFERENCE_SERVER].As<decltype(config.vc_net_inference_server)>(config.vc_net_inference_server);
-    config.vc_net_model_name = json[ConfigParams::VC_NET_MODEL_NAME].As<decltype(config.vc_net_model_name)>(config.vc_net_model_name);
+    config.vc_net_inference_server = convertToString(json[ConfigParams::VC_NET_INFERENCE_SERVER], config.vc_net_inference_server);
+    config.vc_net_model_name = convertToString(json[ConfigParams::VC_NET_MODEL_NAME], config.vc_net_model_name);
     config.vc_net_input_width = convertToNumber(json[ConfigParams::VC_NET_INPUT_WIDTH], config.vc_net_input_width);
     config.vc_net_input_height = convertToNumber(json[ConfigParams::VC_NET_INPUT_HEIGHT], config.vc_net_input_height);
-    config.vc_net_input_tensor_name = json[ConfigParams::VC_NET_INPUT_TENSOR_NAME].As<decltype(config.vc_net_input_tensor_name)>(config.vc_net_input_tensor_name);
-    config.vc_net_output_tensor_name = json[ConfigParams::VC_NET_OUTPUT_TENSOR_NAME].As<decltype(config.vc_net_output_tensor_name)>(config.vc_net_output_tensor_name);
+    config.vc_net_input_tensor_name = convertToString(json[ConfigParams::VC_NET_INPUT_TENSOR_NAME], config.vc_net_input_tensor_name);
+    config.vc_net_output_tensor_name = convertToString(json[ConfigParams::VC_NET_OUTPUT_TENSOR_NAME], config.vc_net_output_tensor_name);
 
-    config.lpd_net_inference_server = json[ConfigParams::LPD_NET_INFERENCE_SERVER].As<decltype(config.lpd_net_inference_server)>(config.lpd_net_inference_server);
-    config.lpd_net_model_name = json[ConfigParams::LPD_NET_MODEL_NAME].As<decltype(config.lpd_net_model_name)>(config.lpd_net_model_name);
+    config.lpd_net_inference_server = convertToString(json[ConfigParams::LPD_NET_INFERENCE_SERVER], config.lpd_net_inference_server);
+    config.lpd_net_model_name = convertToString(json[ConfigParams::LPD_NET_MODEL_NAME], config.lpd_net_model_name);
     config.lpd_net_input_width = convertToNumber(json[ConfigParams::LPD_NET_INPUT_WIDTH], config.lpd_net_input_width);
     config.lpd_net_input_height = convertToNumber(json[ConfigParams::LPD_NET_INPUT_HEIGHT], config.lpd_net_input_height);
-    config.lpd_net_input_tensor_name = json[ConfigParams::LPD_NET_INPUT_TENSOR_NAME].As<decltype(config.lpd_net_input_tensor_name)>(config.lpd_net_input_tensor_name);
-    config.lpd_net_output_tensor_name = json[ConfigParams::LPD_NET_OUTPUT_TENSOR_NAME].As<decltype(config.lpd_net_output_tensor_name)>(config.lpd_net_output_tensor_name);
+    config.lpd_net_input_tensor_name = convertToString(json[ConfigParams::LPD_NET_INPUT_TENSOR_NAME], config.lpd_net_input_tensor_name);
+    config.lpd_net_output_tensor_name = convertToString(json[ConfigParams::LPD_NET_OUTPUT_TENSOR_NAME], config.lpd_net_output_tensor_name);
 
-    config.lpr_net_inference_server = json[ConfigParams::LPR_NET_INFERENCE_SERVER].As<decltype(config.lpr_net_inference_server)>(config.lpr_net_inference_server);
-    config.lpr_net_model_name = json[ConfigParams::LPR_NET_MODEL_NAME].As<decltype(config.lpr_net_model_name)>(config.lpr_net_model_name);
+    config.lpr_net_inference_server = convertToString(json[ConfigParams::LPR_NET_INFERENCE_SERVER], config.lpr_net_inference_server);
+    config.lpr_net_model_name = convertToString(json[ConfigParams::LPR_NET_MODEL_NAME], config.lpr_net_model_name);
     config.lpr_net_input_width = convertToNumber(json[ConfigParams::LPR_NET_INPUT_WIDTH], config.lpr_net_input_width);
     config.lpr_net_input_height = convertToNumber(json[ConfigParams::LPR_NET_INPUT_HEIGHT], config.lpr_net_input_height);
-    config.lpr_net_input_tensor_name = json[ConfigParams::LPR_NET_INPUT_TENSOR_NAME].As<decltype(config.lpr_net_input_tensor_name)>(config.lpr_net_input_tensor_name);
-    config.lpr_net_output_tensor_name = json[ConfigParams::LPR_NET_OUTPUT_TENSOR_NAME].As<decltype(config.lpr_net_output_tensor_name)>(config.lpr_net_output_tensor_name);
+    config.lpr_net_input_tensor_name = convertToString(json[ConfigParams::LPR_NET_INPUT_TENSOR_NAME], config.lpr_net_input_tensor_name);
+    config.lpr_net_output_tensor_name = convertToString(json[ConfigParams::LPR_NET_OUTPUT_TENSOR_NAME], config.lpr_net_output_tensor_name);
 
-    config.callback_timeout = json.HasMember(ConfigParams::CALLBACK_TIMEOUT)
-                                ? userver::utils::StringToDuration(json[ConfigParams::CALLBACK_TIMEOUT].As<std::string>())
-                                : config.callback_timeout;
+    config.callback_timeout = convertToDuration(json[ConfigParams::CALLBACK_TIMEOUT], config.callback_timeout);
     config.plate_confidence = convertToNumber(json[ConfigParams::PLATE_CONFIDENCE], config.plate_confidence);
     config.char_score = convertToNumber(json[ConfigParams::CHAR_SCORE], config.char_score);
     config.char_iou_threshold = convertToNumber(json[ConfigParams::CHAR_IOU_THRESHOLD], config.char_iou_threshold);
@@ -187,36 +185,20 @@ namespace Lprs
     config.vehicle_iou_threshold = convertToNumber(json[ConfigParams::VEHICLE_IOU_THRESHOLD], config.vehicle_iou_threshold);
     config.vehicle_area_ratio_threshold = convertToNumber(json[ConfigParams::VEHICLE_AREA_RATIO_THRESHOLD], config.vehicle_area_ratio_threshold);
     config.special_confidence = convertToNumber(json[ConfigParams::SPECIAL_CONFIDENCE], config.special_confidence);
-    config.capture_timeout = json.HasMember(ConfigParams::CAPTURE_TIMEOUT)
-                               ? userver::utils::StringToDuration(json[ConfigParams::CAPTURE_TIMEOUT].As<std::string>())
-                               : config.capture_timeout;
-    config.event_log_before = json.HasMember(ConfigParams::EVENT_LOG_BEFORE)
-                                ? userver::utils::StringToDuration(json[ConfigParams::EVENT_LOG_BEFORE].As<std::string>())
-                                : config.event_log_before;
-    config.event_log_after = json.HasMember(ConfigParams::EVENT_LOG_AFTER)
-                               ? userver::utils::StringToDuration(json[ConfigParams::EVENT_LOG_AFTER].As<std::string>())
-                               : config.event_log_after;
-    config.delay_between_frames = json.HasMember(ConfigParams::DELAY_BETWEEN_FRAMES)
-                                    ? userver::utils::StringToDuration(json[ConfigParams::DELAY_BETWEEN_FRAMES].As<std::string>())
-                                    : config.delay_between_frames;
-    config.ban_duration = json.HasMember(ConfigParams::BAN_DURATION)
-                            ? userver::utils::StringToDuration(json[ConfigParams::BAN_DURATION].As<std::string>())
-                            : config.ban_duration;
-    config.ban_duration_area = json.HasMember(ConfigParams::BAN_DURATION_AREA)
-                                 ? userver::utils::StringToDuration(json[ConfigParams::BAN_DURATION_AREA].As<std::string>())
-                                 : config.ban_duration_area;
+    config.capture_timeout = convertToDuration(json[ConfigParams::CAPTURE_TIMEOUT], config.capture_timeout);
+    config.event_log_before = convertToDuration(json[ConfigParams::EVENT_LOG_BEFORE], config.event_log_before);
+    config.event_log_after = convertToDuration(json[ConfigParams::EVENT_LOG_AFTER], config.event_log_after);
+    config.delay_between_frames = convertToDuration(json[ConfigParams::DELAY_BETWEEN_FRAMES], config.delay_between_frames);
+    config.ban_duration = convertToDuration(json[ConfigParams::BAN_DURATION], config.ban_duration);
+    config.ban_duration_area = convertToDuration(json[ConfigParams::BAN_DURATION_AREA], config.ban_duration_area);
     config.ban_iou_threshold = convertToNumber(json[ConfigParams::BAN_IOU_THRESHOLD], config.ban_iou_threshold);
-    config.delay_after_error = json.HasMember(ConfigParams::DELAY_AFTER_ERROR)
-                                 ? userver::utils::StringToDuration(json[ConfigParams::DELAY_AFTER_ERROR].As<std::string>())
-                                 : config.delay_after_error;
+    config.delay_after_error = convertToDuration(json[ConfigParams::DELAY_AFTER_ERROR], config.delay_after_error);
     config.min_plate_height = convertToNumber(json[ConfigParams::MIN_PLATE_HEIGHT], config.min_plate_height);
     config.flag_save_failed = convertToBool(json[ConfigParams::FLAG_SAVE_FAILED], config.flag_save_failed);
     config.flag_process_special = convertToBool(json[ConfigParams::FLAG_PROCESS_SPECIAL], config.flag_process_special);
-    config.screenshot_url = json[ConfigParams::SCREENSHOT_URL].As<decltype(config.screenshot_url)>(config.screenshot_url);
-    config.callback_url = json[ConfigParams::CALLBACK_URL].As<decltype(config.callback_url)>(config.callback_url);
-    config.logs_level = json.HasMember(ConfigParams::LOGS_LEVEL)
-                          ? userver::logging::LevelFromString(json[ConfigParams::LOGS_LEVEL].As<std::string>())
-                          : config.logs_level;
+    config.screenshot_url = convertToString(json[ConfigParams::SCREENSHOT_URL], config.screenshot_url);
+    config.callback_url = convertToString(json[ConfigParams::CALLBACK_URL], config.callback_url);
+    config.logs_level = convertToLevel(json[ConfigParams::LOGS_LEVEL], config.logs_level);
     if (json.HasMember(ConfigParams::WORK_AREA) && json[ConfigParams::WORK_AREA].IsArray())
       try
       {
