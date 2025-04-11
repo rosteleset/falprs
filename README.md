@@ -121,8 +121,8 @@ Using the **bestQuality** method, you can request the “best” frame from the 
 ## Building and setting up the project
 <a id="system_requirements"></a>
 ### System requirements
+* CPU with AVX instructions.
 * NVIDIA GPU with Compute Capability greater than or equal to 6.0 and 4 GB memory or more. Details can be found, for example, [here](https://developer.nvidia.com/cuda-gpus).
-
 * DBMS PostgreSQL 14 or higher.
 
 To get the source code you need git. If not installed, then run the command:

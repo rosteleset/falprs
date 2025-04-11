@@ -11,7 +11,7 @@ if (NOT BUILD_LPRS AND NOT BUILD_FRS)
   message(FATAL_ERROR, "At least one of the options BUILD_LPRS or BUILD_FRS must be turned on")
 endif()
 
-add_compile_options(-Wall -Wextra -Wpedantic -Wno-gcc-compat -mavx2)
+add_compile_options(-Wall -Wextra -Wpedantic -Wno-gcc-compat -mavx)
 
 set(ABSL_PROPAGATE_CXX_STD ON)
 set(TRITON_CLIENT_DIR "$ENV{HOME}/triton-client/build/install" CACHE STRING "Triton client directory")
