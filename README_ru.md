@@ -211,9 +211,20 @@ sudo LLVM_VERSION=15 PG_VERSION=14 TRITON_VERSION=24.09 ~/falprs/scripts/build_f
 
 <a id="create_models"></a>
 ### Создание TensorRT планов моделей нейронных сетей
-Для инференса используются TensorRT планы, которые могут быть получены из моделей нейронных сетей в формате ONNX (Open Neural Network Exchange). Для создания планов в рабочей директории можно использовать скрипт **scripts/tensorrt_plans.sh**. Рабочая директория проекта задаётся переменной **FALPRS_WORKDIR** (значение по-умолчанию */opt/falprs*), версия Triton Inference Server задаётся переменной **TRITON_VERSION**:
+Для инференса используются TensorRT планы, которые могут быть получены из моделей нейронных сетей в формате ONNX (Open Neural Network Exchange). Для создания планов в рабочей директории можно использовать скрипт **scripts/tensorrt_plans.sh**. Рабочая директория проекта задаётся переменной **FALPRS_WORKDIR** (значение по-умолчанию */opt/falprs*), версия Triton Inference Server задаётся переменной **TRITON_VERSION**.
+**Важно:** если вы делаете миграцию со старого проекта, то ещё необходимо с помощью утилиты *sha1sum* указать хеш-сумму ONNX файла, который вы использовали для создания TensorRT плана модели *arcface*. Это значение указывается в переменной **ARCFACE_SHA1**.
+Пример выполнения без миграции:
 ```bash
 sudo TRITON_VERSION=24.09 ~/falprs/scripts/tensorrt_plans.sh
+```
+Примеры выполнения с миграцией для старого файла *glint_r50.onnx*. Подсчёт хеш-суммы:
+```bash
+sha1sum glint_r50.onnx
+4fd7dce20b6987ba89910eda8614a33eb3593216  glint_r50.onnx
+```
+Создание TensorRT планов:
+```bash
+sudo TRITON_VERSION=24.09 ARCFACE_SHA1=4fd7dce20b6987ba89910eda8614a33eb3593216 ~/falprs/scripts/tensorrt_plans.sh
 ```
 
 <a id="config_falprs"></a>
