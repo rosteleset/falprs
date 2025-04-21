@@ -119,10 +119,7 @@ try:
     query = "select id_vstream, vstream_ext, url, callback_url, region_x, region_y, region_width, region_height from video_streams"
     with mysql_conn.cursor() as cursor:
         cursor.execute(query)
-        seq_max = 0
         for (id_vstream, vstream_ext, url, callback_url, region_x, region_y, region_width, region_height) in cursor:
-            if id_vstream > seq_max:
-                seq_max = id_vstream
             config = {}
             query = f"select vs.param_name, vs.param_value from video_stream_settings vs where vs.id_vstream = {id_vstream}"
             with mysql_conn2.cursor() as cursor2:
@@ -148,11 +145,10 @@ try:
                 pg_conn.commit()
                 pg_cursor.close()
         cursor.close()
-        if seq_max > 0:
-            with pg_conn.cursor() as pg_cursor:
-                pg_cursor.execute(f"alter sequence video_streams_id_vstream_seq restart {seq_max + 1}")
-                pg_conn.commit()
-                pg_cursor.close()
+        with pg_conn.cursor() as pg_cursor:
+            pg_cursor.execute("select setval('video_streams_id_vstream_seq', (select max(v.id_vstream) + 1 from video_streams v), false)")
+            pg_conn.commit()
+            pg_cursor.close()
     print("done.")
 
     # face_descriptor, descriptor_images
@@ -171,10 +167,7 @@ try:
     """
     with mysql_conn.cursor() as cursor:
         cursor.execute(query)
-        seq_max = 0
         for (id_descriptor, date_start, descriptor_data, face_image, mime_type) in cursor:
-            if id_descriptor > seq_max:
-                seq_max = id_descriptor
             query = 'insert into face_descriptors(id_descriptor, descriptor_data, date_start, date_last, last_updated, id_group) values (%s, %s, %s, %s, %s, %s) on conflict do nothing'
             query2 = 'insert into descriptor_images(id_descriptor, mime_type, face_image) values(%s, %s, %s) on conflict do nothing'
             with pg_conn.cursor() as pg_cursor:
@@ -183,11 +176,10 @@ try:
                 pg_conn.commit()
                 pg_cursor.close()
         cursor.close()
-        if seq_max > 0:
-            with pg_conn.cursor() as pg_cursor:
-                pg_cursor.execute(f"alter sequence face_descriptors_id_descriptor_seq restart {seq_max}")
-                pg_conn.commit()
-                pg_cursor.close()
+        with pg_conn.cursor() as pg_cursor:
+            pg_cursor.execute("select setval('face_descriptors_id_descriptor_seq', (select max(v.id_descriptor) + 1 from face_descriptors v), false)")
+            pg_conn.commit()
+            pg_cursor.close()
     print("done.")
 
     # link_descriptor_vstream
@@ -209,10 +201,7 @@ try:
     query = 'select id_log, id_vstream, log_date, id_descriptor, quality, screenshot, face_left, face_top, face_width, face_height from log_faces'
     with mysql_conn.cursor() as cursor:
         cursor.execute(query)
-        seq_max = 0
         for (id_log, id_vstream, log_date, id_descriptor, quality, screenshot, face_left, face_top, face_width, face_height) in cursor:
-            if id_log > seq_max:
-                seq_max = id_log
             screenshot_url = screenshots_url_prefix_new + '/' + screenshot[:-44] + 'group_' + str(id_group) + '/' + screenshot[-44:]
             uuid = screenshot[-36:-4]
             log_uuid = uuid[:8] + '-' + uuid[8:12] + '-' + uuid[12:16] + '-' + uuid[16:20] + '-' + uuid[20:]
@@ -222,11 +211,10 @@ try:
                 pg_conn.commit()
                 pg_cursor.close()
         cursor.close()
-        if seq_max > 0:
-            with pg_conn.cursor() as pg_cursor:
-                pg_cursor.execute(f"alter sequence log_faces_id_log_seq restart {seq_max}")
-                pg_conn.commit()
-                pg_cursor.close()
+        with pg_conn.cursor() as pg_cursor:
+            pg_cursor.execute("select setval('log_faces_id_log_seq', (select max(v.id_log) + 1 from log_faces v), false)")
+            pg_conn.commit()
+            pg_cursor.close()
     print("done.")
 
     # special groups
@@ -234,21 +222,17 @@ try:
     query = 'select id_special_group, group_name, sg_api_token, callback_url, max_descriptor_count from special_groups'
     with mysql_conn.cursor() as cursor:
         cursor.execute(query)
-        seq_max = 0
         for (id_special_group, group_name, sg_api_token, callback_url, max_descriptor_count) in cursor:
-            if id_special_group > seq_max:
-                seq_max = id_special_group
             query = 'insert into special_groups(id_special_group, group_name, sg_api_token, callback_url, max_descriptor_count, id_group) VALUES (%s, %s, %s, %s, %s, %s) on conflict do nothing'
             with pg_conn.cursor() as pg_cursor:
                 pg_cursor.execute(query, (id_special_group, group_name, sg_api_token, callback_url, max_descriptor_count, id_group))
                 pg_conn.commit()
                 pg_cursor.close()
         cursor.close()
-        if seq_max > 0:
-            with pg_conn.cursor() as pg_cursor:
-                pg_cursor.execute(f"alter sequence special_groups_id_special_group_seq restart {seq_max}")
-                pg_conn.commit()
-                pg_cursor.close()
+        with pg_conn.cursor() as pg_cursor:
+            pg_cursor.execute("select setval('special_groups_id_special_group_seq', (select max(v.id_special_group) + 1 from special_groups v), false)")
+            pg_conn.commit()
+            pg_cursor.close()
     print("done.")
 
     # link_descriptor_sgroup
