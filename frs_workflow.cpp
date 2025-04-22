@@ -483,8 +483,8 @@ properties:
         {
           if (config.logs_level <= userver::logging::Level::kError || task_data.task_type == TASK_TEST)
             USERVER_IMPL_LOG_TO(logger_, userver::logging::Level::kError)
-              << "vstream_key = " << task_data.vstream_key << ";"
-              << "  delay for " << config.delay_after_error.count() << "ms";
+              << "vstream_key = " << task_data.vstream_key
+              << ";  delay for " << config.delay_after_error.count() << "ms";
           if (task_data.task_type == TASK_RECOGNIZE)
             nextPipeline(std::move(task_data), config.delay_after_error);
         } else
@@ -1142,7 +1142,7 @@ properties:
     }
 
     if (config.logs_level <= userver::logging::Level::kDebug || task_data.task_type == TASK_TEST)
-      USERVER_IMPL_LOG_TO(logger_, userver::logging::Level::kDebug) << "End processPipeline: vstream_key = " << task_data.vstream_key;
+      USERVER_IMPL_LOG_TO(logger_, userver::logging::Level::kDebug) << "End processPipeline: vstream_key = " << task_data.vstream_key << ";";
 
     if (task_data.task_type == TASK_RECOGNIZE)
       nextPipeline(std::move(task_data), delay_between_frames);

@@ -795,7 +795,7 @@ properties:
 
     if (config.logs_level <= userver::logging::Level::kDebug)
       USERVER_IMPL_LOG_TO(logger_, userver::logging::Level::kDebug)
-        << "End processPipeline: vstream_key = " << vstream_key;
+        << "End processPipeline: vstream_key = " << vstream_key << ";";
 
     nextPipeline(std::move(vstream_key), config.delay_between_frames);
   }
