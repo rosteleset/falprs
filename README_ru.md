@@ -22,6 +22,7 @@
    * [Сборка проекта](#build_falprs)
    * [Создание TensorRT планов моделей нейронных сетей](#create_models)
    * [Настройка проекта](#config_falprs)
+   * [Управление группами видео потоков](#vstream_groups)
 * [Примеры](#examples)
    * [LPRS](#lprs_examples)
    * [FRS](#frs_examples)
@@ -29,7 +30,6 @@
    * [LPRS](#lprs_tests)
    * [FRS](#frs_tests)
 * [Импорт данных из старого проекта FRS](#frs_import_data)
-
 
 <a id="lprs"></a>
 ## LPRS
@@ -199,14 +199,13 @@ psql --version
 |6.x|Pascal|24.04|8.6.3|
 |7.0|Volta|24.09|10.4.0.26|
 
-Если у вас GPU с Compute Capability 7.5 или выше, то вы можете использовать самую последнюю версию [контейнера](https://catalog.ngc.nvidia.com/orgs/nvidia/containers/tritonserver/tags). Например, сборка для Ubuntu 24.04:
+Если у вас GPU с Compute Capability 7.5 или выше, то вы можете использовать самую последнюю версию [контейнера](https://catalog.ngc.nvidia.com/orgs/nvidia/containers/tritonserver/tags). Например, сборка для Ubuntu 24.04 и GPU с архитектурой Volta:
 ```bash
 sudo LLVM_VERSION=18 PG_VERSION=16 TRITON_VERSION=24.09 ~/falprs/scripts/build_falprs.sh
 ```
-Для Ubuntu 22.04:
+Для Ubuntu 22.04 и GPU с архитектурой Pascal:
 ```bash
-sudo LLVM_VERSION=15 PG_VERSION=14 TRITON_VERSION=24.09 ~/falprs/scripts/build_falprs.sh
-
+sudo LLVM_VERSION=15 PG_VERSION=14 TRITON_VERSION=24.04 ~/falprs/scripts/build_falprs.sh
 ```
 
 <a id="create_models"></a>
@@ -251,6 +250,36 @@ sudo TRITON_VERSION=24.09 ~/falprs/scripts/triton_service.sh
 ```bash
 sudo ~/falprs/scripts/falprs_service.sh
 ```
+
+<a id="vstream_groups"></a>
+### Управление группами видео потоков
+Каждый видео поток принадлежит какой-то одной группе. При заполнении первоначальными данными автоматически создаётся группа с названием *default*. При вызове API методов для этой группы можно не указывать токен авторизации. Для просмотра, добавления и удаления групп можно использовать скрипт **utils/vstream_groups.py**
+Устанавливаем зависимости:
+```bash
+sudo apt-get install -y python3-psycopg2 python3-prettytable
+```
+Показать список команд:
+```bash
+python ~/falprs/utils/vstream_groups.py -h
+```
+Пример добавления новой группы в FRS:
+```bash
+python ~/falprs/utils/vstream_groups.py -t frs -a "My new group"
+```
+Показать список групп в LPRS:
+```bash
+python ~/falprs/utils/vstream_groups.py -t lprs -l
+```
+Пример вывода:
+```bash
++----------+--------------+--------------------------------------+
+| id_group |  group_name  |              auth_token              |
++----------+--------------+--------------------------------------+
+|    1     |   default    | 4b05cce8-d29e-4e7f-a1fa-247a91f3fd46 |
+|    2     | My new group | 74c0e0f0-ea70-47fb-b715-8932baf7e049 |
++----------+--------------+--------------------------------------+
+```
+При вызове API методов для новых групп необходимо указывать токен авторизации. Если вы хотите, чтобы токен авторизации стал обязательным для группы default, то установите значение 0 для параметров *allow-group-id-without-auth* в соответствующих секциях конфигурационного файла проекта (*/opt/falprs/config.yaml*) и перезапустите сервис.
 
 <a id="examples"></a>
 ## Примеры

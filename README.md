@@ -24,6 +24,7 @@ This project is a replacement for the [old](https://github.com/rosteleset/frs) o
    * [Building the project](#build_falprs)
    * [Creating TensorRT neural network model plans](#create_models)
    * [Project configuration](#config_falprs)
+   * [Managing video stream groups](#vstream_groups)
 * [Examples](#examples)
    * [LPRS](#lprs_examples)
    * [FRS](#frs_examples)
@@ -200,13 +201,13 @@ The project's working directory is specified by the **FALPRS_WORKDIR** variable 
 |6.x|Pascal|24.04|8.6.3|
 |7.0|Volta|24.09|10.4.0.26|
 
-If you have a GPU with Compute Capability 7.5 or higher, you can use the latest version of the [container](https://catalog.ngc.nvidia.com/orgs/nvidia/containers/tritonserver/tags). For example, build for Ubuntu 24.04:
+If you have a GPU with Compute Capability 7.5 or higher, you can use the latest version of the [container](https://catalog.ngc.nvidia.com/orgs/nvidia/containers/tritonserver/tags). For example, build for Ubuntu 24.04 and GPU with Volta architecture:
 ```bash
 sudo LLVM_VERSION=18 PG_VERSION=16 TRITON_VERSION=24.09 ~/falprs/scripts/build_falprs.sh
 ```
-For Ubuntu 22.04:
+For Ubuntu 22.04 and GPU with Pascal architecture:
 ```bash
-sudo LLVM_VERSION=15 PG_VERSION=14 TRITON_VERSION=24.09 ~/falprs/scripts/build_falprs.sh
+sudo LLVM_VERSION=15 PG_VERSION=14 TRITON_VERSION=24.04 ~/falprs/scripts/build_falprs.sh
 ```
 
 <a id="create_models"></a>
@@ -251,6 +252,36 @@ To create the **falprs** service and rotate logs, run the command:
 ```bash
 sudo ~/falprs/scripts/falprs_service.sh
 ```
+
+<a id="vstream_groups"></a>
+### Managing video stream groups
+Each video stream belongs to a single group. When filling in the initial data, a group named *default* is automatically created. When calling API methods for this group, you do not have to specify an authorization token. To view, add, and delete groups, you can use the **utils/vstream_groups.py** script.
+Installing dependencies:
+```bash
+sudo apt-get install -y python3-psycopg2 python3-prettytable
+```
+Show list of commands:
+```bash
+python ~/falprs/utils/vstream_groups.py -h
+```
+Example of adding a new group to FRS:
+```bash
+python ~/falprs/utils/vstream_groups.py -t frs -a "My new group"
+```
+Show list of groups in LPRS:
+```bash
+python ~/falprs/utils/vstream_groups.py -t lprs -l
+```
+Example output:
+```bash
++----------+--------------+--------------------------------------+
+| id_group |  group_name  |              auth_token              |
++----------+--------------+--------------------------------------+
+|    1     |   default    | 4b05cce8-d29e-4e7f-a1fa-247a91f3fd46 |
+|    2     | My new group | 74c0e0f0-ea70-47fb-b715-8932baf7e049 |
++----------+--------------+--------------------------------------+
+```
+When calling API methods for new groups, you must specify an authorization token. If you want the authorization token to become mandatory for the default group, then set the value 0 for the *allow-group-id-without-auth* parameters in the corresponding sections of the project configuration file (*/opt/falprs/config.yaml*) and restart the service.
 
 <a id="examples"></a>
 ## Examples
