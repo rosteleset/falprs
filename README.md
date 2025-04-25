@@ -201,6 +201,10 @@ The project's working directory is specified by the **FALPRS_WORKDIR** variable 
 |6.x|Pascal|24.04|8.6.3|
 |7.0|Volta|24.09|10.4.0.26|
 
+View Compute Capability:
+```bash
+nvidia-smi --query-gpu=compute_cap --format=csv
+```
 If you have a GPU with Compute Capability 7.5 or higher, you can use the latest version of the [container](https://catalog.ngc.nvidia.com/orgs/nvidia/containers/tritonserver/tags). For example, build for Ubuntu 24.04 and GPU with Volta architecture:
 ```bash
 sudo LLVM_VERSION=18 PG_VERSION=16 TRITON_VERSION=24.09 ~/falprs/scripts/build_falprs.sh

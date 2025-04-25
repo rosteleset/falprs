@@ -199,6 +199,10 @@ psql --version
 |6.x|Pascal|24.04|8.6.3|
 |7.0|Volta|24.09|10.4.0.26|
 
+Посмотреть Compute Capability:
+```bash
+nvidia-smi --query-gpu=compute_cap --format=csv
+```
 Если у вас GPU с Compute Capability 7.5 или выше, то вы можете использовать самую последнюю версию [контейнера](https://catalog.ngc.nvidia.com/orgs/nvidia/containers/tritonserver/tags). Например, сборка для Ubuntu 24.04 и GPU с архитектурой Volta:
 ```bash
 sudo LLVM_VERSION=18 PG_VERSION=16 TRITON_VERSION=24.09 ~/falprs/scripts/build_falprs.sh
