@@ -216,11 +216,11 @@ sudo LLVM_VERSION=15 PG_VERSION=14 TRITON_VERSION=24.04 ~/falprs/scripts/build_f
 
 <a id="create_models"></a>
 ### Creating TensorRT neural network model plans
-For inference, TensorRT plans are used, which can be obtained from neural network models in the ONNX (Open Neural Network Exchange) format. To create plans in the working directory, you can use the script **scripts/tensorrt_plans.sh**. The project's working directory is specified by the **FALPRS_WORKDIR** variable (default value */opt/falprs*), the Triton Inference Server version is specified by the **TRITON_VERSION** variable.
+For inference, TensorRT plans are used, which can be obtained from neural network models in the ONNX (Open Neural Network Exchange) format. To create plans in the working directory, you can use the script **scripts/tensorrt_plans.py**. The project's working directory is specified by the **FALPRS_WORKDIR** variable (default value */opt/falprs*), the Triton Inference Server version is specified by the **TRITON_VERSION** variable.
 **Important:** if you are migrating from an old project, you also need to use the *sha1sum* utility to specify the hash sum of the ONNX file that you used to create the TensorRT *arcface* model plan. This value is specified in the **ARCFACE_SHA1** variable.
 Example of execution without migration:
 ```bash
-sudo TRITON_VERSION=24.09 ~/falprs/scripts/tensorrt_plans.sh
+sudo TRITON_VERSION=24.09 python3 ~/falprs/scripts/tensorrt_plans.py
 ```
 Examples of execution with migration for the old file *glint_r50.onnx*. Calculating the hash sum:
 ```bash
@@ -229,7 +229,7 @@ sha1sum glint_r50.onnx
 ```
 Creating TensorRT plans:
 ```bash
-sudo TRITON_VERSION=24.09 ARCFACE_SHA1=4fd7dce20b6987ba89910eda8614a33eb3593216 ~/falprs/scripts/tensorrt_plans.sh
+sudo TRITON_VERSION=24.09 ARCFACE_SHA1=4fd7dce20b6987ba89910eda8614a33eb3593216 python3 ~/falprs/scripts/tensorrt_plans.py
 ```
 
 <a id="config_falprs"></a>
@@ -266,15 +266,15 @@ sudo apt-get install -y python3-psycopg2 python3-prettytable
 ```
 Show list of commands:
 ```bash
-python ~/falprs/utils/vstream_groups.py -h
+python3 ~/falprs/utils/vstream_groups.py -h
 ```
 Example of adding a new group to FRS:
 ```bash
-python ~/falprs/utils/vstream_groups.py -t frs -a "My new group"
+python3 ~/falprs/utils/vstream_groups.py -t frs -a "My new group"
 ```
 Show list of groups in LPRS:
 ```bash
-python ~/falprs/utils/vstream_groups.py -t lprs -l
+python3 ~/falprs/utils/vstream_groups.py -t lprs -l
 ```
 Example output:
 ```bash
@@ -427,7 +427,7 @@ In the *config.py* file, replace the variable values ​​according to your con
 virtualenv venv
 source venv/bin/activate
 pip install -r requirements.txt
-python import_data.py
+python3 import_data.py
 ```
 After the script runs, a success message should appear.
 Delete the virtual environment:

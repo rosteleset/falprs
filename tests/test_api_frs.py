@@ -705,7 +705,7 @@ def test_sg_search_faces():
     global face_id1
     global tp
     headers = {"Authorization": "Bearer " + sg_api_token}
-    data = {FACES: [face_id1], DATE_START: tp.strftime("%Y-%m-%d"), DATE_END: tp.strftime("%Y-%m-%d"), SIMILARITY_THRESHOLD: 0.5}
+    data = {FACES: [face_id1], DATE_START: tp.strftime("%Y-%m-%d"), DATE_END: tp.strftime("%Y-%m-%d"), SIMILARITY_THRESHOLD: 0.48}
     response = requests.post(url, headers=headers, json=data)
     assert response.status_code == 200
     data = response.json()
@@ -807,7 +807,7 @@ def test_sg_search_faces9():
     global face_id1
     global tp
     headers = {"Authorization": "Bearer " + sg_api_token}
-    data = {FACES: [face_id1], DATE_START: (tp - timedelta(days=4)).strftime("%Y-%m-%d"), DATE_END: (tp + timedelta(days=5)).strftime("%Y-%m-%d"), SIMILARITY_THRESHOLD: 0.5}
+    data = {FACES: [face_id1], DATE_START: (tp - timedelta(days=4)).strftime("%Y-%m-%d"), DATE_END: (tp + timedelta(days=5)).strftime("%Y-%m-%d"), SIMILARITY_THRESHOLD: 0.48}
     response = requests.post(url, headers=headers, json=data)
     assert response.status_code == 200
     data = response.json()

@@ -214,11 +214,11 @@ sudo LLVM_VERSION=15 PG_VERSION=14 TRITON_VERSION=24.04 ~/falprs/scripts/build_f
 
 <a id="create_models"></a>
 ### Создание TensorRT планов моделей нейронных сетей
-Для инференса используются TensorRT планы, которые могут быть получены из моделей нейронных сетей в формате ONNX (Open Neural Network Exchange). Для создания планов в рабочей директории можно использовать скрипт **scripts/tensorrt_plans.sh**. Рабочая директория проекта задаётся переменной **FALPRS_WORKDIR** (значение по-умолчанию */opt/falprs*), версия Triton Inference Server задаётся переменной **TRITON_VERSION**.
+Для инференса используются TensorRT планы, которые могут быть получены из моделей нейронных сетей в формате ONNX (Open Neural Network Exchange). Для создания планов в рабочей директории можно использовать скрипт **scripts/tensorrt_plans.py**. Рабочая директория проекта задаётся переменной **FALPRS_WORKDIR** (значение по-умолчанию */opt/falprs*), версия Triton Inference Server задаётся переменной **TRITON_VERSION**.
 **Важно:** если вы делаете миграцию со старого проекта, то ещё необходимо с помощью утилиты *sha1sum* указать хеш-сумму ONNX файла, который вы использовали для создания TensorRT плана модели *arcface*. Это значение указывается в переменной **ARCFACE_SHA1**.
 Пример выполнения без миграции:
 ```bash
-sudo TRITON_VERSION=24.09 ~/falprs/scripts/tensorrt_plans.sh
+sudo TRITON_VERSION=24.09 python3 ~/falprs/scripts/tensorrt_plans.py
 ```
 Примеры выполнения с миграцией для старого файла *glint_r50.onnx*. Подсчёт хеш-суммы:
 ```bash
@@ -227,7 +227,7 @@ sha1sum glint_r50.onnx
 ```
 Создание TensorRT планов:
 ```bash
-sudo TRITON_VERSION=24.09 ARCFACE_SHA1=4fd7dce20b6987ba89910eda8614a33eb3593216 ~/falprs/scripts/tensorrt_plans.sh
+sudo TRITON_VERSION=24.09 ARCFACE_SHA1=4fd7dce20b6987ba89910eda8614a33eb3593216 python3 ~/falprs/scripts/tensorrt_plans.py
 ```
 
 <a id="config_falprs"></a>
@@ -264,15 +264,15 @@ sudo apt-get install -y python3-psycopg2 python3-prettytable
 ```
 Показать список команд:
 ```bash
-python ~/falprs/utils/vstream_groups.py -h
+python3 ~/falprs/utils/vstream_groups.py -h
 ```
 Пример добавления новой группы в FRS:
 ```bash
-python ~/falprs/utils/vstream_groups.py -t frs -a "My new group"
+python3 ~/falprs/utils/vstream_groups.py -t frs -a "My new group"
 ```
 Показать список групп в LPRS:
 ```bash
-python ~/falprs/utils/vstream_groups.py -t lprs -l
+python3 ~/falprs/utils/vstream_groups.py -t lprs -l
 ```
 Пример вывода:
 ```bash
@@ -432,7 +432,7 @@ cp config.sample.py config.py
 virtualenv venv
 source venv/bin/activate
 pip install -r requirements.txt
-python import_data.py
+python3 import_data.py
 ```
 После работы скрипта должно появиться сообщение об успешном завершении.
 Удаляем виртуальную среду:

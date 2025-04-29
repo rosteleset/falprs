@@ -1,6 +1,7 @@
-name: "lpdnet_yolo"
+name: "vcnet_vit"
 platform: "tensorrt_plan"
-default_model_filename: "lpdnet_yolo.engine"
+default_model_filename: "vcnet_vit.engine"
+%cc_model_filenames%
 max_batch_size: 8
 dynamic_batching { }
 instance_group [
