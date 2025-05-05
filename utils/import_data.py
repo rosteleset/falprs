@@ -7,11 +7,11 @@ import shutil
 from config import *
 
 int_params_common = [
-    'dnn-fd-input-width',
-    'dnn-fd-input-height',
     'dnn-fc-input-height',
     'dnn-fc-input-width',
     'dnn-fc-output-size',
+    'dnn-fd-input-width',
+    'dnn-fd-input-height',
     'dnn-fr-input-width',
     'dnn-fr-input-height',
     'dnn-fr-output-size',
@@ -23,29 +23,19 @@ int_params_vstream = [
 ]
 
 double_params_vstream = [
-    'alpha',
     'best-quality-interval-after',
     'best-quality-interval-before',
-    'beta',
     'blur',
     'blur-max',
     'face-class-confidence',
     'face-confidence',
     'face-enlarge-scale',
-    'gamma',
     'margin',
+    'title-height-ratio',
     'tolerance',
 ]
 
 string_params_common = [
-    'dnn-fd-model-name',
-    'dnn-fd-input-tensor-name',
-    'dnn-fc-model-name',
-    'dnn-fc-input-tensor-name',
-    'dnn-fc-output-tensor-name',
-    'dnn-fr-model-name',
-    'dnn-fr-input-tensor-name',
-    'dnn-fr-output-tensor-name',
     'comments-blurry-face',
     'comments-descriptor-creation-error',
     'comments-descriptor-exists',
@@ -56,12 +46,21 @@ string_params_common = [
     'comments-non-normal-face-class',
     'comments-partial-face',
     'comments-url-image-error',
+    'dnn-fc-input-tensor-name',
+    'dnn-fc-model-name',
+    'dnn-fc-output-tensor-name',
+    'dnn-fd-input-tensor-name',
+    'dnn-fd-model-name',
+    'dnn-fr-input-tensor-name',
+    'dnn-fr-model-name',
+    'dnn-fr-output-tensor-name',
 ]
 
 string_params_vstream = [
-    'dnn-fd-inference-server',
     'dnn-fc-inference-server',
+    'dnn-fd-inference-server',
     'dnn-fr-inference-server',
+    'osd-datetime-format',
 ]
 
 duration_params_common = [
@@ -72,7 +71,6 @@ duration_params_vstream = [
     'best-quality-interval-after',
     'best-quality-interval-before',
     'capture-timeout',
-    'delay-after-error',
     'delay-between-frames',
     'open-door-duration',
     'retry-pause',
@@ -115,7 +113,7 @@ try:
         database=mysql_database
     )
     # video_streams
-    print("Processing video streams...", end="")
+    print("Processing video streams...", end="", flush=True)
     query = "select id_vstream, vstream_ext, url, callback_url, region_x, region_y, region_width, region_height from video_streams"
     with mysql_conn.cursor() as cursor:
         cursor.execute(query)
@@ -136,6 +134,9 @@ try:
                         config[param_name] = str(duration) + 'ms'
                     if param_name == 'logs-level':
                         config[param_name] = map_logs_level[param_value]
+                    if param_name == 'retry-pause':
+                       duration = int(float(param_value) * 1000)
+                       config['delay-after-error'] = str(duration) + 'ms'
                 cursor2.close()
             if region_width > 0 and region_height > 0:
                 config["workArea"] = [region_x, region_y, region_width, region_height]
@@ -149,10 +150,10 @@ try:
             pg_cursor.execute("select setval('video_streams_id_vstream_seq', (select max(v.id_vstream) + 1 from video_streams v), false)")
             pg_conn.commit()
             pg_cursor.close()
-    print("done.")
+    print("done.", flush=True)
 
     # face_descriptor, descriptor_images
-    print("Processing face descriptors and their images...", end="")
+    print("Processing face descriptors and their images...", end="", flush=True)
     query = """
         select
           fd.id_descriptor,
@@ -180,10 +181,10 @@ try:
             pg_cursor.execute("select setval('face_descriptors_id_descriptor_seq', (select max(v.id_descriptor) + 1 from face_descriptors v), false)")
             pg_conn.commit()
             pg_cursor.close()
-    print("done.")
+    print("done.", flush=True)
 
     # link_descriptor_vstream
-    print("Processing linked descriptors...", end="")
+    print("Processing linked descriptors...", end="", flush=True)
     query = 'select id_descriptor, id_vstream from link_descriptor_vstream'
     with mysql_conn.cursor() as cursor:
         cursor.execute(query)
@@ -194,10 +195,10 @@ try:
                 pg_conn.commit()
                 pg_cursor.close()
         cursor.close()
-    print("done.")
+    print("done.", flush=True)
 
     # log_faces
-    print("Processing log faces...", end="")
+    print("Processing log faces...", end="", flush=True)
     query = 'select id_log, id_vstream, log_date, id_descriptor, quality, screenshot, face_left, face_top, face_width, face_height from log_faces'
     with mysql_conn.cursor() as cursor:
         cursor.execute(query)
@@ -215,10 +216,10 @@ try:
             pg_cursor.execute("select setval('log_faces_id_log_seq', (select max(v.id_log) + 1 from log_faces v), false)")
             pg_conn.commit()
             pg_cursor.close()
-    print("done.")
+    print("done.", flush=True)
 
     # special groups
-    print("Processing special groups...", end="")
+    print("Processing special groups...", end="", flush=True)
     query = 'select id_special_group, group_name, sg_api_token, callback_url, max_descriptor_count from special_groups'
     with mysql_conn.cursor() as cursor:
         cursor.execute(query)
@@ -233,10 +234,10 @@ try:
             pg_cursor.execute("select setval('special_groups_id_special_group_seq', (select max(v.id_special_group) + 1 from special_groups v), false)")
             pg_conn.commit()
             pg_cursor.close()
-    print("done.")
+    print("done.", flush=True)
 
     # link_descriptor_sgroup
-    print("Processing linked descriptors for special groups...", end="")
+    print("Processing linked descriptors for special groups...", end="", flush=True)
     query = 'select id_descriptor, id_sgroup from link_descriptor_sgroup'
     with mysql_conn.cursor() as cursor:
         cursor.execute(query)
@@ -247,10 +248,10 @@ try:
                 pg_conn.commit()
                 pg_cursor.close()
         cursor.close()
-    print("done.")
+    print("done.", flush=True)
 
     # config params
-    print("Processing configuration parameters...", end="")
+    print("Processing configuration parameters...", end="", flush=True)
     query = "select param_name, param_value from common_settings"
     with mysql_conn.cursor() as cursor:
         config_common = {}
@@ -277,6 +278,9 @@ try:
                 config_common[param_name] = bool(int(param_value) == 1)
             if param_name == 'logs-level':
                 config_default_vstream[param_name] = map_logs_level[param_value]
+            if param_name == 'retry-pause':
+                duration = int(float(param_value) * 1000)
+                config_default_vstream['delay-after-error'] = str(duration) + 'ms'
         cursor.close()
     query = "update common_config set config = coalesce(config, '{}') || %s where id_group = %s"
     with pg_conn.cursor() as pg_cursor:
@@ -289,25 +293,25 @@ try:
         pg_cursor.execute(query, (json.dumps(config_default_vstream), id_group))
         pg_conn.commit()
         pg_cursor.close()
-    print("done.")
+    print("done.", flush=True)
 
     # copy screenshots
-    print("Copying screenshots...", end="")
+    print("Copying screenshots...", end="", flush=True)
     screenshot_path_new = os.path.join(screenshot_path_new, '') + 'group_' + str(id_group)
     try:
         shutil.copytree(screenshot_path_old, screenshot_path_new, dirs_exist_ok=True)
     except Error as error:
         print(error)
-    print("done.")
+    print("done.", flush=True)
 
     # copy events
-    print("Copying events data...", end="")
+    print("Copying events data...", end="", flush=True)
     events_path_new = os.path.join(events_path_new, '') + 'group_' + str(id_group)
     try:
         shutil.copytree(events_path_old, events_path_new, dirs_exist_ok=True)
     except Exception as error:
         print(error)
-    print("done.")
+    print("done.", flush=True)
 
     mysql_conn.close()
     mysql_conn2.close()
