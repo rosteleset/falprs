@@ -129,14 +129,14 @@ try:
                         config[param_name] = float(param_value)
                     if param_name in string_params_vstream:
                         config[param_name] = param_value
-                    if param_name in duration_params_vstream:
+                    if param_name in duration_params_vstream and param_name != 'retry-pause':
                         duration = int(float(param_value) * 1000)
                         config[param_name] = str(duration) + 'ms'
-                    if param_name == 'logs-level':
-                        config[param_name] = map_logs_level[param_value]
                     if param_name == 'retry-pause':
                        duration = int(float(param_value) * 1000)
                        config['delay-after-error'] = str(duration) + 'ms'
+                    if param_name == 'logs-level':
+                        config[param_name] = map_logs_level[param_value]
                 cursor2.close()
             if region_width > 0 and region_height > 0:
                 config["workArea"] = [region_x, region_y, region_width, region_height]
@@ -197,27 +197,6 @@ try:
         cursor.close()
     print("done.", flush=True)
 
-    # log_faces
-    print("Processing log faces...", end="", flush=True)
-    query = 'select id_log, id_vstream, log_date, id_descriptor, quality, screenshot, face_left, face_top, face_width, face_height from log_faces'
-    with mysql_conn.cursor() as cursor:
-        cursor.execute(query)
-        for (id_log, id_vstream, log_date, id_descriptor, quality, screenshot, face_left, face_top, face_width, face_height) in cursor:
-            screenshot_url = screenshots_url_prefix_new + '/' + screenshot[:-44] + 'group_' + str(id_group) + '/' + screenshot[-44:]
-            uuid = screenshot[-36:-4]
-            log_uuid = uuid[:8] + '-' + uuid[8:12] + '-' + uuid[12:16] + '-' + uuid[16:20] + '-' + uuid[20:]
-            query = 'insert into log_faces(id_log, id_vstream, log_date, id_descriptor, quality, face_left, face_top, face_width, face_height, screenshot_url, log_uuid) values(%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s) on conflict do nothing'
-            with pg_conn.cursor() as pg_cursor:
-                pg_cursor.execute(query, (id_log, id_vstream, log_date, id_descriptor, quality, face_left, face_top, face_width, face_height, screenshot_url, log_uuid))
-                pg_conn.commit()
-                pg_cursor.close()
-        cursor.close()
-        with pg_conn.cursor() as pg_cursor:
-            pg_cursor.execute("select setval('log_faces_id_log_seq', (select max(v.id_log) + 1 from log_faces v), false)")
-            pg_conn.commit()
-            pg_cursor.close()
-    print("done.", flush=True)
-
     # special groups
     print("Processing special groups...", end="", flush=True)
     query = 'select id_special_group, group_name, sg_api_token, callback_url, max_descriptor_count from special_groups'
@@ -271,16 +250,16 @@ try:
             if param_name in duration_params_common:
                 duration = int(float(param_value) * 1000)
                 config_common[param_name] = str(duration) + 'ms'
-            if param_name in duration_params_vstream:
+            if param_name in duration_params_vstream and param_name != 'retry-pause':
                 duration = int(float(param_value) * 1000)
                 config_default_vstream[param_name] = str(duration) + 'ms'
+            if param_name == 'retry-pause':
+                duration = int(float(param_value) * 1000)
+                config_default_vstream['delay-after-error'] = str(duration) + 'ms'
             if param_name in bool_params_common:
                 config_common[param_name] = bool(int(param_value) == 1)
             if param_name == 'logs-level':
                 config_default_vstream[param_name] = map_logs_level[param_value]
-            if param_name == 'retry-pause':
-                duration = int(float(param_value) * 1000)
-                config_default_vstream['delay-after-error'] = str(duration) + 'ms'
         cursor.close()
     query = "update common_config set config = coalesce(config, '{}') || %s where id_group = %s"
     with pg_conn.cursor() as pg_cursor:
@@ -293,6 +272,27 @@ try:
         pg_cursor.execute(query, (json.dumps(config_default_vstream), id_group))
         pg_conn.commit()
         pg_cursor.close()
+    print("done.", flush=True)
+
+    # log_faces
+    print("Processing log faces...", end="", flush=True)
+    query = 'select id_log, id_vstream, log_date, id_descriptor, quality, screenshot, face_left, face_top, face_width, face_height from log_faces'
+    with mysql_conn.cursor() as cursor:
+        cursor.execute(query)
+        for (id_log, id_vstream, log_date, id_descriptor, quality, screenshot, face_left, face_top, face_width, face_height) in cursor:
+            screenshot_url = screenshots_url_prefix_new + '/' + screenshot[:-44] + 'group_' + str(id_group) + '/' + screenshot[-44:]
+            uuid = screenshot[-36:-4]
+            log_uuid = uuid[:8] + '-' + uuid[8:12] + '-' + uuid[12:16] + '-' + uuid[16:20] + '-' + uuid[20:]
+            query = 'insert into log_faces(id_log, id_vstream, log_date, id_descriptor, quality, face_left, face_top, face_width, face_height, screenshot_url, log_uuid) values(%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s) on conflict do nothing'
+            with pg_conn.cursor() as pg_cursor:
+                pg_cursor.execute(query, (id_log, id_vstream, log_date, id_descriptor, quality, face_left, face_top, face_width, face_height, screenshot_url, log_uuid))
+                pg_conn.commit()
+                pg_cursor.close()
+        cursor.close()
+        with pg_conn.cursor() as pg_cursor:
+            pg_cursor.execute("select setval('log_faces_id_log_seq', (select max(v.id_log) + 1 from log_faces v), false)")
+            pg_conn.commit()
+            pg_cursor.close()
     print("done.", flush=True)
 
     # copy screenshots
