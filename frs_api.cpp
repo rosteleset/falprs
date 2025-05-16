@@ -1253,6 +1253,12 @@ namespace Frs
                     // open json file with event identifier
                     std::string json_filename = absl::Substitute("$0group_$1/$2/$3/$4/$5/$6.json", workflow_.getLocalConfig().events_path,
                       id_group, event_id[0], event_id[1], event_id[2], event_id[3], event_id);
+                    if (!std::filesystem::exists(json_filename, ec))
+                    {
+                      // trying the shorter path for compatibility with the old project
+                      json_filename = absl::Substitute("$0group_$1/$2/$3/$4/$5.json", workflow_.getLocalConfig().events_path,
+                      id_group, event_id[0], event_id[1], event_id[2], event_id);
+                    }
                     if (auto json_size = std::filesystem::file_size(json_filename, ec); !ec && json_size > 0)
                     {
                       std::ifstream f_json(json_filename, std::ios::binary);
