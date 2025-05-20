@@ -562,7 +562,7 @@ namespace Frs
 
     using ValueType = SGConfig;
     static constexpr auto kKeyMember = &SGConfig::sg_api_token;
-    static constexpr auto kQuery = "select sg_api_token, id_special_group, coalesce(callback_url, ''), max_descriptor_count, id_group from special_groups";
+    static constexpr auto kQuery = "select sg_api_token, id_special_group, coalesce(callback_url, '') callback_url, max_descriptor_count, id_group from special_groups";
     static constexpr const char* kUpdatedField = nullptr;
     using CacheContainer = SGConfigCacheContainer;
     static constexpr auto kClusterHostType = userver::storages::postgres::ClusterHostType::kSlave;
