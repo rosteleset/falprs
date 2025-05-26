@@ -1275,12 +1275,21 @@ properties:
         auto log_date = row[DatabaseFields::LOG_DATE].As<userver::storages::postgres::TimePointTz>();
         auto path_suffix = absl::Substitute("group_$0/$1/$2/$3/$4/", id_group, s_uuid[0], s_uuid[1], s_uuid[2], s_uuid[3]);
         auto orig_path_prefix = absl::StrCat(local_config_.screenshots_path, path_suffix);
+        auto orig_path_json = absl::StrCat(orig_path_prefix, s_uuid, JSON_SUFFIX);
         auto orig_path_dat = absl::StrCat(orig_path_prefix, s_uuid, DATA_FILE_SUFFIX);
-        if (auto orig_path_json = absl::StrCat(orig_path_prefix, s_uuid, JSON_SUFFIX); std::filesystem::exists(orig_path_json))
+        std::error_code ec;
+        if (!std::filesystem::exists(orig_path_json, ec))
+        {
+          // trying the shorter path for compatibility with the old project
+          path_suffix = absl::Substitute("group_$0/$1/$2/$3/", id_group, s_uuid[0], s_uuid[1], s_uuid[2]);
+          orig_path_prefix = absl::StrCat(local_config_.screenshots_path, path_suffix);
+          orig_path_json = absl::StrCat(orig_path_prefix, s_uuid, JSON_SUFFIX);
+          orig_path_dat = absl::StrCat(orig_path_prefix, s_uuid, DATA_FILE_SUFFIX);
+        }
+        if (std::filesystem::exists(orig_path_json, ec))
         {
           auto copy_path_prefix = absl::StrCat(local_config_.events_path, path_suffix);
           auto copy_path_json = absl::StrCat(copy_path_prefix, s_uuid, JSON_SUFFIX);
-          std::error_code ec;
           std::filesystem::create_directories(copy_path_prefix, ec);
           if (ec)
           {
