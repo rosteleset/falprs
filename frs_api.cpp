@@ -354,7 +354,8 @@ namespace Frs
           ConfigParams::CAPTURE_TIMEOUT,
           ConfigParams::DELAY_AFTER_ERROR,
           ConfigParams::DELAY_BETWEEN_FRAMES,
-          ConfigParams::OPEN_DOOR_DURATION};
+          ConfigParams::OPEN_DOOR_DURATION,
+          ConfigParams::WORKFLOW_TIMEOUT};
 
         // build video stream config
         userver::formats::json::ValueBuilder config_builder;
@@ -511,7 +512,7 @@ namespace Frs
   {
     requireMemberThrow(json, P_STREAM_ID);
     auto vstream_key = absl::Substitute("$0_$1", id_group, convertToString(json[P_STREAM_ID]));
-    workflow_.stopWorkflow(std::move(vstream_key));
+    workflow_.stopWorkflow(std::move(vstream_key), false);
   }
 
   userver::formats::json::Value Api::bestQuality(const int32_t id_group, const userver::formats::json::Value& json) const

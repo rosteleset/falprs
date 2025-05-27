@@ -284,6 +284,7 @@ namespace Frs
 
     userver::concurrent::Variable<HashMap<std::string, bool>> being_processed_vstreams;
     userver::concurrent::Variable<HashMap<int32_t, DNNStatsData>> dnn_stats_data;
+    userver::concurrent::Variable<HashMap<std::string, std::chrono::time_point<std::chrono::steady_clock>>> vstream_timeouts;
 
     // Maintenance member functions
     void doOldLogMaintenance() const;

@@ -117,6 +117,7 @@ namespace Lprs
     userver::concurrent::Variable<HashMap<std::string, bool>> being_processed_vstreams;
     userver::concurrent::Variable<HashMap<std::string, BannedPlateData>> ban_data;
     userver::concurrent::Variable<HashMap<std::string, std::chrono::time_point<std::chrono::steady_clock>>> ban_special_data;
+    userver::concurrent::Variable<HashMap<std::string, std::chrono::time_point<std::chrono::steady_clock>>> vstream_timeouts;
 
     void OnAllComponentsAreStopping() override;
     void processPipeline(std::string&& vstream_key);

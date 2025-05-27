@@ -88,6 +88,7 @@ namespace Frs
     inline static constexpr auto TOLERANCE = "tolerance";
     inline static constexpr auto TITLE_HEIGHT_RATIO = "title-height-ratio";
     inline static constexpr auto CONF_OSD_DT_FORMAT = "osd-datetime-format";
+    inline static constexpr auto WORKFLOW_TIMEOUT = "workflow-timeout";
 
     // Video stream specific params
     inline static constexpr auto TITLE = "title";
@@ -151,6 +152,7 @@ namespace Frs
     float title_height_ratio{0.033};
     std::string osd_dt_format{"%Y-%m-%d %H:%M:%S"};
     std::vector<float> work_area;
+    std::chrono::milliseconds workflow_timeout{std::chrono::seconds{0}};
 
     // additional data
     int32_t id_group{};
@@ -186,6 +188,7 @@ namespace Frs
     config.osd_dt_format = convertToString(json[ConfigParams::CONF_OSD_DT_FORMAT], config.osd_dt_format);
     if (json.HasMember(ConfigParams::WORK_AREA) && json[ConfigParams::WORK_AREA].IsArray())
       config.work_area = json[ConfigParams::WORK_AREA].As<decltype(config.work_area)>();
+    config.workflow_timeout = convertToDuration(json[ConfigParams::WORKFLOW_TIMEOUT], config.workflow_timeout);
 
     return config;
   }

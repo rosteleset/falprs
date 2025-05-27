@@ -369,12 +369,14 @@ properties:
   void Workflow::startWorkflow(std::string&& vstream_key)
   {
     int32_t id_group = -1;
+    std::chrono::milliseconds workflow_timeout{std::chrono::seconds{0}};
     // scope for accessing cache
     {
       const auto cache = vstreams_config_cache_.Get();
       if (!cache->getData().contains(vstream_key))
         return;
       id_group = cache->getData().at(vstream_key).id_group;
+      workflow_timeout = cache->getData().at(vstream_key).workflow_timeout;
     }
     if (id_group <= 0)
       return;
@@ -386,6 +388,12 @@ properties:
       if (!data_ptr->contains(vstream_key))
         do_pipeline = true;
       (*data_ptr)[vstream_key] = true;
+    }
+
+    if (workflow_timeout.count() > 0)
+    {
+      auto data_ptr = vstream_timeouts.Lock();
+      (*data_ptr)[vstream_key] = std::chrono::steady_clock::now() + workflow_timeout;
     }
 
     if (do_pipeline)
@@ -402,13 +410,23 @@ properties:
 
   void Workflow::stopWorkflow(std::string&& vstream_key, const bool is_internal)
   {
-    auto data_ptr = being_processed_vstreams.Lock();
-    if (data_ptr->contains(vstream_key))
+    // scope for accessing concurrent variable
     {
-      if (is_internal)
+      auto data_ptr = being_processed_vstreams.Lock();
+      if (data_ptr->contains(vstream_key))
+      {
+        if (is_internal)
+          data_ptr->erase(vstream_key);
+        else
+          (*data_ptr)[vstream_key] = false;
+      }
+    }
+
+    // scope for accessing concurrent variable
+    {
+      auto data_ptr = vstream_timeouts.Lock();
+      if (data_ptr->contains(vstream_key))
         data_ptr->erase(vstream_key);
-      else
-        (*data_ptr)[vstream_key] = false;
     }
   }
 
@@ -1136,7 +1154,10 @@ properties:
               << ";  delay for " << config.delay_after_error.count() << "ms";
           delay_between_frames = config.delay_after_error;
         } else
+        {
           stopWorkflow(std::move(task_data.vstream_key));
+          return {.comments = "Error during pipeline execution"};
+        }
       } else
         return {.comments = "Error during pipeline execution"};
     }
@@ -1363,17 +1384,34 @@ properties:
     userver::engine::InterruptibleSleepFor(delay);
 
     bool do_next = false;
+    bool is_timeout = false;
+
+    // scope for accessing concurrent variable
+    {
+      const auto now = std::chrono::steady_clock::now();
+      auto data_ptr = vstream_timeouts.Lock();
+      if (data_ptr->contains(task_data.vstream_key))
+        if (data_ptr->at(task_data.vstream_key) < now)
+        {
+          data_ptr->erase(task_data.vstream_key);
+          is_timeout = true;
+        }
+    }
+
     // scope for accessing concurrent variable
     {
       auto data_ptr = being_processed_vstreams.Lock();
       if (data_ptr->contains(task_data.vstream_key))
       {
-        if (data_ptr->at(task_data.vstream_key))
+        if (data_ptr->at(task_data.vstream_key) && !is_timeout)
           do_next = true;
         else
           data_ptr->erase(task_data.vstream_key);
       }
     }
+
+    LOG_INFO_TO(logger_) << "Stopping a workflow by timeout: vstream_key = " << task_data.vstream_key << ";";
+
     if (do_next)
       tasks_.Detach(AsyncNoSpan(task_processor_, &Workflow::processPipeline, this, std::move(task_data)));
   }

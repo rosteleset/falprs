@@ -2049,6 +2049,12 @@ components:
           items:
             type: float
           example: [20.00, 20.00, 60.00, 60.00]
+        workflow-timeout:
+          description: The period after which processing workflow automatically stops after start (a value of 0s disables the timeout)
+          type: string
+          pattern: ^\d+(ms|[smhd])$
+          default: 0s
+          example: 60s
     LPRSInternalVStreamConfig:
       description: Configuration of the video stream
       type: object
@@ -2269,3 +2275,9 @@ components:
           description: Flag for processing special vehicles
           type: boolean
           default: false
+        workflow-timeout:
+          description: The period after which processing workflow automatically stops after start (a value of 0s disables the timeout)
+          type: string
+          pattern: ^\d+(ms|[smhd])$
+          default: 0s
+          example: 60s

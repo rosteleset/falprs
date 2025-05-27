@@ -76,6 +76,7 @@ namespace Lprs
     inline static constexpr auto MIN_PLATE_HEIGHT = "min-plate-height";
     inline static constexpr auto FLAG_SAVE_FAILED = "flag-save-failed";
     inline static constexpr auto FLAG_PROCESS_SPECIAL = "flag-process-special";
+    inline static constexpr auto WORKFLOW_TIMEOUT = "workflow-timeout";
 
     // Video stream specific params
     inline static constexpr auto SCREENSHOT_URL = "screenshot-url";
@@ -135,6 +136,7 @@ namespace Lprs
     std::vector<std::vector<cv::Point2f>> work_area;
     bool flag_save_failed{false};
     bool flag_process_special{false};
+    std::chrono::milliseconds workflow_timeout{std::chrono::seconds{0}};
 
     // additional data
     int32_t id_group{};
@@ -214,6 +216,7 @@ namespace Lprs
       {
         config.work_area = {};
       }
+    config.workflow_timeout = convertToDuration(json[ConfigParams::WORKFLOW_TIMEOUT], config.workflow_timeout);
 
     return config;
   }

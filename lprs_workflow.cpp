@@ -269,10 +269,14 @@ properties:
 
   void Workflow::startWorkflow(std::string&& vstream_key)
   {
+    std::chrono::milliseconds workflow_timeout{std::chrono::seconds{0}};
     // scope for accessing cache
     {
-      if (const auto cache = vstreams_config_cache_.Get(); !cache->getData().contains(vstream_key))
+      const auto cache = vstreams_config_cache_.Get();
+      if (!cache->getData().contains(vstream_key))
         return;
+
+      workflow_timeout = cache->getData().at(vstream_key).workflow_timeout;
     }
 
     bool do_pipeline = false;
@@ -284,19 +288,35 @@ properties:
       (*data_ptr)[vstream_key] = true;
     }
 
+    if (workflow_timeout.count() > 0)
+    {
+      auto data_ptr = vstream_timeouts.Lock();
+      (*data_ptr)[vstream_key] = std::chrono::steady_clock::now() + workflow_timeout;
+    }
+
     if (do_pipeline)
       tasks_.Detach(AsyncNoSpan(task_processor_, &Workflow::processPipeline, this, std::move(vstream_key)));
   }
 
   void Workflow::stopWorkflow(std::string&& vstream_key, const bool is_internal)
   {
-    auto data_ptr = being_processed_vstreams.Lock();
-    if (data_ptr->contains(vstream_key))
+    // scope for accessing concurrent variable
     {
-      if (is_internal)
+      auto data_ptr = being_processed_vstreams.Lock();
+      if (data_ptr->contains(vstream_key))
+      {
+        if (is_internal)
+          data_ptr->erase(vstream_key);
+        else
+          (*data_ptr)[vstream_key] = false;
+      }
+    }
+
+    // scope for accessing concurrent variable
+    {
+      auto data_ptr = vstream_timeouts.Lock();
+      if (data_ptr->contains(vstream_key))
         data_ptr->erase(vstream_key);
-      else
-        (*data_ptr)[vstream_key] = false;
     }
   }
 
@@ -857,17 +877,34 @@ properties:
     userver::engine::InterruptibleSleepFor(delay);
 
     bool do_next = false;
+    bool is_timeout = false;
+
+    // scope for accessing concurrent variable
+    {
+      const auto now = std::chrono::steady_clock::now();
+      auto data_ptr = vstream_timeouts.Lock();
+      if (data_ptr->contains(vstream_key))
+        if (data_ptr->at(vstream_key) < now)
+        {
+          data_ptr->erase(vstream_key);
+          is_timeout = true;
+        }
+    }
+
     // scope for accessing concurrent variable
     {
       auto data_ptr = being_processed_vstreams.Lock();
       if (data_ptr->contains(vstream_key))
       {
-        if (data_ptr->at(vstream_key))
+        if (data_ptr->at(vstream_key) && !is_timeout)
           do_next = true;
         else
           data_ptr->erase(vstream_key);
       }
     }
+
+    LOG_INFO_TO(logger_) << "Stopping a workflow by timeout: vstream_key = " << vstream_key << ";";
+
     if (do_next)
       tasks_.Detach(AsyncNoSpan(task_processor_, &Workflow::processPipeline, this, std::move(vstream_key)));
   }
