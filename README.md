@@ -31,7 +31,7 @@ This project is a replacement for the [old](https://github.com/rosteleset/frs) o
 * [Tests](#tests)
    * [LPRS](#lprs_tests)
    * [FRS](#frs_tests)
- * [Importing data from an old FRS project](#frs_import_data)
+ * [Synchronizing data with an old FRS project](#frs_sync_data)
 
 <a id="lprs"></a>
 ## LPRS
@@ -408,9 +408,9 @@ After finishing the tests, delete the directories and test databases:
 ./test_clean.sh
 ```
 
-<a id="frs_import_data"></a>
-### Importing data from an old FRS project
-To copy data from an old project to a new one, you can use the *import_data.py* script from the *utils* directory of this repository. Before running the script, make sure that your old service is stopped, and that the new one is correctly configured and stopped. Installing dependencies:
+<a id="frs_sync_data"></a>
+### Synchronizing data with an old FRS project
+The *sync_data.py* script from the *utils* directory of this repository performs a full synchronization: it deletes unnecessary records in the new database and adds missing ones. Before running the script, make sure that your old service is stopped, and that the new one is correctly configured and stopped. Installing dependencies:
 ```bash
 sudo apt-get install -y pip python3-virtualenv
 ```
@@ -427,7 +427,7 @@ In the *config.py* file, replace the variable values ​​according to your con
 virtualenv venv
 source venv/bin/activate
 pip install -r requirements.txt
-python3 import_data.py
+python3 sync_data.py
 ```
 After the script runs, a success message should appear.
 Delete the virtual environment:

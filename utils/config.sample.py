@@ -13,5 +13,7 @@ pg_database = 'frs'
 screenshot_path_old = '/opt/frs/static/screenshots'
 screenshot_path_new = '/opt/falprs/static/frs/screenshots'
 screenshots_url_prefix_new = 'http://localhost:9051/frs/screenshots'
+
+copy_events = False
 events_path_old = '/opt/frs/static/events'
 events_path_new = '/opt/falprs/static/frs/events'
