@@ -903,7 +903,8 @@ properties:
       }
     }
 
-    LOG_INFO_TO(logger_) << "Stopping a workflow by timeout: vstream_key = " << vstream_key << ";";
+    if (is_timeout)
+      LOG_INFO_TO(logger_) << "Stopping a workflow by timeout: vstream_key = " << vstream_key << ";";
 
     if (do_next)
       tasks_.Detach(AsyncNoSpan(task_processor_, &Workflow::processPipeline, this, std::move(vstream_key)));
