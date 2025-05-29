@@ -346,7 +346,8 @@ namespace Frs
           ConfigParams::CONF_OSD_DT_FORMAT,
           ConfigParams::DNN_FD_INFERENCE_SERVER,
           ConfigParams::DNN_FC_INFERENCE_SERVER,
-          ConfigParams::DNN_FR_INFERENCE_SERVER};
+          ConfigParams::DNN_FR_INFERENCE_SERVER,
+          ConfigParams::TITLE};
 
         HashSet<std::string> time_params = {
           ConfigParams::BEST_QUALITY_INTERVAL_AFTER,
