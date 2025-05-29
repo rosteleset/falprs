@@ -544,7 +544,7 @@ paths:
               schema:
                 type: object
                 properties:
-                  screenshotUrl:
+                  screenshot:
                     description: Frame URL
                     type: string
                     format: url
@@ -565,7 +565,7 @@ paths:
                     type: integer
                     default: 0
               example:
-                screenshotUrl: 'https://falprs.host/frs/screenshots/group_1/2024-04-10/6/8/2/0/6820da5c-efe9-4b49-81fd-1f5ba33d3ee1.jpg'
+                screenshot: 'https://falprs.host/frs/screenshots/group_1/2024-04-10/6/8/2/0/6820da5c-efe9-4b49-81fd-1f5ba33d3ee1.jpg'
                 left: 537
                 top: 438
                 width: 142
@@ -625,7 +625,7 @@ paths:
                   type: object
                   required:
                     - date
-                    - screenshotUrl
+                    - screenshot
                     - quality
                     - left
                     - top
@@ -639,7 +639,7 @@ paths:
                     faceId:
                       description: Registered face descriptor
                       type: integer
-                    screenshotUrl:
+                    screenshot:
                       description: Frame URL
                       type: string
                       format: url
@@ -666,7 +666,7 @@ paths:
               example:
                 - date: '2021-08-17T08:00:15.834+00:00'
                   quality: 890
-                  screenshotUrl: 'https://...'
+                  screenshot: 'https://...'
                   left: 537
                   top: 438
                   width: 142
@@ -674,7 +674,7 @@ paths:
                 - date: '2021-08-17T08:30:15.071+00:00'
                   faceId: 1234
                   quality: 562
-                  screenshotUrl: 'https://...'
+                  screenshot: 'https://...'
                   left: 837
                   top: 338
                   width: 175

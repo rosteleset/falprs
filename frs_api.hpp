@@ -155,7 +155,7 @@ namespace Frs
     static constexpr auto P_DATE = "date";
     static constexpr auto P_LOG_EVENT_ID = "eventId";
     static constexpr auto P_EVENT_UUID = "uuid";
-    static constexpr auto P_SCREENSHOT_URL = "screenshotUrl";
+    static constexpr auto P_SCREENSHOT_URL = "screenshot";
     static constexpr auto P_FACE_LEFT = "left";
     static constexpr auto P_FACE_TOP = "top";
     static constexpr auto P_FACE_WIDTH = "width";
