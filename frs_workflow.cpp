@@ -470,62 +470,88 @@ properties:
     auto delay_between_frames = config.delay_between_frames;
 
     if (config.logs_level <= userver::logging::Level::kDebug || task_data.task_type == TASK_TEST)
+    {
+      auto frame_url = task_data.frame_url.starts_with("data:") ? "data:base64..." : task_data.frame_url;
       USERVER_IMPL_LOG_TO(logger_, userver::logging::Level::kDebug)
         << "Start processPipeline: vstream_key = " << task_data.vstream_key
         << ";  task_type = " << task_data.task_type
-        << (!task_data.frame_url.empty() ? absl::Substitute(";  frame_url = $0", task_data.frame_url) : "");
+        << absl::Substitute(";  frame_url = $0", frame_url);
+    }
+
     try
     {
-      if (config.logs_level <= userver::logging::Level::kTrace || task_data.task_type == TASK_TEST)
-        USERVER_IMPL_LOG_TO(logger_, userver::logging::Level::kTrace)
-          << "vstream_key = " << task_data.vstream_key
-          << ";  before image acquisition";
-      auto capture_response = http_client_.CreateRequest()
-                        .get(url)
-                        .retry(config.max_capture_error_count)
-                        .timeout(config.capture_timeout)
-                        .perform();
-      if (config.logs_level <= userver::logging::Level::kTrace || task_data.task_type == TASK_TEST)
-        USERVER_IMPL_LOG_TO(logger_, userver::logging::Level::kTrace)
-          << "vstream_key = " << task_data.vstream_key
-          << ";  after image acquisition";
-
-      if (capture_response->status_code() != userver::clients::http::Status::OK || capture_response->body_view().empty())
+      std::string image_data;
+      if (url.starts_with("data:"))
       {
-        if (config.logs_level <= userver::logging::Level::kError || task_data.task_type == TASK_TEST)
-          USERVER_IMPL_LOG_TO(logger_, userver::logging::Level::kError)
+        if (auto pos_comma = url.find(','); pos_comma != std::string::npos)
+          if (url.find(";base64,") != std::string::npos)
+            if (!absl::Base64Unescape(absl::ClippedSubstr(url, pos_comma + 1), &image_data))
+            {
+              if (config.logs_level <= userver::logging::Level::kError || task_data.task_type == TASK_TEST)
+                USERVER_IMPL_LOG_TO(logger_, userver::logging::Level::kError)
+                  << "Error decoding image from BASE64: vstream_key = " << task_data.vstream_key << ";";
+
+              return {
+                .comments = "Error decoding image from BASE64",
+                .face_image = {},
+                .id_descriptors = {}
+              };
+            }
+      } else
+      {
+        if (config.logs_level <= userver::logging::Level::kTrace || task_data.task_type == TASK_TEST)
+          USERVER_IMPL_LOG_TO(logger_, userver::logging::Level::kTrace)
             << "vstream_key = " << task_data.vstream_key
-            << ";  url = " << url
-            << ";  status_code = " << capture_response->status_code();
-        if (config.delay_after_error.count() > 0)
+            << ";  before image acquisition";
+        auto capture_response = http_client_.CreateRequest()
+                          .get(url)
+                          .retry(config.max_capture_error_count)
+                          .timeout(config.capture_timeout)
+                          .perform();
+        if (config.logs_level <= userver::logging::Level::kTrace || task_data.task_type == TASK_TEST)
+          USERVER_IMPL_LOG_TO(logger_, userver::logging::Level::kTrace)
+            << "vstream_key = " << task_data.vstream_key
+            << ";  after image acquisition";
+
+        if (capture_response->status_code() != userver::clients::http::Status::OK || capture_response->body_view().empty())
         {
           if (config.logs_level <= userver::logging::Level::kError || task_data.task_type == TASK_TEST)
             USERVER_IMPL_LOG_TO(logger_, userver::logging::Level::kError)
               << "vstream_key = " << task_data.vstream_key
-              << ";  delay for " << config.delay_after_error.count() << "ms";
-          if (task_data.task_type == TASK_RECOGNIZE)
-            nextPipeline(std::move(task_data), config.delay_after_error);
-        } else
-          if (task_data.task_type == TASK_RECOGNIZE)
-            stopWorkflow(std::move(task_data.vstream_key));
+              << ";  url = " << url
+              << ";  status_code = " << capture_response->status_code();
+          if (config.delay_after_error.count() > 0)
+          {
+            if (config.logs_level <= userver::logging::Level::kError || task_data.task_type == TASK_TEST)
+              USERVER_IMPL_LOG_TO(logger_, userver::logging::Level::kError)
+                << "vstream_key = " << task_data.vstream_key
+                << ";  delay for " << config.delay_after_error.count() << "ms";
+            if (task_data.task_type == TASK_RECOGNIZE)
+              nextPipeline(std::move(task_data), config.delay_after_error);
+          } else
+            if (task_data.task_type == TASK_RECOGNIZE)
+              stopWorkflow(std::move(task_data.vstream_key));
 
-        return {
-          .comments = absl::Substitute("Error when retrieving image by url: $0", url),
-          .face_image = {},
-          .id_descriptors = {}
-        };
+          return {
+            .comments = absl::Substitute("Error when retrieving image by url: $0", url),
+            .face_image = {},
+            .id_descriptors = {}
+          };
+        }
+
+        image_data = capture_response->body();
       }
 
       if (config.logs_level <= userver::logging::Level::kTrace || task_data.task_type == TASK_TEST)
       {
         USERVER_IMPL_LOG_TO(logger_, userver::logging::Level::kTrace)
           << "vstream_key = " << task_data.vstream_key
-          << ";  image size " << capture_response->body_view().size();
+          << ";  image size " << image_data.size();
         USERVER_IMPL_LOG_TO(logger_, userver::logging::Level::kTrace)
           << "vstream_key = " << task_data.vstream_key
           << ";  before decoding the image";
       }
-      cv::Mat frame = imdecode(std::vector<char>(capture_response->body_view().begin(), capture_response->body_view().end()), cv::IMREAD_COLOR);
+      cv::Mat frame = imdecode(std::vector<char>(image_data.begin(), image_data.end()), cv::IMREAD_COLOR);
       if (config.logs_level <= userver::logging::Level::kTrace || task_data.task_type == TASK_TEST)
         USERVER_IMPL_LOG_TO(logger_, userver::logging::Level::kTrace)
           << "vstream_key = " << task_data.vstream_key
@@ -890,7 +916,7 @@ properties:
           auto path_prefix = absl::StrCat(local_config_.screenshots_path, path_suffix);
           userver::fs::CreateDirectories(fs_task_processor_, path_prefix);
           auto path = absl::StrCat(path_prefix, s_uuid, screenshot_extension);
-          userver::fs::RewriteFileContents(fs_task_processor_, path, frame_with_osd.empty() ? capture_response->body_view() : frame_with_osd);
+          userver::fs::RewriteFileContents(fs_task_processor_, path, frame_with_osd.empty() ? image_data : frame_with_osd);
           userver::fs::Chmod(fs_task_processor_, path,
             boost::filesystem::perms::owner_read | boost::filesystem::perms::owner_write | boost::filesystem::perms::others_read | boost::filesystem::perms::others_write);
 
@@ -999,7 +1025,7 @@ properties:
               auto path_prefix = absl::StrCat(local_config_.screenshots_path, path_suffix);
               userver::fs::CreateDirectories(fs_task_processor_, path_prefix);
               auto path = absl::StrCat(path_prefix, s_uuid, screenshot_extension);
-              userver::fs::RewriteFileContents(fs_task_processor_, path, frame_with_osd.empty() ? capture_response->body_view() : frame_with_osd);
+              userver::fs::RewriteFileContents(fs_task_processor_, path, frame_with_osd.empty() ? image_data : frame_with_osd);
               userver::fs::Chmod(fs_task_processor_, path,
                 boost::filesystem::perms::owner_read | boost::filesystem::perms::owner_write | boost::filesystem::perms::others_read | boost::filesystem::perms::others_write);
 

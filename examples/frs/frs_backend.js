@@ -50,11 +50,11 @@ const http_server = http.createServer((req, res) => {
             };
             axios(r).then(async function (response) {
                 // get image from FRS
-                loadImage(response.data.data.screenshotUrl).then((image) => {
+                loadImage(response.data.data.screenshot).then((image) => {
                     const canvas = createCanvas(image.width, image.height);
                     const ctx = canvas.getContext('2d');
                     ctx.drawImage(image, 0, 0);
-                    var parts = response.data.data.screenshotUrl.split("/");
+                    var parts = response.data.data.screenshot.split("/");
                     const filename = parts[parts.length - 1];
                     const prefix = filename.split(".")[0];
 
