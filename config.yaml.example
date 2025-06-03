@@ -100,6 +100,7 @@ components_manager:
             path: /lprs/api/{method}
             method: POST
             task_processor: main-task-processor                              # Run it on CPU bound task processor
+            max_request_size: 5242880                                        # 5 Mb
 
         lprs-postgresql-database:
             dbconnection: 'postgresql://falprs:123@localhost:5432/lprs'
@@ -141,6 +142,7 @@ components_manager:
             path: /frs/api/{method}
             method: POST
             task_processor: main-task-processor                              # Run it on CPU bound task processor
+            max_request_size: 5242880                                        # 5 Mb
 
         frs-postgresql-database:
             dbconnection: 'postgresql://falprs:123@localhost:5432/frs'
