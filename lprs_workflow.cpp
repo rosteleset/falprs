@@ -208,7 +208,7 @@ namespace Lprs
     if (local_config_.events_log_maintenance_interval.count() > 0)
       events_log_maintenance_task_.Start(kEventsLogMaintenanceName,
         {std::chrono::milliseconds(local_config_.events_log_maintenance_interval),
-          {userver::utils::PeriodicTask::Flags::kNow}},
+          {userver::utils::PeriodicTask::Flags::kStrong}},
         [this]
         { doEventsLogMaintenance(); });
   }

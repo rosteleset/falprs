@@ -210,6 +210,14 @@ namespace Frs
     return {cx - max_side / 2, cy - max_side / 2, max_side, max_side};
   }
 
+  void removeExpiredUnknownDescriptors(std::vector<UnknownDescriptorData>& ud)
+  {
+    std::erase_if(ud, [now = std::chrono::steady_clock::now()](const auto& item)
+      {
+        return item.expiration_tp < now;
+      });
+  }
+
   Workflow::Workflow(const userver::components::ComponentConfig& config, const userver::components::ComponentContext& context)
     : LoggableComponentBase(config, context),
       task_processor_(context.GetTaskProcessor(config["task_processor"].As<std::string>())),
@@ -254,7 +262,7 @@ namespace Frs
     // Periodic maintenance
     if (local_config_.clear_old_log_faces.count() > 0)
       old_logs_maintenance_task_.Start(kOldLogsMaintenance,
-        {local_config_.clear_old_log_faces, {userver::utils::PeriodicTask::Flags::kNow}},
+        {local_config_.clear_old_log_faces, {userver::utils::PeriodicTask::Flags::kStrong}},
         [this]
         {
           doOldLogMaintenance();
@@ -262,7 +270,7 @@ namespace Frs
 
     if (local_config_.flag_deleted_maintenance_interval.count() > 0)
       flag_deleted_maintenance_task_.Start(kFlagDeletedMaintenance,
-        {local_config_.flag_deleted_maintenance_interval, {userver::utils::PeriodicTask::Flags::kNow}},
+        {local_config_.flag_deleted_maintenance_interval, {userver::utils::PeriodicTask::Flags::kStrong}},
         [this]
         {
           doFlagDeletedMaintenance();
@@ -270,7 +278,7 @@ namespace Frs
 
     if (local_config_.copy_events_maintenance_interval.count() > 0)
       copy_events_maintenance_task_.Start(kCopyEventsMaintenance,
-        {local_config_.copy_events_maintenance_interval, {userver::utils::PeriodicTask::Flags::kNow}},
+        {local_config_.copy_events_maintenance_interval, {userver::utils::PeriodicTask::Flags::kStrong}},
         [this]
         {
           doCopyEventsMaintenance();
@@ -278,7 +286,7 @@ namespace Frs
 
     if (local_config_.clear_old_events.count() > 0)
       old_events_maintenance_task_.Start(kOldLogsMaintenance,
-        {local_config_.clear_old_events, {userver::utils::PeriodicTask::Flags::kNow}},
+        {local_config_.clear_old_events, {userver::utils::PeriodicTask::Flags::kStrong}},
         [this]
         {
           doOldEventsMaintenance();
@@ -471,11 +479,11 @@ properties:
 
     if (config.logs_level <= userver::logging::Level::kDebug || task_data.task_type == TASK_TEST)
     {
-      auto frame_url = task_data.frame_url.starts_with("data:") ? "data:base64..." : task_data.frame_url;
+      auto frame_url = url.starts_with("data:") ? "data:base64..." : url;
       USERVER_IMPL_LOG_TO(logger_, userver::logging::Level::kDebug)
         << "Start processPipeline: vstream_key = " << task_data.vstream_key
         << ";  task_type = " << task_data.task_type
-        << absl::Substitute(";  frame_url = $0", frame_url);
+        << absl::Substitute(";  url = $0", frame_url);
     }
 
     try
@@ -766,6 +774,16 @@ properties:
                     id_descriptor = item;
                   }
                 }
+            if (fd_cache->getSpawned().contains(id_descriptor))
+            {
+              auto id_parent = fd_cache->getSpawned().at(id_descriptor);
+              if (config.logs_level <= userver::logging::Level::kTrace || task_data.task_type == TASK_TEST)
+                USERVER_IMPL_LOG_TO(logger_, userver::logging::Level::kTrace)
+                  << "vstream_key = " << task_data.vstream_key
+                  << ";  spawned id_descriptor = " << id_descriptor
+                  << ";  parent id_descriptor = " << id_parent;
+              id_descriptor = id_parent;
+            }
 
             // recognition in special groups
             if (task_data.id_sgroup > 0)
@@ -826,6 +844,25 @@ properties:
               best_quality = face_data.back().laplacian;
               best_face_index = static_cast<int>(face_data.size()) - 1;
             }
+
+            if (config.flag_spawned_descriptors && task_data.task_type == TASK_RECOGNIZE)
+            {
+              if (config.logs_level <= userver::logging::Level::kTrace)
+                USERVER_IMPL_LOG_TO(logger_, userver::logging::Level::kTrace)
+                  << "vstream_key = " << task_data.vstream_key
+                  << ";  add an unknown descriptor";
+
+              auto ud_ptr = unknown_descriptors.Lock();
+              removeExpiredUnknownDescriptors((*ud_ptr)[config.id_vstream]);
+
+              // add an unknown descriptor
+              if (!ud_ptr->contains(config.id_vstream))
+                (*ud_ptr)[config.id_vstream] = {};
+              cv::Rect r = enlargeFaceRect(face_data.back().face_rect, config.face_enlarge_scale);
+              r = r & cv::Rect(0, 0, frame.cols, frame.rows);
+              (*ud_ptr)[config.id_vstream].emplace_back(std::chrono::steady_clock::now() + config.unknown_descriptor_ttl,
+                face_data.back().fd.clone(), frame(r).clone());
+            }
           } else
           {
             // face recognized
@@ -840,6 +877,58 @@ properties:
 
             if (task_data.task_type == TASK_PROCESS_FRAME)
               result.id_descriptors.push_back(id_descriptor);
+
+            if (config.flag_spawned_descriptors && task_data.task_type == TASK_RECOGNIZE)
+            {
+              FaceDescriptor fd_spawned;
+              cv::Mat face_image_spawned;
+
+              // scope for accessing concurrent variable
+              {
+                auto ud_ptr = unknown_descriptors.Lock();
+                removeExpiredUnknownDescriptors((*ud_ptr)[config.id_vstream]);
+
+                // find and create a spawned descriptor among the unknowns if necessary
+                double max_cd = -2.0;
+                auto k = (*ud_ptr)[config.id_vstream].size();
+                for (size_t i = 0; i < (*ud_ptr)[config.id_vstream].size(); ++i)
+                {
+                  auto fd = (*ud_ptr)[config.id_vstream][i].fd.clone();
+                  double n_l2 = cv::norm(fd, cv::NORM_L2);
+                  if (n_l2 <= 0.0)
+                    n_l2 = 1.0;
+                  fd = fd / norm_l2;
+                  if (double cos_distance = cosineDistance(face_descriptor, fd); cos_distance > max_cd)
+                  {
+                    max_cd = cos_distance;
+                    k = i;
+                  }
+                }
+
+                if (k < (*ud_ptr)[config.id_vstream].size() && max_cd > config.tolerance)
+                {
+                  if (config.logs_level <= userver::logging::Level::kTrace)
+                    USERVER_IMPL_LOG_TO(logger_, userver::logging::Level::kTrace)
+                      << "vstream_key = " << task_data.vstream_key
+                      << absl::Substitute(";  unknown descriptors cosine distance = $0;  index = $1;  size = $2", max_cd, k,
+                        (*ud_ptr)[config.id_vstream].size());
+                  fd_spawned = std::move((*ud_ptr)[config.id_vstream][k].fd);
+                  face_image_spawned = std::move((*ud_ptr)[config.id_vstream][k].face_image);
+                }
+
+                // clear the unknown descriptors anyway
+                (*ud_ptr)[config.id_vstream].clear();
+              }
+
+              if (!fd_spawned.empty())
+              {
+                auto id_spawned = addFaceDescriptor(config.id_group, config.id_vstream, fd_spawned, face_image_spawned, id_descriptor);
+                if (config.logs_level <= userver::logging::Level::kTrace)
+                  USERVER_IMPL_LOG_TO(logger_, userver::logging::Level::kTrace)
+                    << "vstream_key = " << task_data.vstream_key
+                    << absl::Substitute(";  created spawned descriptor with id = $0;  id_parent = $1", id_spawned, id_descriptor);
+              }
+            }
           }
 
           if (task_data.task_type == TASK_REGISTER_DESCRIPTOR)
@@ -1632,7 +1721,7 @@ properties:
             det.landmark[2 * j] = (px + kps_preds.at<float>(2 * k, 2 * j)) / scale;
             det.landmark[2 * j + 1] = (py + kps_preds.at<float>(2 * k, 2 * j + 1)) / scale;
           }
-          detected_faces.push_back(det);
+          detected_faces.emplace_back(det);
         }
         if (scores_data[2 * k + 1] >= config.face_confidence)
         {
@@ -1647,7 +1736,7 @@ properties:
             det.landmark[2 * j] = (px + kps_preds.at<float>(2 * k + 1, 2 * j)) / scale;
             det.landmark[2 * j + 1] = (py + kps_preds.at<float>(2 * k + 1, 2 * j + 1)) / scale;
           }
-          detected_faces.push_back(det);
+          detected_faces.emplace_back(det);
         }
       }
     }
@@ -1942,7 +2031,7 @@ properties:
     try
     {
       const auto res = trx.Execute(query,
-        id_vstream, log_date, id_descriptor > 0 ? std::optional<int32_t>(id_descriptor) : std::nullopt, quality, face_rect.x, face_rect.y, face_rect.width, face_rect.height, screenshot_url, uuid, static_cast<int32_t>(copy_event_data));
+        id_vstream, log_date, id_descriptor > 0 ? std::optional(id_descriptor) : std::nullopt, quality, face_rect.x, face_rect.y, face_rect.width, face_rect.height, screenshot_url, uuid, static_cast<int32_t>(copy_event_data));
       if (!res.IsEmpty())
         result = res.AsSingleRow<int64_t>();
       trx.Commit();
@@ -1955,7 +2044,8 @@ properties:
     return result;
   }
 
-  int32_t Workflow::addFaceDescriptor(const int32_t id_group, const int32_t id_vstream, const Frs::FaceDescriptor& fd, const cv::Mat& f_img)
+  int32_t Workflow::addFaceDescriptor(const int32_t id_group, const int32_t id_vstream, const FaceDescriptor& fd, const cv::Mat& f_img,
+    const int32_t id_parent)
   {
     decltype(CommonConfig::dnn_fr_output_size) dnn_fr_output_size = 512;
     //scope for accessing cache
@@ -1968,14 +2058,16 @@ properties:
     auto trx = pg_cluster_->Begin(userver::storages::postgres::ClusterHostType::kMaster, {});
     try
     {
-      std::vector<uchar> fd_data(fd.data, fd.data + dnn_fr_output_size * sizeof(float));
-      const auto res = trx.Execute(SQL_ADD_FACE_DESCRIPTOR, id_group, userver::storages::postgres::Bytea(fd_data));
+      std::vector fd_data(fd.data, fd.data + dnn_fr_output_size * sizeof(float));
+      const auto res = trx.Execute(SQL_ADD_FACE_DESCRIPTOR, id_group, userver::storages::postgres::Bytea(fd_data),
+        id_parent > 0 ? std::optional(id_parent) : std::nullopt);
       id_descriptor = res.AsSingleRow<int32_t>();
 
       std::vector<uchar> buff;
       cv::imencode(".jpg", f_img, buff);
       trx.Execute(SQL_ADD_DESCRIPTOR_IMAGE, id_descriptor, MIME_IMAGE, userver::storages::postgres::Bytea(buff));
-      trx.Execute(Api::SQL_ADD_LINK_DESCRIPTOR_VSTREAM, id_group, id_vstream, id_descriptor);
+      if (id_parent == 0)
+        trx.Execute(Api::SQL_ADD_LINK_DESCRIPTOR_VSTREAM, id_group, id_vstream, id_descriptor);
       trx.Commit();
     } catch (const std::exception& e)
     {
@@ -2009,8 +2101,8 @@ properties:
     auto trx = pg_cluster_->Begin(userver::storages::postgres::ClusterHostType::kMaster, {});
     try
     {
-      std::vector<uchar> fd_data(fd.data, fd.data + dnn_fr_output_size * sizeof(float));
-      const auto res = trx.Execute(SQL_ADD_FACE_DESCRIPTOR, id_group, userver::storages::postgres::Bytea(fd_data));
+      std::vector fd_data(fd.data, fd.data + dnn_fr_output_size * sizeof(float));
+      const auto res = trx.Execute(SQL_ADD_FACE_DESCRIPTOR, id_group, userver::storages::postgres::Bytea(fd_data), std::optional<int32_t>(std::nullopt));
       id_descriptor = res.AsSingleRow<int32_t>();
 
       std::vector<uchar> buff;

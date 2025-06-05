@@ -89,6 +89,8 @@ namespace Frs
     inline static constexpr auto TITLE_HEIGHT_RATIO = "title-height-ratio";
     inline static constexpr auto CONF_OSD_DT_FORMAT = "osd-datetime-format";
     inline static constexpr auto WORKFLOW_TIMEOUT = "workflow-timeout";
+    inline static constexpr auto FLAG_SPAWNED_DESCRIPTORS = "flag-spawned-descriptors";
+    inline static constexpr auto UNKNOWN_DESCRIPTOR_TTL = "unknown-descriptor-ttl";
 
     // Video stream specific params
     inline static constexpr auto TITLE = "title";
@@ -153,6 +155,8 @@ namespace Frs
     std::string osd_dt_format{"%Y-%m-%d %H:%M:%S"};
     std::vector<float> work_area;
     std::chrono::milliseconds workflow_timeout{std::chrono::seconds{0}};
+    bool flag_spawned_descriptors{false};
+    std::chrono::milliseconds unknown_descriptor_ttl{std::chrono::seconds{5}};
 
     // additional data
     int32_t id_group{};
@@ -189,6 +193,8 @@ namespace Frs
     if (json.HasMember(ConfigParams::WORK_AREA) && json[ConfigParams::WORK_AREA].IsArray())
       config.work_area = json[ConfigParams::WORK_AREA].As<decltype(config.work_area)>();
     config.workflow_timeout = convertToDuration(json[ConfigParams::WORKFLOW_TIMEOUT], config.workflow_timeout);
+    config.flag_spawned_descriptors = convertToBool(json[ConfigParams::FLAG_SPAWNED_DESCRIPTORS], config.flag_spawned_descriptors);
+    config.unknown_descriptor_ttl = convertToDuration(json[ConfigParams::UNKNOWN_DESCRIPTOR_TTL], config.unknown_descriptor_ttl);
 
     return config;
   }
@@ -402,6 +408,7 @@ namespace Frs
     int32_t id_descriptor{};
     userver::storages::postgres::ByteaWrapper<std::string> descriptor_data;
     bool flag_deleted{};
+    int32_t id_parent{};
   };
 
   // Custom cache container which inserts and erases data in insert_or_assign function.
@@ -415,6 +422,7 @@ namespace Frs
       {
         // item is mark for deletion, so remove it from cache
         data_.erase(id_descriptor);
+        spawned_to_parent_.erase(id_descriptor);
       } else
       {
         // save data in cache
@@ -426,6 +434,8 @@ namespace Frs
           norm_l2 = 1.0;
         fd = fd / norm_l2;
         data_[id_descriptor] = std::move(fd);
+        if (item.id_parent > 0)
+          spawned_to_parent_[id_descriptor] = item.id_parent;
       }
     }
 
@@ -439,8 +449,14 @@ namespace Frs
       return data_;
     }
 
+    [[nodiscard]] const auto& getSpawned() const
+    {
+      return spawned_to_parent_;
+    }
+
   private:
     HashMap<int32_t, FaceDescriptor> data_;
+    HashMap<int32_t, int32_t> spawned_to_parent_;
   };
 
   struct FaceDescriptorPolicy
@@ -449,7 +465,7 @@ namespace Frs
 
     using ValueType = FaceDescriptorData;
     static constexpr auto kKeyMember = &FaceDescriptorData::id_descriptor;
-    static constexpr auto kQuery = "select id_descriptor, descriptor_data, flag_deleted from face_descriptors";
+    static constexpr auto kQuery = "select id_descriptor, descriptor_data, flag_deleted, coalesce(id_parent, 0) id_parent from face_descriptors";
     static constexpr auto kUpdatedField = "last_updated";
     using UpdatedFieldType = userver::storages::postgres::TimePointTz;
     using CacheContainer = FaceDescriptorCacheContainer;
@@ -464,6 +480,7 @@ namespace Frs
     std::string unique_key;
     int32_t id_vstream;
     int32_t id_descriptor;
+    int32_t id_spawned;
     bool flag_deleted;
   };
 
@@ -478,10 +495,18 @@ namespace Frs
       {
         // item is mark for deletion, so remove it from cache
         if (data_.contains(item.id_vstream))
+        {
           data_[item.id_vstream].erase(item.id_descriptor);
+          if (item.id_spawned > 0)
+            data_[item.id_vstream].erase(item.id_spawned);
+        }
       } else
+      {
         // save data in cache
         data_[item.id_vstream].insert(item.id_descriptor);
+        if (item.id_spawned > 0)
+          data_[item.id_vstream].insert(item.id_spawned);
+      }
     }
 
     static size_t size()
@@ -504,8 +529,19 @@ namespace Frs
 
     using ValueType = VStreamDescriptors;
     static constexpr auto kKeyMember = &VStreamDescriptors::unique_key;
-    static constexpr auto kQuery = "select concat(id_vstream, '_', id_descriptor) unique_key, id_vstream, id_descriptor, flag_deleted from link_descriptor_vstream";
-    static constexpr auto kUpdatedField = "last_updated";
+    static constexpr auto kQuery = R"_SQL_(
+      select
+        concat(ldv.id_vstream, '_', coalesce(fd.id_descriptor, ldv.id_descriptor)) unique_key,
+        ldv.id_vstream,
+        ldv.id_descriptor,
+        coalesce(fd.id_descriptor, 0) id_spawned,
+        ldv.flag_deleted
+      from
+        link_descriptor_vstream ldv
+        left join face_descriptors fd
+          on ldv.id_descriptor = fd.id_parent
+    )_SQL_";
+    static constexpr auto kUpdatedField = "ldv.last_updated";
     using UpdatedFieldType = userver::storages::postgres::TimePointTz;
     using CacheContainer = VStreamDescriptorsCacheContainer;
     static constexpr auto kClusterHostType = userver::storages::postgres::ClusterHostType::kSlave;

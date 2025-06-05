@@ -20,3 +20,4 @@ psql postgresql://$pg_user:$pg_passwd@$pg_host:$pg_port/$pg_db < $BASEDIR/../sql
 psql postgresql://$pg_user:$pg_passwd@$pg_host:$pg_port/$pg_db < $BASEDIR/../sql/frs/08_link_descriptor_sgroup.sql
 psql postgresql://$pg_user:$pg_passwd@$pg_host:$pg_port/$pg_db < $BASEDIR/../sql/frs/09_common_config.sql
 psql postgresql://$pg_user:$pg_passwd@$pg_host:$pg_port/$pg_db < $BASEDIR/../sql/frs/10_default_vstream_config.sql
+psql postgresql://$pg_user:$pg_passwd@$pg_host:$pg_port/$pg_db < $BASEDIR/../sql/frs/11_face_descriptors_new_column.sql

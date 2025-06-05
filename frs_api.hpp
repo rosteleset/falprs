@@ -233,6 +233,10 @@ namespace Frs
     static constexpr auto SQL_REMOVE_DESCRIPTOR =
       "update face_descriptors set last_updated = now(), flag_deleted = true where id_group = $1 and id_descriptor = $2";
 
+    // do not delete spawned descriptors from database, just mark for deletion
+    static constexpr auto SQL_REMOVE_SPAWNED_DESCRIPTORS =
+      "update face_descriptors set last_updated = now(), flag_deleted = true where id_group = $1 and id_parent = $2";
+
     // do not delete rows from database, just mark for deletion
     static constexpr auto SQL_REMOVE_LINK_DESCRIPTOR_VSTREAM_BY_DESCRIPTOR = R"__SQL__(
       update
@@ -364,6 +368,7 @@ namespace Frs
         id_group = $1
         and not flag_deleted
         and id_descriptor not in (select ldsg.id_descriptor from link_descriptor_sgroup ldsg)
+        and id_parent is null
     )_SQL_";
 
     static constexpr auto SQL_ADD_SPECIAL_GROUP = R"_SQL_(

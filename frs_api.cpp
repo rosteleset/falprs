@@ -357,7 +357,11 @@ namespace Frs
           ConfigParams::DELAY_AFTER_ERROR,
           ConfigParams::DELAY_BETWEEN_FRAMES,
           ConfigParams::OPEN_DOOR_DURATION,
-          ConfigParams::WORKFLOW_TIMEOUT};
+          ConfigParams::WORKFLOW_TIMEOUT,
+          ConfigParams::UNKNOWN_DESCRIPTOR_TTL};
+
+        HashSet<std::string> bool_params = {
+          ConfigParams::FLAG_SPAWNED_DESCRIPTORS};
 
         // build video stream config
         userver::formats::json::ValueBuilder config_builder;
@@ -388,6 +392,12 @@ namespace Frs
           if (time_params.contains(p_name))
           {
             config_builder[p_name] = absl::Substitute("$0ms", static_cast<int32_t>(lround(param[param_value].As<float>() * 1000.0)));
+            continue;
+          }
+
+          if (bool_params.contains(p_name))
+          {
+            config_builder[p_name] = param[param_value].As<bool>();
             continue;
           }
 
@@ -718,6 +728,9 @@ namespace Frs
 
           // do not delete descriptor from database, just mark for deletion
           trx.Execute(SQL_REMOVE_DESCRIPTOR, id_group, id_descriptor);
+
+          // do not delete spawned descriptors from database, just mark for deletion
+          trx.Execute(SQL_REMOVE_SPAWNED_DESCRIPTORS, id_group, id_descriptor);
         }
         trx.Commit();
       } catch (const std::exception& e)

@@ -2055,6 +2055,17 @@ components:
           pattern: ^\d+(ms|[smhd])$
           default: 0s
           example: 60s
+        flag-spawned-descriptors:
+          description: Flag for using spawned descriptors
+          type: boolean
+          default: false
+        unknown-descriptor-ttl:
+          description: Time to live for the spawned descriptors (has meaning only if flag-spawned-descriptors = true)
+          type: string
+          pattern: ^\d+(ms|[smhd])$
+          default: 5s
+          example: 10s
+
     LPRSInternalVStreamConfig:
       description: Configuration of the video stream
       type: object

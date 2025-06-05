@@ -134,7 +134,7 @@ namespace Frs
     bool is_work_area = false;
     bool is_frontal = false;
     bool is_non_blurry = false;
-    FaceClassIndexes face_class_index = FaceClassIndexes::FACE_NONE;
+    FaceClassIndexes face_class_index = FACE_NONE;
     float face_class_confidence = 0.0f;
     double cosine_distance = -2.0;
     FaceDescriptor fd;
@@ -149,6 +149,13 @@ namespace Frs
   {
     int class_index;
     float score;
+  };
+
+  struct UnknownDescriptorData
+  {
+    std::chrono::time_point<std::chrono::steady_clock> expiration_tp;
+    FaceDescriptor fd;
+    cv::Mat face_image;
   };
 
   class Workflow final : public userver::components::LoggableComponentBase
@@ -174,7 +181,7 @@ namespace Frs
     )__SQL__";
 
     static constexpr auto SQL_ADD_FACE_DESCRIPTOR = R"_SQL_(
-      insert into face_descriptors(id_group, descriptor_data) values($1, $2) returning id_descriptor
+      insert into face_descriptors(id_group, descriptor_data, id_parent) values($1, $2, $3) returning id_descriptor
     )_SQL_";
 
     static constexpr auto SQL_ADD_DESCRIPTOR_IMAGE = R"_SQL_(
@@ -285,6 +292,7 @@ namespace Frs
     userver::concurrent::Variable<HashMap<std::string, bool>> being_processed_vstreams;
     userver::concurrent::Variable<HashMap<int32_t, DNNStatsData>> dnn_stats_data;
     userver::concurrent::Variable<HashMap<std::string, std::chrono::time_point<std::chrono::steady_clock>>> vstream_timeouts;
+    userver::concurrent::Variable<HashMap<int32_t, std::vector<UnknownDescriptorData>>> unknown_descriptors;
 
     // Maintenance member functions
     void doOldLogMaintenance() const;
@@ -303,8 +311,8 @@ namespace Frs
     bool extractFaceDescriptor(const TaskData& task_data, const cv::Mat& aligned_face, const VStreamConfig& config,
       FaceDescriptor& face_descriptor);
     int64_t addLogFace(int32_t id_vstream, const userver::storages::postgres::TimePointTz& log_date,
-      int32_t id_descriptor, double quality, const cv::Rect& face_rect, const std::string& screenshot_url, const boost::uuids::uuid& uuid, CopyEventData copy_event_data = CopyEventData::NONE) const;
-    int32_t addFaceDescriptor(int32_t id_group, int32_t id_vstream, const FaceDescriptor& fd, const cv::Mat& f_img);
+      int32_t id_descriptor, double quality, const cv::Rect& face_rect, const std::string& screenshot_url, const boost::uuids::uuid& uuid, CopyEventData copy_event_data = NONE) const;
+    int32_t addFaceDescriptor(int32_t id_group, int32_t id_vstream, const FaceDescriptor& fd, const cv::Mat& f_img, int32_t id_parent = 0);
     int32_t addSGroupFaceDescriptor(int32_t id_sgroup, const FaceDescriptor& fd, const cv::Mat& f_img);
   };
 }  // namespace Frs
