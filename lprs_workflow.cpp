@@ -359,16 +359,16 @@ properties:
     }
 
     if (config.logs_level <= userver::logging::Level::kDebug)
-      USERVER_IMPL_LOG_TO(logger_, userver::logging::Level::kDebug)
-        << "Start processPipeline: vstream_key = " << vstream_key
-        << absl::Substitute(";  frame_url = $0", config.screenshot_url);
+      USERVER_IMPL_LOG_TO(logger_, userver::logging::Level::kDebug,
+        "Start processPipeline: vstream_key = {};  frame_url = {}",
+        vstream_key, config.screenshot_url);
 
     try
     {
       if (config.logs_level <= userver::logging::Level::kTrace)
-        USERVER_IMPL_LOG_TO(logger_, userver::logging::Level::kTrace)
-          << "vstream_key = " << vstream_key
-          << ";  before image acquisition";
+        USERVER_IMPL_LOG_TO(logger_, userver::logging::Level::kTrace,
+          "vstream_key = {};  before image acquisition",
+          vstream_key);
 
       // parse user and password
       std::string auth_user;
@@ -394,23 +394,22 @@ properties:
         .perform();
       // clang-format on
       if (config.logs_level <= userver::logging::Level::kTrace)
-        USERVER_IMPL_LOG_TO(logger_, userver::logging::Level::kTrace)
-          << "vstream_key = " << vstream_key
-          << ";  after image acquisition";
+        USERVER_IMPL_LOG_TO(logger_, userver::logging::Level::kTrace,
+          "vstream_key = {};  after image acquisition",
+          vstream_key);
 
       if (capture_response->status_code() != userver::clients::http::Status::OK || capture_response->body_view().empty())
       {
         if (config.logs_level <= userver::logging::Level::kError)
-          USERVER_IMPL_LOG_TO(logger_, userver::logging::Level::kError)
-            << "vstream_key = " << vstream_key
-            << ";  url = " << config.screenshot_url
-            << ";  status_code = " << capture_response->status_code();
+          USERVER_IMPL_LOG_TO(logger_, userver::logging::Level::kError,
+            "vstream_key = {};  url = {};  status_code = {}",
+            vstream_key, config.screenshot_url, capture_response->status_code());
         if (config.delay_after_error.count() > 0)
         {
           if (config.logs_level <= userver::logging::Level::kError)
-            USERVER_IMPL_LOG_TO(logger_, userver::logging::Level::kError)
-              << "vstream_key = " << vstream_key
-              << ";  delay for " << config.delay_after_error.count() << "ms";
+            USERVER_IMPL_LOG_TO(logger_, userver::logging::Level::kError,
+              "vstream_key = {};  delay for {}ms",
+              vstream_key, config.delay_after_error.count());
           nextPipeline(std::move(vstream_key), config.delay_after_error);
         } else
           stopWorkflow(std::move(vstream_key));
@@ -420,19 +419,19 @@ properties:
 
       if (config.logs_level <= userver::logging::Level::kTrace)
       {
-        USERVER_IMPL_LOG_TO(logger_, userver::logging::Level::kTrace)
-          << "vstream_key = " << vstream_key
-          << ";  image size " << capture_response->body_view().size();
-        USERVER_IMPL_LOG_TO(logger_, userver::logging::Level::kTrace)
-          << "vstream_key = " << vstream_key
-          << ";  before decoding the image";
+        USERVER_IMPL_LOG_TO(logger_, userver::logging::Level::kTrace,
+          "vstream_key = {};  image size = {} bytes",
+          vstream_key, capture_response->body_view().size());
+        USERVER_IMPL_LOG_TO(logger_, userver::logging::Level::kTrace,
+          "vstream_key = {};  before decoding the image",
+          vstream_key);
       }
       cv::Mat frame = imdecode(std::vector<char>(capture_response->body_view().begin(), capture_response->body_view().end()),
         cv::IMREAD_COLOR);
       if (config.logs_level <= userver::logging::Level::kTrace)
-        USERVER_IMPL_LOG_TO(logger_, userver::logging::Level::kTrace)
-          << "vstream_key = " << vstream_key
-          << ";  after decoding the image";
+        USERVER_IMPL_LOG_TO(logger_, userver::logging::Level::kTrace,
+          "vstream_key = {};  after decoding the image",
+          vstream_key);
 
       // for test: rotate image
       /*float angle = -12.0f;
@@ -445,33 +444,33 @@ properties:
       // cv::Mat frame = cv::imread("ru002.jpg", cv::IMREAD_COLOR);
       std::vector<Vehicle> detected_vehicles;
       if (config.logs_level <= userver::logging::Level::kTrace)
-        USERVER_IMPL_LOG_TO(logger_, userver::logging::Level::kTrace)
-          << "vstream_key = " << vstream_key
-          << ";  before doInferenceVdNet";
+        USERVER_IMPL_LOG_TO(logger_, userver::logging::Level::kTrace,
+          "vstream_key = {};  before doInferenceVdNet",
+          vstream_key);
       doInferenceVdNet(frame, config, detected_vehicles);
       if (config.logs_level <= userver::logging::Level::kTrace)
-        USERVER_IMPL_LOG_TO(logger_, userver::logging::Level::kTrace)
-          << "vstream_key = " << vstream_key
-          << ";  after doInferenceVdNet";
+        USERVER_IMPL_LOG_TO(logger_, userver::logging::Level::kTrace,
+          "vstream_key = {};  after doInferenceVdNet",
+          vstream_key);
 
       if (config.flag_process_special)
       {
         if (config.logs_level <= userver::logging::Level::kTrace)
-          USERVER_IMPL_LOG_TO(logger_, userver::logging::Level::kTrace)
-            << "vstream_key = " << vstream_key
-            << ";  before doInferenceVcNet";
+          USERVER_IMPL_LOG_TO(logger_, userver::logging::Level::kTrace,
+            "vstream_key = {};  before doInferenceVcNet",
+            vstream_key);
         doInferenceVcNet(frame, config, detected_vehicles);
         if (config.logs_level <= userver::logging::Level::kTrace)
-          USERVER_IMPL_LOG_TO(logger_, userver::logging::Level::kTrace)
-            << "vstream_key = " << vstream_key
-            << ";  after doInferenceVcNet";
+          USERVER_IMPL_LOG_TO(logger_, userver::logging::Level::kTrace,
+            "vstream_key = {};  after doInferenceVcNet",
+            vstream_key);
       }
 
       if (config.logs_level <= userver::logging::Level::kTrace)
         for (size_t i = 0; i < detected_vehicles.size(); ++i)
-          USERVER_IMPL_LOG_TO(logger_, userver::logging::Level::kTrace)
-          << "vstream_key = " << vstream_key
-          << ";  vehicle " << i  << " confidence: " << detected_vehicles[i].confidence;
+          USERVER_IMPL_LOG_TO(logger_, userver::logging::Level::kTrace,
+            "vstream_key = {};  vehicle {} confidence: {:.3f}",
+            vstream_key, i, detected_vehicles[i].confidence);
 
       // check for special vehicles ban
       bool is_special_banned = false;
@@ -484,30 +483,29 @@ properties:
           if (is_special_banned)
           {
             if (config.logs_level <= userver::logging::Level::kTrace)
-              USERVER_IMPL_LOG_TO(logger_, userver::logging::Level::kTrace)
-                << "vstream_key = " << vstream_key
-                << ";  special vehicles are banned ("
-                << std::chrono::duration_cast<std::chrono::seconds>((*ban_special_data_ptr)[vstream_key] - now) << " left)";
+              USERVER_IMPL_LOG_TO(logger_, userver::logging::Level::kTrace,
+                "vstream_key = {};  special vehicles are banned ({}s left)",
+                vstream_key, std::chrono::duration_cast<std::chrono::seconds>((*ban_special_data_ptr)[vstream_key] - now).count());
           } else
           {
             ban_special_data_ptr->erase(vstream_key);
             if (config.logs_level <= userver::logging::Level::kTrace)
-              USERVER_IMPL_LOG_TO(logger_, userver::logging::Level::kTrace)
-                << "vstream_key = " << vstream_key
-                << ";  special vehicles are no longer banned";
+              USERVER_IMPL_LOG_TO(logger_, userver::logging::Level::kTrace,
+                "vstream_key = {};  special vehicles are no longer banned",
+                vstream_key);
           }
         }
       }
 
       if (config.logs_level <= userver::logging::Level::kTrace)
-        USERVER_IMPL_LOG_TO(logger_, userver::logging::Level::kTrace)
-          << "vstream_key = " << vstream_key
-          << ";  before doInferenceLpdNet";
+        USERVER_IMPL_LOG_TO(logger_, userver::logging::Level::kTrace,
+          "vstream_key = {};  before doInferenceLpdNet",
+          vstream_key);
       doInferenceLpdNet(frame, config, detected_vehicles);
       if (config.logs_level <= userver::logging::Level::kTrace)
-        USERVER_IMPL_LOG_TO(logger_, userver::logging::Level::kTrace)
-          << "vstream_key = " << vstream_key
-          << ";  after doInferenceLpdNet";
+        USERVER_IMPL_LOG_TO(logger_, userver::logging::Level::kTrace,
+          "vstream_key = {};  after doInferenceLpdNet",
+          vstream_key);
 
       removeDuplicatePlates(config, detected_vehicles, frame.cols, frame.rows);
 
@@ -530,14 +528,14 @@ properties:
       if (!detected_plates.empty())
       {
         if (config.logs_level <= userver::logging::Level::kTrace)
-          USERVER_IMPL_LOG_TO(logger_, userver::logging::Level::kTrace)
-            << "vstream_key = " << vstream_key
-            << ";  before doInferenceLprNet";
+          USERVER_IMPL_LOG_TO(logger_, userver::logging::Level::kTrace,
+            "vstream_key = {};  before doInferenceLprNet",
+            vstream_key);
         result = doInferenceLprNet(frame, config, detected_plates);
         if (config.logs_level <= userver::logging::Level::kTrace)
-          USERVER_IMPL_LOG_TO(logger_, userver::logging::Level::kTrace)
-            << "vstream_key = " << vstream_key
-            << ";  after doInferenceLprNet";
+          USERVER_IMPL_LOG_TO(logger_, userver::logging::Level::kTrace,
+            "vstream_key = {};  after doInferenceLprNet",
+            vstream_key);
       }
       if (result)
       {
@@ -576,10 +574,9 @@ properties:
                   if (is_banned)
                   {
                     if (config.logs_level <= userver::logging::Level::kDebug)
-                      USERVER_IMPL_LOG_TO(logger_, userver::logging::Level::kDebug)
-                        << "vstream_key = " << vstream_key
-                        << ";  plate number " << number << " is banned at the first stage ("
-                        << std::chrono::duration_cast<std::chrono::seconds>((*data_ptr)[k].tp1 - now) << " left)";
+                      USERVER_IMPL_LOG_TO(logger_, userver::logging::Level::kDebug,
+                        "vstream_key = {};  plate number {} is banned at the first stage ({}s left)",
+                        vstream_key, number, std::chrono::duration_cast<std::chrono::seconds>((*data_ptr)[k].tp1 - now).count());
                   } else
                   {
                     // check area ban
@@ -594,13 +591,13 @@ properties:
                     if (config.logs_level <= userver::logging::Level::kDebug)
                     {
                       if (is_banned)
-                        USERVER_IMPL_LOG_TO(logger_, userver::logging::Level::kDebug)
-                          << absl::StrFormat("vstream_key = %s;  plate_number %s is banned at the second stage (iou = %.2f, threshold = %.2f)",
-                               vstream_key, number, iou_value, config.ban_iou_threshold);
+                        USERVER_IMPL_LOG_TO(logger_, userver::logging::Level::kDebug,
+                          "vstream_key = {};  plate_number {} is banned at the second stage (iou = {:.2f}, threshold = {:.2f})",
+                          vstream_key, number, iou_value, config.ban_iou_threshold);
                       else
-                        USERVER_IMPL_LOG_TO(logger_, userver::logging::Level::kDebug)
-                          << absl::StrFormat("vstream_key = %s;  plate_numbers %s was removed from the the second stage ban (iou = %.2f, threshold = %.2f)",
-                               vstream_key, number, iou_value, config.ban_iou_threshold);
+                        USERVER_IMPL_LOG_TO(logger_, userver::logging::Level::kDebug,
+                          "vstream_key = {};  plate_numbers {} was removed from the the second stage ban (iou = {:.2f}, threshold = {:.2f})",
+                          vstream_key, number, iou_value, config.ban_iou_threshold);
                     }
                   }
                 }
@@ -611,9 +608,9 @@ properties:
               }
 
               if (config.logs_level <= userver::logging::Level::kInfo)
-                USERVER_IMPL_LOG_TO(logger_, userver::logging::Level::kInfo)
-                  << "vstream_key = " << vstream_key
-                  << ";  plate number: " << number;
+                USERVER_IMPL_LOG_TO(logger_, userver::logging::Level::kInfo,
+                  "vstream_key = {};  plate number: {}",
+                  vstream_key, number);
               userver::formats::json::ValueBuilder plate_data;
               plate_data[Api::PARAM_BOX] = userver::formats::json::MakeArray(
                 static_cast<int32_t>(bbox[0]),
@@ -693,15 +690,14 @@ properties:
             if (!(response->status_code() == userver::clients::http::Status::OK
                   || response->status_code() == userver::clients::http::Status::NoContent))
               if (config.logs_level <= userver::logging::Level::kWarning)
-                USERVER_IMPL_LOG_TO(logger_, userver::logging::Level::kWarning)
-                  << "vstream_key = " << vstream_key
-                  << "; error sending data to callback " << config.callback_url;
+                USERVER_IMPL_LOG_TO(logger_, userver::logging::Level::kWarning,
+                  "vstream_key = {};  error sending data to callback {}",
+                  vstream_key, config.callback_url);
           } catch (std::exception& e)
           {
-            LOG_ERROR_TO(logger_)
-              << "vstream_key = " << vstream_key
-              << "; error sending data to callback " << config.callback_url
-              << "; " << e.what();
+            LOG_ERROR_TO(logger_,
+              "vstream_key = {};  error sending data to callback {};  {}",
+              vstream_key, config.callback_url, e.what());
           }
         }
 
@@ -796,16 +792,16 @@ properties:
     } catch (std::exception& e)
     {
       if (config.logs_level <= userver::logging::Level::kError)
-        USERVER_IMPL_LOG_TO(logger_, userver::logging::Level::kError)
-          << "vstream_key = " << vstream_key
-          << ";  " << e.what();
+        USERVER_IMPL_LOG_TO(logger_, userver::logging::Level::kError,
+          "vstream_key = {};  {}",
+          vstream_key, e.what());
 
       if (config.delay_after_error.count() > 0)
       {
         if (config.logs_level <= userver::logging::Level::kError)
-          USERVER_IMPL_LOG_TO(logger_, userver::logging::Level::kError)
-            << "vstream_key = " << vstream_key
-            << ";  delay for " << config.delay_after_error.count() << "ms";
+          USERVER_IMPL_LOG_TO(logger_, userver::logging::Level::kError,
+            "vstream_key = {};  delay for {}ms",
+            vstream_key, config.delay_after_error.count());
         nextPipeline(std::move(vstream_key), config.delay_after_error);
       } else
         stopWorkflow(std::move(vstream_key));
@@ -814,15 +810,16 @@ properties:
     }
 
     if (config.logs_level <= userver::logging::Level::kDebug)
-      USERVER_IMPL_LOG_TO(logger_, userver::logging::Level::kDebug)
-        << "End processPipeline: vstream_key = " << vstream_key << ";";
+      USERVER_IMPL_LOG_TO(logger_, userver::logging::Level::kDebug,
+        "End processPipeline: vstream_key = {};",
+        vstream_key);
 
     nextPipeline(std::move(vstream_key), config.delay_between_frames);
   }
 
   void Workflow::doBanMaintenance()
   {
-    LOG_DEBUG_TO(logger_) << "call doBanMaintenance";
+    LOG_DEBUG_TO(logger_, "call doBanMaintenance");
     auto t_now = std::chrono::steady_clock::now();
     auto data_ptr = ban_data.Lock();
     absl::erase_if(*data_ptr,
@@ -834,7 +831,7 @@ properties:
 
   void Workflow::doEventsLogMaintenance() const
   {
-    LOG_DEBUG_TO(logger_) << "call doEventsLogMaintenance";
+    LOG_DEBUG_TO(logger_, "call doEventsLogMaintenance");
     auto tp = std::chrono::system_clock::now() - local_config_.events_log_ttl;
     LOG_DEBUG_TO(logger_) << "delete event logs older than " << tp;
     const userver::storages::postgres::Query query{SQL_REMOVE_OLD_EVENTS};
@@ -904,7 +901,9 @@ properties:
     }
 
     if (is_timeout)
-      LOG_INFO_TO(logger_) << "Stopping a workflow by timeout: vstream_key = " << vstream_key << ";";
+      LOG_INFO_TO(logger_,
+        "Stopping a workflow by timeout: vstream_key = {};",
+        vstream_key);
 
     if (do_next)
       tasks_.Detach(AsyncNoSpan(task_processor_, &Workflow::processPipeline, this, std::move(vstream_key)));
@@ -1020,22 +1019,24 @@ properties:
     auto err = tc::InferenceServerHttpClient::Create(&triton_client, config.vd_net_inference_server, false);
     if (!err.IsOk())
     {
-      LOG_ERROR_TO(logger_) << absl::Substitute("Error! Unable to create inference client: $0", err.Message());
+      LOG_ERROR_TO(logger_,
+        "Error! Unable to create inference client: {}",
+        err.Message());
       return false;
     }
 
     if (config.logs_level <= userver::logging::Level::kTrace)
-      USERVER_IMPL_LOG_TO(logger_, userver::logging::Level::kTrace)
-        << "vstream_key = " << config.id_group << "_" << config.ext_id
-        << ";  before preprocess image for VDNet";
+      USERVER_IMPL_LOG_TO(logger_, userver::logging::Level::kTrace,
+        "vstream_key = {}_{};  before preprocess image for VDNet",
+        config.id_group, config.ext_id);
     cv::Point2f shift;
     double scale;
     auto input_buffer = preprocessImageForVdNet(img, config.lpd_net_input_width, config.lpd_net_input_height, shift,
       scale);
     if (config.logs_level <= userver::logging::Level::kTrace)
-      USERVER_IMPL_LOG_TO(logger_, userver::logging::Level::kTrace)
-        << "vstream_key = " << config.id_group << "_" << config.ext_id
-        << ";  after preprocess image for VDNet";
+      USERVER_IMPL_LOG_TO(logger_, userver::logging::Level::kTrace,
+        "vstream_key = {}_{};  after preprocess image for VDNet",
+        config.id_group, config.ext_id);
 
     std::vector<uint8_t> input_data(config.vd_net_input_width * config.vd_net_input_height * 3 * sizeof(float));
     memcpy(input_data.data(), input_buffer.data(), input_data.size());
@@ -1044,7 +1045,9 @@ properties:
     err = tc::InferInput::Create(&input, config.vd_net_input_tensor_name, shape, "FP32");
     if (!err.IsOk())
     {
-      LOG_ERROR_TO(logger_) << absl::Substitute("Error! Unable to create input data: $0", err.Message());
+      LOG_ERROR_TO(logger_,
+        "Error! Unable to create input data: {}",
+        err.Message());
       return false;
     }
     std::shared_ptr<tc::InferInput> input_ptr(input);
@@ -1053,7 +1056,9 @@ properties:
     err = tc::InferRequestedOutput::Create(&output, config.vd_net_output_tensor_name);
     if (!err.IsOk())
     {
-      LOG_ERROR_TO(logger_) << absl::Substitute("Error! Unable to create output data: $0", err.Message());
+      LOG_ERROR_TO(logger_,
+        "Error! Unable to create output data: {}",
+        err.Message());
       return false;
     }
     std::shared_ptr<tc::InferRequestedOutput> output_ptr(output);
@@ -1063,7 +1068,9 @@ properties:
     err = input_ptr->AppendRaw(input_data);
     if (!err.IsOk())
     {
-      LOG_ERROR_TO(logger_) << absl::Substitute("Error! Unable to set up input data: $0", err.Message());
+      LOG_ERROR_TO(logger_,
+        "Error! Unable to set up input data: {}",
+        err.Message());
       return false;
     }
 
@@ -1075,33 +1082,36 @@ properties:
       [&]
       {
         if (config.logs_level <= userver::logging::Level::kTrace)
-          USERVER_IMPL_LOG_TO(logger_, userver::logging::Level::kTrace)
-            << "vstream_key = " << config.id_group << "_" << config.ext_id
-            << ";  before inference VDNet";
+          USERVER_IMPL_LOG_TO(logger_, userver::logging::Level::kTrace,
+            "vstream_key = {}_{};  before inference VDNet",
+            config.id_group, config.ext_id);
         err = triton_client->Infer(&result, options, inputs, outputs);
         if (config.logs_level <= userver::logging::Level::kTrace)
-          USERVER_IMPL_LOG_TO(logger_, userver::logging::Level::kTrace)
-            << "vstream_key = " << config.id_group << "_" << config.ext_id
-            << ";  after inference VDNet";
-      })
-      .Get();
+          USERVER_IMPL_LOG_TO(logger_, userver::logging::Level::kTrace,
+            "vstream_key = {}_{};  after inference VDNet",
+            config.id_group, config.ext_id);
+      }).Get();
     if (!err.IsOk())
     {
-      LOG_ERROR_TO(logger_) << absl::Substitute("Error! Unable to send inference request: $0", err.Message());
+      LOG_ERROR_TO(logger_,
+        "Error! Unable to send inference request: {}",
+        err.Message());
       return false;
     }
 
     std::shared_ptr<tc::InferResult> result_ptr(result);
     if (!result_ptr->RequestStatus().IsOk())
     {
-      LOG_ERROR_TO(logger_) << absl::Substitute("Error! Unable to receive inference result: $0", err.Message());
+      LOG_ERROR_TO(logger_,
+        "Error! Unable to receive inference result: {}",
+        err.Message());
       return false;
     }
 
     if (config.logs_level <= userver::logging::Level::kDebug)
-      USERVER_IMPL_LOG_TO(logger_, userver::logging::Level::kDebug)
-        << "vstream_key = " << config.id_group << "_" << config.ext_id
-        << ";  inference VDNet OK";
+      USERVER_IMPL_LOG_TO(logger_, userver::logging::Level::kDebug,
+        "vstream_key = {}_{};  inference VDNet OK",
+        config.id_group, config.ext_id);
 
     const float* data;
     size_t data_size;
@@ -1119,9 +1129,9 @@ properties:
     auto bbox_index = 0;
     auto class_start_index = bbox_index + 4;
     if (config.logs_level <= userver::logging::Level::kTrace)
-      USERVER_IMPL_LOG_TO(logger_, userver::logging::Level::kTrace)
-        << "vstream_key = " << config.id_group << "_" << config.ext_id
-        << ";  vehicle confidence threshold: " << config.vehicle_confidence;
+      USERVER_IMPL_LOG_TO(logger_, userver::logging::Level::kTrace,
+        "vstream_key = {}_{};  vehicle confidence threshold: {:.3f}",
+        config.id_group, config.ext_id, config.vehicle_confidence);
     for (auto j = 0; j < num_cols; ++j)
     {
       auto k = class_start_index;
@@ -1147,14 +1157,14 @@ properties:
     }
 
     if (config.logs_level <= userver::logging::Level::kTrace)
-      USERVER_IMPL_LOG_TO(logger_, userver::logging::Level::kTrace)
-        << "vstream_key = " << config.id_group << "_" << config.ext_id
-        << ";  before nms_vehicles count: " << detected_vehicles.size();
+      USERVER_IMPL_LOG_TO(logger_, userver::logging::Level::kTrace,
+        "vstream_key = {}_{};  before nms_vehicles count: {}",
+        config.id_group, config.ext_id, detected_vehicles.size());
     nms_vehicles(detected_vehicles, config.vehicle_iou_threshold);
     if (config.logs_level <= userver::logging::Level::kTrace)
-      USERVER_IMPL_LOG_TO(logger_, userver::logging::Level::kTrace)
-        << "vstream_key = " << config.id_group << "_" << config.ext_id
-        << ";  after nms_vehicles count: " << detected_vehicles.size();
+      USERVER_IMPL_LOG_TO(logger_, userver::logging::Level::kTrace,
+        "vstream_key = {}_{};  after nms_vehicles count: {}",
+        config.id_group, config.ext_id, detected_vehicles.size());
 
     return true;
   }
@@ -1183,31 +1193,33 @@ properties:
     options.reserve(detected_vehicles.size());
 
     if (config.logs_level <= userver::logging::Level::kTrace)
-      USERVER_IMPL_LOG_TO(logger_, userver::logging::Level::kTrace)
-        << "vstream_key = " << config.id_group << "_" << config.ext_id
-        << ";  before inference VcNet";
+      USERVER_IMPL_LOG_TO(logger_, userver::logging::Level::kTrace,
+        "vstream_key = {}_{};  before inference VcNet",
+        config.id_group, config.ext_id);
 
     for (size_t vindex = 0; vindex < detected_vehicles.size(); ++vindex)
     {
       auto err = tc::InferenceServerHttpClient::Create(&triton_clients[vindex], config.lpr_net_inference_server, false);
       if (!err.IsOk())
       {
-        LOG_ERROR_TO(logger_) << absl::Substitute("Error! Unable to create inference client: $0", err.Message());
+        LOG_ERROR_TO(logger_,
+          "Error! Unable to create inference client: {}",
+          err.Message());
         return false;
       }
 
       const auto& [bbox, confidence, is_special, license_plates] = detected_vehicles[vindex];
       if (config.logs_level <= userver::logging::Level::kTrace)
-        USERVER_IMPL_LOG_TO(logger_, userver::logging::Level::kTrace)
-          << "vstream_key = " << config.id_group << "_" << config.ext_id
-          << ";  before preprocess image " << vindex << " for VcNet";
+        USERVER_IMPL_LOG_TO(logger_, userver::logging::Level::kTrace,
+          "vstream_key = {}_{};  before preprocess image {} for VcNet",
+          config.id_group, config.ext_id, vindex);
       cv::Rect roi(cv::Point{static_cast<int>(bbox[0]), static_cast<int>(bbox[1])},
         cv::Point{static_cast<int>(bbox[2]), static_cast<int>(bbox[3])});
       auto input_buffer = preprocessImageForVcNet(img(roi), config.vc_net_input_width, config.vc_net_input_height);
       if (config.logs_level <= userver::logging::Level::kTrace)
-        USERVER_IMPL_LOG_TO(logger_, userver::logging::Level::kTrace)
-          << "vstream_key = " << config.id_group << "_" << config.ext_id
-          << ";  after preprocess image " << vindex << " for VcNet";
+        USERVER_IMPL_LOG_TO(logger_, userver::logging::Level::kTrace,
+          "vstream_key = {}_{};  after preprocess image {} for VcNet",
+          config.id_group, config.ext_id, vindex);
 
       inputs_data[vindex].resize(config.vc_net_input_width * config.vc_net_input_height * 3 * sizeof(float));
       memcpy(inputs_data[vindex].data(), input_buffer.data(), inputs_data[vindex].size());
@@ -1216,7 +1228,9 @@ properties:
       err = tc::InferInput::Create(&input, config.vc_net_input_tensor_name, shape, "FP32");
       if (!err.IsOk())
       {
-        LOG_ERROR_TO(logger_) << absl::Substitute("Error! Unable to create input data: $0", err.Message());
+        LOG_ERROR_TO(logger_,
+          "Error! Unable to create input data: {}",
+          err.Message());
         return false;
       }
       input_ptrs.emplace_back(input);
@@ -1225,7 +1239,9 @@ properties:
       err = tc::InferRequestedOutput::Create(&output, config.vc_net_output_tensor_name);
       if (!err.IsOk())
       {
-        LOG_ERROR_TO(logger_) << absl::Substitute("Error! Unable to create output data: $0", err.Message());
+        LOG_ERROR_TO(logger_,
+          "Error! Unable to create output data: {}",
+          err.Message());
         return false;
       }
       output_ptrs.emplace_back(output);
@@ -1233,7 +1249,9 @@ properties:
       err = input_ptrs.back()->AppendRaw(inputs_data[vindex]);
       if (!err.IsOk())
       {
-        LOG_ERROR_TO(logger_) << absl::Substitute("Error! Unable to set up input data: $0", err.Message());
+        LOG_ERROR_TO(logger_,
+          "Error! Unable to set up input data: {}",
+          err.Message());
         return false;
       }
       options.emplace_back(config.vc_net_model_name);
@@ -1248,28 +1266,32 @@ properties:
     WaitAllChecked(tasks);
 
     if (config.logs_level <= userver::logging::Level::kTrace)
-      USERVER_IMPL_LOG_TO(logger_, userver::logging::Level::kTrace)
-        << "vstream_key = " << config.id_group << "_" << config.ext_id
-        << ";  after inference VcNet";
+      USERVER_IMPL_LOG_TO(logger_, userver::logging::Level::kTrace,
+        "vstream_key = {}_{};  after inference VcNet",
+        config.id_group, config.ext_id);
 
     if (config.logs_level <= userver::logging::Level::kTrace)
-      USERVER_IMPL_LOG_TO(logger_, userver::logging::Level::kTrace)
-        << "vstream_key = " << config.id_group << "_" << config.ext_id
-        << ";  special confidence threshold: " << config.special_confidence;
+      USERVER_IMPL_LOG_TO(logger_, userver::logging::Level::kTrace,
+        "vstream_key = {}_{};  special confidence threshold: {:.3f}",
+        config.id_group, config.ext_id, config.special_confidence);
 
     bool is_ok = false;
     for (size_t vindex = 0; vindex < detected_vehicles.size(); ++vindex)
     {
       if (auto err = tasks[vindex].Get(); !err.IsOk())
       {
-        LOG_ERROR_TO(logger_) << absl::Substitute("Error! Unable to send inference request (vindex = $0): $1", vindex, err.Message());
+        LOG_ERROR_TO(logger_,
+          "Error! Unable to send inference request (vindex = {}): {}",
+          vindex, err.Message());
         continue;
       }
 
       const std::shared_ptr<tc::InferResult> result_ptr(results[vindex]);
       if (!result_ptr->RequestStatus().IsOk())
       {
-        LOG_ERROR_TO(logger_) << absl::Substitute("Error! Unable to receive inference result (vindex = $0): $1", vindex, result_ptr->RequestStatus().Message());
+        LOG_ERROR_TO(logger_,
+          "Error! Unable to receive inference result (vindex = {}): {}",
+          vindex, result_ptr->RequestStatus().Message());
         continue;
       }
 
@@ -1281,22 +1303,18 @@ properties:
       scores.assign(data, data + 2);
 
       if (config.logs_level <= userver::logging::Level::kTrace)
-        USERVER_IMPL_LOG_TO(logger_, userver::logging::Level::kTrace)
-          << "vstream_key = " << config.id_group << "_" << config.ext_id
-          << ";  vindex = " << vindex
-          << ";  softmax scores:" << vindex
-          << " scores[0]: " << scores[0]
-          << " scores[1]: " << scores[1];
+        USERVER_IMPL_LOG_TO(logger_, userver::logging::Level::kTrace,
+          "vstream_key = {}_{};  vindex = {};  softmax scores: {:.3f} {:.3f}",
+          config.id_group, config.ext_id, vindex, scores[0], scores[1]);
 
       scores = softMax(scores);
 
       if (config.logs_level <= userver::logging::Level::kTrace)
-        USERVER_IMPL_LOG_TO(logger_, userver::logging::Level::kTrace)
-          << "vstream_key = " << config.id_group << "_" << config.ext_id
-          << ";  vindex = " << vindex
-          << ";  bbox = [" << detected_vehicles[vindex].bbox[0] << ", " << detected_vehicles[vindex].bbox[1] << ", " << detected_vehicles[vindex].bbox[2] << ", " << detected_vehicles[vindex].bbox[3] << "]"
-          << ";  data[0]: " << scores[0]
-          << ";  data[1]: " << scores[1];
+        USERVER_IMPL_LOG_TO(logger_, userver::logging::Level::kTrace,
+          "vstream_key = {}_{};  vindex = {};  bbox = [{:.2f}, {:.2f}, {:.2f}, {:.2f}];  data[0]: {:.2f};  data[1]: {:.2f}",
+          config.id_group, config.ext_id, vindex,
+          detected_vehicles[vindex].bbox[0], detected_vehicles[vindex].bbox[1], detected_vehicles[vindex].bbox[2], detected_vehicles[vindex].bbox[3],
+          scores[0], scores[1]);
       detected_vehicles[vindex].is_special = scores[1] > scores[0] && scores[1] > config.special_confidence;
 
       is_ok = true;
@@ -1335,23 +1353,25 @@ properties:
     scales.resize(detected_vehicles.size());
 
     if (config.logs_level <= userver::logging::Level::kTrace)
-      USERVER_IMPL_LOG_TO(logger_, userver::logging::Level::kTrace)
-        << "vstream_key = " << config.id_group << "_" << config.ext_id
-        << ";  before inference LPDNet";
+      USERVER_IMPL_LOG_TO(logger_, userver::logging::Level::kTrace,
+        "vstream_key = {}_{};  before inference LPDNet",
+        config.id_group, config.ext_id);
 
     for (size_t vindex = 0; vindex < detected_vehicles.size(); ++vindex)
     {
       auto err = tc::InferenceServerHttpClient::Create(&triton_clients[vindex], config.lpd_net_inference_server, false);
       if (!err.IsOk())
       {
-        LOG_ERROR_TO(logger_) << absl::Substitute("Error! Unable to create inference client: $0", err.Message());
+        LOG_ERROR_TO(logger_,
+          "Error! Unable to create inference client: {}",
+          err.Message());
         return false;
       }
       const auto& [bbox, confidence, is_special, license_plates] = detected_vehicles[vindex];
       if (config.logs_level <= userver::logging::Level::kTrace)
-        USERVER_IMPL_LOG_TO(logger_, userver::logging::Level::kTrace)
-          << "vstream_key = " << config.id_group << "_" << config.ext_id
-          << ";  before preprocess image " << vindex << " for LPDNet";
+        USERVER_IMPL_LOG_TO(logger_, userver::logging::Level::kTrace,
+          "vstream_key = {}_{};  before preprocess image {} for LPDNet",
+          config.id_group, config.ext_id, vindex);
       cv::Rect roi(cv::Point{static_cast<int>(bbox[0]), static_cast<int>(bbox[1])},
         cv::Point{static_cast<int>(bbox[2]), static_cast<int>(bbox[3])});
 
@@ -1361,9 +1381,9 @@ properties:
       auto input_buffer = preprocessImageForLpdNet(img(roi), config.lpd_net_input_width, config.lpd_net_input_height, shifts[vindex],
         scales[vindex]);
       if (config.logs_level <= userver::logging::Level::kTrace)
-        USERVER_IMPL_LOG_TO(logger_, userver::logging::Level::kTrace)
-          << "vstream_key = " << config.id_group << "_" << config.ext_id
-          << ";  after preprocess image " << vindex << " for LPDNet";
+        USERVER_IMPL_LOG_TO(logger_, userver::logging::Level::kTrace,
+          "vstream_key = {}_{};  after preprocess image {} for LPDNet",
+          config.id_group, config.ext_id, vindex);
 
       inputs_data[vindex].resize(config.lpd_net_input_width * config.lpd_net_input_height * 3 * sizeof(float));
       memcpy(inputs_data[vindex].data(), input_buffer.data(), inputs_data[vindex].size());
@@ -1372,7 +1392,9 @@ properties:
       err = tc::InferInput::Create(&input, config.lpd_net_input_tensor_name, shape, "FP32");
       if (!err.IsOk())
       {
-        LOG_ERROR_TO(logger_) << absl::Substitute("Error! Unable to create input data: $0", err.Message());
+        LOG_ERROR_TO(logger_,
+          "Error! Unable to create input data: {}",
+          err.Message());
         return false;
       }
       input_ptrs.emplace_back(input);
@@ -1381,7 +1403,9 @@ properties:
       err = tc::InferRequestedOutput::Create(&output, config.lpd_net_output_tensor_name);
       if (!err.IsOk())
       {
-        LOG_ERROR_TO(logger_) << absl::Substitute("Error! Unable to create output data: $0", err.Message());
+        LOG_ERROR_TO(logger_,
+          "Error! Unable to create output data: {}",
+          err.Message());
         return false;
       }
       output_ptrs.emplace_back(output);
@@ -1389,7 +1413,9 @@ properties:
       err = input_ptrs.back()->AppendRaw(inputs_data[vindex]);
       if (!err.IsOk())
       {
-        LOG_ERROR_TO(logger_) << absl::Substitute("Error! Unable to set up input data: $0", err.Message());
+        LOG_ERROR_TO(logger_,
+          "Error! Unable to set up input data: {}",
+          err.Message());
         return false;
       }
       options.emplace_back(config.lpd_net_model_name);
@@ -1404,23 +1430,27 @@ properties:
     WaitAllChecked(tasks);
 
     if (config.logs_level <= userver::logging::Level::kTrace)
-      USERVER_IMPL_LOG_TO(logger_, userver::logging::Level::kTrace)
-        << "vstream_key = " << config.id_group << "_" << config.ext_id
-        << ";  after inference LPDNet";
+      USERVER_IMPL_LOG_TO(logger_, userver::logging::Level::kTrace,
+        "vstream_key = {}_{};  after inference LPDNet",
+        config.id_group, config.ext_id);
 
     bool is_ok = false;
     for (size_t vindex = 0; vindex < detected_vehicles.size(); ++vindex)
     {
       if (auto err = tasks[vindex].Get(); !err.IsOk())
       {
-        LOG_ERROR_TO(logger_) << absl::Substitute("Error! Unable to send inference request (vindex = $0): $1", vindex, err.Message());
+        LOG_ERROR_TO(logger_,
+          "Error! Unable to send inference request (vindex = {}): {}",
+          vindex, err.Message());
         continue;
       }
 
       std::shared_ptr<tc::InferResult> result_ptr(results[vindex]);
       if (!result_ptr->RequestStatus().IsOk())
       {
-        LOG_ERROR_TO(logger_) << absl::Substitute("Error! Unable to receive inference result (vindex = $0): $1", vindex, result_ptr->RequestStatus().Message());
+        LOG_ERROR_TO(logger_,
+          "Error! Unable to receive inference result (vindex = {}): {}",
+          vindex, result_ptr->RequestStatus().Message());
         continue;
       }
 
@@ -1444,9 +1474,9 @@ properties:
       auto class_start_index = bbox_index + 4;
       auto kpts_start_index = num_rows - 8;
       if (config.logs_level <= userver::logging::Level::kTrace)
-        USERVER_IMPL_LOG_TO(logger_, userver::logging::Level::kTrace)
-          << "vstream_key = " << config.id_group << "_" << config.ext_id
-          << ";  license plate confidence threshold (vindex = " << vindex << "): " << config.plate_confidence;
+        USERVER_IMPL_LOG_TO(logger_, userver::logging::Level::kTrace,
+          "vstream_key = {}_{};  license plate confidence threshold (vindex = {}): {}",
+          config.id_group, config.ext_id, vindex, config.plate_confidence);
       for (auto j = 0; j < num_cols; ++j)
         for (auto k = class_start_index; k < class_start_index + PLATE_CLASS_COUNT; ++k)
           if (data[k * num_cols + j] > config.plate_confidence)
@@ -1473,14 +1503,14 @@ properties:
           }
 
       if (config.logs_level <= userver::logging::Level::kTrace)
-        USERVER_IMPL_LOG_TO(logger_, userver::logging::Level::kTrace)
-          << "vstream_key = " << config.id_group << "_" << config.ext_id
-          << ";  before nms_plates count (vindex = " << vindex << "): " << detected_plates.size();
+        USERVER_IMPL_LOG_TO(logger_, userver::logging::Level::kTrace,
+          "vstream_key = {}_{};  before nms_plates count (vindex = {}): {}",
+          config.id_group, config.ext_id, vindex, detected_plates.size());
       nms_plates(detected_plates);
       if (config.logs_level <= userver::logging::Level::kTrace)
-        USERVER_IMPL_LOG_TO(logger_, userver::logging::Level::kTrace)
-          << "vstream_key = " << config.id_group << "_" << config.ext_id
-          << ";  after nms_plates count (vindex = " << vindex << "): " << detected_plates.size();
+        USERVER_IMPL_LOG_TO(logger_, userver::logging::Level::kTrace,
+          "vstream_key = {}_{};  after nms_plates count (vindex = {}): {}",
+          config.id_group, config.ext_id, vindex, detected_plates.size());
 
       // remove small detections or outside the work area
       if (!config.work_area.empty() || config.min_plate_height > 0)
@@ -1509,10 +1539,10 @@ properties:
               do_erase = false;
 
             if (do_erase && config.logs_level <= userver::logging::Level::kTrace)
-              USERVER_IMPL_LOG_TO(logger_, userver::logging::Level::kTrace)
-                << "vstream_key = " << config.id_group << "_" << config.ext_id
-                << ";  license plate does not fall completely into the work area"
-                << absl::Substitute(";  key points: [($0, $1) ($2, $3) ($4, $5) ($6, $7)]", plate.kpts[0], plate.kpts[1], plate.kpts[2], plate.kpts[3], plate.kpts[4], plate.kpts[5], plate.kpts[6], plate.kpts[7]);
+              USERVER_IMPL_LOG_TO(logger_, userver::logging::Level::kTrace,
+                "vstream_key = {}_{};  license plate does not fall completely into the work area;  key points: [({:.2f}, {:.2f}) ({:.2f}, {:.2f}) ({:.2f}, {:.2f}) ({:.2f}, {:.2f})]",
+                config.id_group, config.ext_id,
+                plate.kpts[0], plate.kpts[1], plate.kpts[2], plate.kpts[3], plate.kpts[4], plate.kpts[5], plate.kpts[6], plate.kpts[7]);
 
             // remove small license plate
             if (!do_erase && config.min_plate_height > 0
@@ -1523,18 +1553,18 @@ properties:
             {
               do_erase = true;
               if (config.logs_level <= userver::logging::Level::kTrace)
-                USERVER_IMPL_LOG_TO(logger_, userver::logging::Level::kTrace)
-                  << "vstream_key = " << config.id_group << "_" << config.ext_id
-                  << ";  license plate height is too small"
-                  << absl::Substitute(";  key points: [($0, $1) ($2, $3) ($4, $5) ($6, $7)]", plate.kpts[0], plate.kpts[1], plate.kpts[2], plate.kpts[3], plate.kpts[4], plate.kpts[5], plate.kpts[6], plate.kpts[7]);
+                USERVER_IMPL_LOG_TO(logger_, userver::logging::Level::kTrace,
+                  "vstream_key = {}_{};  license plate height is too small;  key points: [({:.2f}, {:.2f}) ({:.2f}, {:.2f}) ({:.2f}, {:.2f}) ({:.2f}, {:.2f})]",
+                  config.id_group, config.ext_id,
+                  plate.kpts[0], plate.kpts[1], plate.kpts[2], plate.kpts[3], plate.kpts[4], plate.kpts[5], plate.kpts[6], plate.kpts[7]);
             }
 
             return do_erase; });
 
       if (config.logs_level <= userver::logging::Level::kTrace)
-        USERVER_IMPL_LOG_TO(logger_, userver::logging::Level::kTrace)
-          << "vstream_key = " << config.id_group << "_" << config.ext_id
-          << ";  detected plate count (vindex = " << vindex << ":) " << detected_plates.size();
+        USERVER_IMPL_LOG_TO(logger_, userver::logging::Level::kTrace,
+          "vstream_key = {}_{};  detected plate count (vindex = {}): {}",
+          config.id_group, config.ext_id, vindex, detected_plates.size());
 
       is_ok = true;
     }
@@ -1563,17 +1593,17 @@ properties:
                    if (b1.area() > b2.area())
                    {
                      if (config.logs_level <= userver::logging::Level::kTrace)
-                       USERVER_IMPL_LOG_TO(logger_, userver::logging::Level::kTrace)
-                         << "vstream_key = " << config.id_group << "_" << config.ext_id
-                         << ";  remove duplicate plate number from vehicle " << i;
+                       USERVER_IMPL_LOG_TO(logger_, userver::logging::Level::kTrace,
+                         "vstream_key = {}_{};  remove duplicate plate number from vehicle {}",
+                         config.id_group, config.ext_id, i);
                      m = detected_vehicles[i].license_plates.erase(m);
                      --m;
                    } else
                    {
                      if (config.logs_level <= userver::logging::Level::kTrace)
-                       USERVER_IMPL_LOG_TO(logger_, userver::logging::Level::kTrace)
-                         << "vstream_key = " << config.id_group << "_" << config.ext_id
-                         << ";  remove duplicate plate number from vehicle " << j;
+                       USERVER_IMPL_LOG_TO(logger_, userver::logging::Level::kTrace,
+                         "vstream_key = {}_{};  remove duplicate plate number from vehicle {}",
+                         config.id_group, config.ext_id, j);
                      n = detected_vehicles[j].license_plates.erase(n);
                      --n;
                    }
@@ -1583,17 +1613,17 @@ properties:
                    if (detected_vehicles[i].license_plates.size() > detected_vehicles[j].license_plates.size())
                    {
                      if (config.logs_level <= userver::logging::Level::kTrace)
-                       USERVER_IMPL_LOG_TO(logger_, userver::logging::Level::kTrace)
-                         << "vstream_key = " << config.id_group << "_" << config.ext_id
-                         << ";  remove duplicate plate number from vehicle " << i;
+                       USERVER_IMPL_LOG_TO(logger_, userver::logging::Level::kTrace,
+                         "vstream_key = {}_{};  remove duplicate plate number from vehicle {}",
+                         config.id_group, config.ext_id, i);
                      m = detected_vehicles[i].license_plates.erase(m);
                      --m;
                    } else
                    {
                      if (config.logs_level <= userver::logging::Level::kTrace)
-                       USERVER_IMPL_LOG_TO(logger_, userver::logging::Level::kTrace)
-                         << "vstream_key = " << config.id_group << "_" << config.ext_id
-                         << ";  remove duplicate plate number from vehicle " << j;
+                       USERVER_IMPL_LOG_TO(logger_, userver::logging::Level::kTrace,
+                         "vstream_key = {}_{};  remove duplicate plate number from vehicle {}",
+                         config.id_group, config.ext_id, j);
                      n = detected_vehicles[j].license_plates.erase(n);
                      --n;
                    }
@@ -1693,23 +1723,25 @@ properties:
     scales.resize(detected_plates.size());
 
     if (config.logs_level <= userver::logging::Level::kTrace)
-      USERVER_IMPL_LOG_TO(logger_, userver::logging::Level::kTrace)
-        << "vstream_key = " << config.id_group << "_" << config.ext_id
-        << ";  before inference LPRNet";
+      USERVER_IMPL_LOG_TO(logger_, userver::logging::Level::kTrace,
+        "vstream_key = {}_{};  before inference LPRNet",
+        config.id_group, config.ext_id);
 
     for (size_t pindex = 0; pindex < detected_plates.size(); ++pindex)
     {
       auto err = tc::InferenceServerHttpClient::Create(&triton_clients[pindex], config.lpr_net_inference_server, false);
       if (!err.IsOk())
       {
-        LOG_ERROR_TO(logger_) << absl::Substitute("Error! Unable to create inference client: $0", err.Message());
+        LOG_ERROR_TO(logger_,
+          "Error! Unable to create inference client: {}",
+          err.Message());
         return false;
       }
       auto& [bbox, confidence, kpts, plate_class, plate_numbers] = *detected_plates[pindex];
       if (config.logs_level <= userver::logging::Level::kTrace)
-        USERVER_IMPL_LOG_TO(logger_, userver::logging::Level::kTrace)
-          << "vstream_key = " << config.id_group << "_" << config.ext_id
-          << ";  before preprocess image " << pindex << " for LPRNet";
+        USERVER_IMPL_LOG_TO(logger_, userver::logging::Level::kTrace,
+          "vstream_key = {}_{};  before preprocess image {} for LPRNet",
+          config.id_group, config.ext_id, pindex);
 
       auto src = cv::Mat(4, 2, CV_32F, kpts);
       std::vector<cv::Point2f> dst = {
@@ -1728,9 +1760,9 @@ properties:
         scales[pindex]);
 
       if (config.logs_level <= userver::logging::Level::kTrace)
-        USERVER_IMPL_LOG_TO(logger_, userver::logging::Level::kTrace)
-          << "vstream_key = " << config.id_group << "_" << config.ext_id
-          << ";  after preprocess image " << pindex << " for LPRNet";
+        USERVER_IMPL_LOG_TO(logger_, userver::logging::Level::kTrace,
+          "vstream_key = {}_{};  after preprocess image {} for LPRNet",
+          config.id_group, config.ext_id, pindex);
 
       inputs_data[pindex].resize(config.lpr_net_input_width * config.lpr_net_input_height * 3 * sizeof(float));
       memcpy(inputs_data[pindex].data(), input_buffer.data(), inputs_data[pindex].size());
@@ -1739,7 +1771,9 @@ properties:
       err = tc::InferInput::Create(&input, config.lpr_net_input_tensor_name, shape, "FP32");
       if (!err.IsOk())
       {
-        LOG_ERROR_TO(logger_) << absl::Substitute("Error! Unable to create input data: $0", err.Message());
+        LOG_ERROR_TO(logger_,
+          "Error! Unable to create input data: {}",
+          err.Message());
         return false;
       }
       input_ptrs.emplace_back(input);
@@ -1748,7 +1782,9 @@ properties:
       err = tc::InferRequestedOutput::Create(&output, config.lpr_net_output_tensor_name);
       if (!err.IsOk())
       {
-        LOG_ERROR_TO(logger_) << absl::Substitute("Error! Unable to create output data: $0", err.Message());
+        LOG_ERROR_TO(logger_,
+          "Error! Unable to create output data: {}",
+          err.Message());
         return false;
       }
       output_ptrs.emplace_back(output);
@@ -1756,7 +1792,9 @@ properties:
       err = input_ptrs.back()->AppendRaw(inputs_data[pindex]);
       if (!err.IsOk())
       {
-        LOG_ERROR_TO(logger_) << absl::Substitute("Error! Unable to set up input data: $0", err.Message());
+        LOG_ERROR_TO(logger_,
+          "Error! Unable to set up input data: {}",
+          err.Message());
         return false;
       }
 
@@ -1772,9 +1810,9 @@ properties:
     WaitAllChecked(tasks);
 
     if (config.logs_level <= userver::logging::Level::kTrace)
-      USERVER_IMPL_LOG_TO(logger_, userver::logging::Level::kTrace)
-        << "vstream_key = " << config.id_group << "_" << config.ext_id
-        << ";  after inference LPRNet";
+      USERVER_IMPL_LOG_TO(logger_, userver::logging::Level::kTrace,
+        "vstream_key = {}_{};  after inference LPRNet",
+        config.id_group, config.ext_id);
 
     bool is_ok = false;
     for (size_t pindex = 0; pindex < detected_plates.size(); ++pindex)
@@ -1782,14 +1820,18 @@ properties:
       auto err = tasks[pindex].Get();
       if (!err.IsOk())
       {
-        LOG_ERROR_TO(logger_) << absl::Substitute("Error! Unable to send inference request (vindex = $0): $1", pindex, err.Message());
+        LOG_ERROR_TO(logger_,
+          "Error! Unable to send inference request (vindex = {}): {}",
+          pindex, err.Message());
         continue;
       }
 
       std::shared_ptr<tc::InferResult> result_ptr(results[pindex]);
       if (!result_ptr->RequestStatus().IsOk())
       {
-        LOG_ERROR_TO(logger_) << absl::Substitute("Error! Unable to receive inference result (vindex = $0): $1", pindex, err.Message());
+        LOG_ERROR_TO(logger_,
+          "Error! Unable to receive inference result (vindex = {}): {}",
+          pindex, err.Message());
         continue;
       }
 
@@ -1804,9 +1846,9 @@ properties:
       auto bbox_index = 0;
       auto class_start_index = bbox_index + 4;
       if (config.logs_level <= userver::logging::Level::kTrace)
-        USERVER_IMPL_LOG_TO(logger_, userver::logging::Level::kTrace)
-          << "vstream_key = " << config.id_group << "_" << config.ext_id
-          << ";  char score threshold: " << config.char_score;
+        USERVER_IMPL_LOG_TO(logger_, userver::logging::Level::kTrace,
+          "vstream_key = {}_{};  char score threshold: {:.2f}",
+          config.id_group, config.ext_id, config.char_score);
       for (auto j = 0; j < num_cols; ++j)
         for (auto k = class_start_index; k < num_rows; ++k)
           if (data[k * num_cols + j] > config.char_score)
@@ -1827,14 +1869,14 @@ properties:
           }
 
       if (config.logs_level <= userver::logging::Level::kTrace)
-        USERVER_IMPL_LOG_TO(logger_, userver::logging::Level::kTrace)
-          << "vstream_key = " << config.id_group << "_" << config.ext_id
-          << ";  before nms_chars count (pindex = " << pindex << "): " << chars_data.size();
+        USERVER_IMPL_LOG_TO(logger_, userver::logging::Level::kTrace,
+          "vstream_key = {}_{};  before nms_chars count (pindex = {}): {}",
+          config.id_group, config.ext_id, pindex, chars_data.size());
       nms_chars(chars_data, config.char_iou_threshold);
       if (config.logs_level <= userver::logging::Level::kTrace)
-        USERVER_IMPL_LOG_TO(logger_, userver::logging::Level::kTrace)
-          << "vstream_key = " << config.id_group << "_" << config.ext_id
-          << ";  after nms_chars count (pindex = " << pindex << "): " << chars_data.size();
+        USERVER_IMPL_LOG_TO(logger_, userver::logging::Level::kTrace,
+          "vstream_key = {}_{};  after nms_chars count (pindex = {}): {}",
+          config.id_group, config.ext_id, pindex, chars_data.size());
 
       // assembling license plate numbers from char data
       std::ranges::sort(chars_data, cmp_chars_position);
@@ -1877,9 +1919,9 @@ properties:
           auto is_valid = isValidPlateNumber(item.number, plate.plate_class);
           if (!is_valid)
             if (config.logs_level <= userver::logging::Level::kTrace)
-              USERVER_IMPL_LOG_TO(logger_, userver::logging::Level::kTrace)
-                << "vstream_key = " << config.id_group << "_" << config.ext_id
-                << ";  invalid plate number: " << item.number;
+              USERVER_IMPL_LOG_TO(logger_, userver::logging::Level::kTrace,
+                "vstream_key = {}_{};  invalid plate number: {}",
+                config.id_group, config.ext_id, item.number);
           return !is_valid;
         });
 

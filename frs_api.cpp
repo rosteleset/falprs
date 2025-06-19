@@ -27,8 +27,9 @@ namespace Frs
   {
     const auto& auth_value = request.GetHeader("Authorization");
     const auto& api_method = request.GetPathArg(0);
-    LOG_INFO_TO(workflow_.getLogger()) << "API call from: " << request.GetRemoteAddress() << ";  method: " << api_method
-      << ";  body: " << absl::ClippedSubstr(ToStableString(json), 0, 300);
+    LOG_INFO_TO(workflow_.getLogger(),
+      "API call from: {};  method: {};  body: {}",
+      request.GetRemoteAddress(), api_method, absl::ClippedSubstr(ToStableString(json), 0, 300));
     if (api_method.starts_with(SG_METHOD_PREFIX))
     {
       // check special group authorization

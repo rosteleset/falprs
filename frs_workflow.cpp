@@ -480,10 +480,9 @@ properties:
     if (config.logs_level <= userver::logging::Level::kDebug || task_data.task_type == TASK_TEST)
     {
       auto frame_url = url.starts_with("data:") ? "data:base64..." : url;
-      USERVER_IMPL_LOG_TO(logger_, userver::logging::Level::kDebug)
-        << "Start processPipeline: vstream_key = " << task_data.vstream_key
-        << ";  task_type = " << task_data.task_type
-        << absl::Substitute(";  url = $0", frame_url);
+      USERVER_IMPL_LOG_TO(logger_, userver::logging::Level::kDebug,
+        "Start processPipeline: vstream_key = {};  task_type = {};  url = {}",
+        task_data.vstream_key, static_cast<int>(task_data.task_type), frame_url);
     }
 
     try
@@ -496,8 +495,9 @@ properties:
             if (!absl::Base64Unescape(absl::ClippedSubstr(url, pos_comma + 1), &image_data))
             {
               if (config.logs_level <= userver::logging::Level::kError || task_data.task_type == TASK_TEST)
-                USERVER_IMPL_LOG_TO(logger_, userver::logging::Level::kError)
-                  << "Error decoding image from BASE64: vstream_key = " << task_data.vstream_key << ";";
+                USERVER_IMPL_LOG_TO(logger_, userver::logging::Level::kError,
+                  "Error decoding image from BASE64: vstream_key = {};",
+                  task_data.vstream_key);
 
               return {
                 .comments = "Error decoding image from BASE64",
@@ -508,37 +508,35 @@ properties:
       } else
       {
         if (config.logs_level <= userver::logging::Level::kTrace || task_data.task_type == TASK_TEST)
-          USERVER_IMPL_LOG_TO(logger_, userver::logging::Level::kTrace)
-            << "vstream_key = " << task_data.vstream_key
-            << ";  before image acquisition";
+          USERVER_IMPL_LOG_TO(logger_, userver::logging::Level::kTrace,
+            "vstream_key = {};  before image acquisition",
+            task_data.vstream_key);
         auto capture_response = http_client_.CreateRequest()
-                          .get(url)
-                          .retry(config.max_capture_error_count)
-                          .timeout(config.capture_timeout)
-                          .perform();
+          .get(url)
+          .retry(config.max_capture_error_count)
+          .timeout(config.capture_timeout)
+          .perform();
         if (config.logs_level <= userver::logging::Level::kTrace || task_data.task_type == TASK_TEST)
-          USERVER_IMPL_LOG_TO(logger_, userver::logging::Level::kTrace)
-            << "vstream_key = " << task_data.vstream_key
-            << ";  after image acquisition";
+          USERVER_IMPL_LOG_TO(logger_, userver::logging::Level::kTrace,
+            "vstream_key = {};  after image acquisition",
+            task_data.vstream_key);
 
         if (capture_response->status_code() != userver::clients::http::Status::OK || capture_response->body_view().empty())
         {
           if (config.logs_level <= userver::logging::Level::kError || task_data.task_type == TASK_TEST)
-            USERVER_IMPL_LOG_TO(logger_, userver::logging::Level::kError)
-              << "vstream_key = " << task_data.vstream_key
-              << ";  url = " << url
-              << ";  status_code = " << capture_response->status_code();
+            USERVER_IMPL_LOG_TO(logger_, userver::logging::Level::kError,
+              "vstream_key = {};  url = {};  status_code = {}",
+              task_data.vstream_key, url, capture_response->status_code());
           if (config.delay_after_error.count() > 0)
           {
             if (config.logs_level <= userver::logging::Level::kError || task_data.task_type == TASK_TEST)
-              USERVER_IMPL_LOG_TO(logger_, userver::logging::Level::kError)
-                << "vstream_key = " << task_data.vstream_key
-                << ";  delay for " << config.delay_after_error.count() << "ms";
+              USERVER_IMPL_LOG_TO(logger_, userver::logging::Level::kError,
+                "vstream_key = {};  delay for {}ms",
+                task_data.vstream_key, config.delay_after_error.count());
             if (task_data.task_type == TASK_RECOGNIZE)
               nextPipeline(std::move(task_data), config.delay_after_error);
-          } else
-            if (task_data.task_type == TASK_RECOGNIZE)
-              stopWorkflow(std::move(task_data.vstream_key));
+          } else if (task_data.task_type == TASK_RECOGNIZE)
+            stopWorkflow(std::move(task_data.vstream_key));
 
           return {
             .comments = absl::Substitute("Error when retrieving image by url: $0", url),
@@ -552,18 +550,18 @@ properties:
 
       if (config.logs_level <= userver::logging::Level::kTrace || task_data.task_type == TASK_TEST)
       {
-        USERVER_IMPL_LOG_TO(logger_, userver::logging::Level::kTrace)
-          << "vstream_key = " << task_data.vstream_key
-          << ";  image size " << image_data.size();
-        USERVER_IMPL_LOG_TO(logger_, userver::logging::Level::kTrace)
-          << "vstream_key = " << task_data.vstream_key
-          << ";  before decoding the image";
+        USERVER_IMPL_LOG_TO(logger_, userver::logging::Level::kTrace,
+          "vstream_key = {};  image size = {} bytes",
+          task_data.vstream_key, image_data.size());
+        USERVER_IMPL_LOG_TO(logger_, userver::logging::Level::kTrace,
+          "vstream_key = {};  before decoding the image",
+          task_data.vstream_key);
       }
       cv::Mat frame = imdecode(std::vector<char>(image_data.begin(), image_data.end()), cv::IMREAD_COLOR);
       if (config.logs_level <= userver::logging::Level::kTrace || task_data.task_type == TASK_TEST)
-        USERVER_IMPL_LOG_TO(logger_, userver::logging::Level::kTrace)
-          << "vstream_key = " << task_data.vstream_key
-          << ";  after decoding the image";
+        USERVER_IMPL_LOG_TO(logger_, userver::logging::Level::kTrace,
+          "vstream_key = {};  after decoding the image",
+          task_data.vstream_key);
 
       cv::Rect work_area{};
       if (config.work_area.size() == 4)
@@ -598,15 +596,15 @@ properties:
         bool has_sgroup_events = false;
 
         if (config.logs_level <= userver::logging::Level::kTrace || task_data.task_type == TASK_TEST)
-          USERVER_IMPL_LOG_TO(logger_, userver::logging::Level::kTrace)
-            << "vstream_key = " << task_data.vstream_key
-            << ";  process the found faces, quantity: " << detected_faces.size();
+          USERVER_IMPL_LOG_TO(logger_, userver::logging::Level::kTrace,
+            "vstream_key = {};  process the found faces, quantity: {}",
+            task_data.vstream_key, detected_faces.size());
         for (auto& [bbox, face_confidence, landmark] : detected_faces)
         {
           if (config.logs_level <= userver::logging::Level::kTrace || task_data.task_type == TASK_TEST)
-            USERVER_IMPL_LOG_TO(logger_, userver::logging::Level::kTrace)
-              << "vstream_key = " << task_data.vstream_key
-              << ";  face probability: " << face_confidence;
+            USERVER_IMPL_LOG_TO(logger_, userver::logging::Level::kTrace,
+              "vstream_key = {};  face probability: {:.3f}",
+              task_data.vstream_key, face_confidence);
           auto work_region = cv::Rect(
             static_cast<int>(config.margin / 100.0 * frame.cols),
             static_cast<int>(config.margin / 100.0 * frame.rows),
@@ -627,17 +625,17 @@ properties:
           if ((work_region & face_rect) != face_rect)
           {
             if (config.logs_level <= userver::logging::Level::kTrace || task_data.task_type == TASK_TEST)
-              USERVER_IMPL_LOG_TO(logger_, userver::logging::Level::kTrace)
-                << "vstream_key = " << task_data.vstream_key
-                << ";  the person is not in the work area";
+              USERVER_IMPL_LOG_TO(logger_, userver::logging::Level::kTrace,
+                "vstream_key = {};  the person is not in the work area",
+                task_data.vstream_key);
             continue;
           }
 
           face_data.back().is_work_area = true;
           if (config.logs_level <= userver::logging::Level::kTrace || task_data.task_type == TASK_TEST)
-            USERVER_IMPL_LOG_TO(logger_, userver::logging::Level::kTrace)
-              << "vstream_key = " << task_data.vstream_key
-              << ";  the person is in the work area";
+            USERVER_IMPL_LOG_TO(logger_, userver::logging::Level::kTrace,
+              "vstream_key = {};  the person is in the work area",
+              task_data.vstream_key);
 
           auto landmarks5 = cv::Mat(5, 2, CV_32F, landmark);
           face_data.back().landmarks5 = landmarks5.clone();
@@ -646,9 +644,9 @@ properties:
           if (!isFrontalFace(landmarks5))
           {
             if (config.logs_level <= userver::logging::Level::kTrace || task_data.task_type == TASK_TEST)
-              USERVER_IMPL_LOG_TO(logger_, userver::logging::Level::kTrace)
-                << "vstream_key = " << task_data.vstream_key
-                << ";  face is not frontal according to markers";
+              USERVER_IMPL_LOG_TO(logger_, userver::logging::Level::kTrace,
+                "vstream_key = {};  face is not frontal according to markers",
+                task_data.vstream_key);
             continue;
           }
 
@@ -657,10 +655,9 @@ properties:
           if (aligned_face.cols != common_config.dnn_fr_input_width || aligned_face.rows != common_config.dnn_fr_input_height)
           {
             if (config.logs_level <= userver::logging::Level::kTrace || task_data.task_type == TASK_TEST)
-              USERVER_IMPL_LOG_TO(logger_, userver::logging::Level::kTrace)
-                << "vstream_key = " << task_data.vstream_key
-                << ";  failed to do face alignment to get descriptor";
-
+              USERVER_IMPL_LOG_TO(logger_, userver::logging::Level::kTrace,
+                "vstream_key = {};  failed to do face alignment to get descriptor",
+                task_data.vstream_key);
             continue;
           }
 
@@ -677,32 +674,32 @@ properties:
           auto laplacian = varianceOfLaplacian(aligned_face);
           face_data.back().laplacian = laplacian;
           if (config.logs_level <= userver::logging::Level::kTrace || task_data.task_type == TASK_TEST)
-            USERVER_IMPL_LOG_TO(logger_, userver::logging::Level::kTrace)
-              << "vstream_key = " << task_data.vstream_key
-              << ";  laplacian = " << laplacian;
+            USERVER_IMPL_LOG_TO(logger_, userver::logging::Level::kTrace,
+              "vstream_key = {};  laplacian = {:.2f}",
+              task_data.vstream_key, laplacian);
           if (laplacian < config.blur || laplacian > config.blur_max)
           {
             if (config.logs_level <= userver::logging::Level::kTrace || task_data.task_type == TASK_TEST)
-              USERVER_IMPL_LOG_TO(logger_, userver::logging::Level::kTrace)
-                << "vstream_key = " << task_data.vstream_key
-                << ";  face is blurry or too clear";
+              USERVER_IMPL_LOG_TO(logger_, userver::logging::Level::kTrace,
+                "vstream_key = {};  the face is blurry or too clear",
+                task_data.vstream_key);
 
             continue;
           }
           face_data.back().is_non_blurry = true;
           if (config.logs_level <= userver::logging::Level::kTrace || task_data.task_type == TASK_TEST)
-            USERVER_IMPL_LOG_TO(logger_, userver::logging::Level::kTrace)
-              << "vstream_key = " << task_data.vstream_key
-              << ";  the face is not blurry";
+            USERVER_IMPL_LOG_TO(logger_, userver::logging::Level::kTrace,
+              "vstream_key = {};  the face is not blurry",
+              task_data.vstream_key);
 
           // face "alignment" for face class inference
           auto aligned_face_class = alignFaceAffineTransform(frame, landmarks5, common_config.dnn_fc_input_width, common_config.dnn_fc_input_height);
           if (aligned_face_class.cols != common_config.dnn_fc_input_width || aligned_face_class.rows != common_config.dnn_fc_input_height)
           {
             if (config.logs_level <= userver::logging::Level::kTrace || task_data.task_type == TASK_TEST)
-              USERVER_IMPL_LOG_TO(logger_, userver::logging::Level::kTrace)
-                << "vstream_key = " << task_data.vstream_key
-                << ";  failed to do face alignment for inference class";
+              USERVER_IMPL_LOG_TO(logger_, userver::logging::Level::kTrace,
+                "vstream_key = {};  failed to do face alignment for inference class",
+                task_data.vstream_key);
 
             continue;
           }
@@ -720,13 +717,13 @@ properties:
             face_data.back().face_class_index = static_cast<FaceClassIndexes>(face_classes[0].class_index);
             face_data.back().face_class_confidence = face_classes[0].score;
             if (config.logs_level <= userver::logging::Level::kTrace || task_data.task_type == TASK_TEST)
-              USERVER_IMPL_LOG_TO(logger_, userver::logging::Level::kTrace)
-                << "vstream_key = " << task_data.vstream_key
-                << absl::Substitute(";  face class: $0;  probability: $1", face_classes[0].class_index, face_classes[0].score);
+              USERVER_IMPL_LOG_TO(logger_, userver::logging::Level::kTrace,
+                "vstream_key = {};  face class: {};  probability: {:.3f}",
+                task_data.vstream_key, face_classes[0].class_index, face_classes[0].score);
           }
           if (face_data.back().face_class_index == FACE_NONE
               || (face_data.back().face_class_index != FACE_NORMAL
-                   && face_data.back().face_class_confidence > config.face_class_confidence))
+                  && face_data.back().face_class_confidence > config.face_class_confidence))
             continue;
 
           face_data.back().face_class_index = FACE_NORMAL;
@@ -751,9 +748,9 @@ properties:
 
           // recognize the face
           if (config.logs_level <= userver::logging::Level::kTrace || task_data.task_type == TASK_TEST)
-            USERVER_IMPL_LOG_TO(logger_, userver::logging::Level::kTrace)
-              << "vstream_key = " << task_data.vstream_key
-              << ";  before recognition";
+            USERVER_IMPL_LOG_TO(logger_, userver::logging::Level::kTrace,
+              "vstream_key = {};  before recognition",
+              task_data.vstream_key);
           double max_cos_distance = -2.0;
           int id_descriptor{};
 
@@ -778,10 +775,9 @@ properties:
             {
               auto id_parent = fd_cache->getSpawned().at(id_descriptor);
               if (config.logs_level <= userver::logging::Level::kTrace || task_data.task_type == TASK_TEST)
-                USERVER_IMPL_LOG_TO(logger_, userver::logging::Level::kTrace)
-                  << "vstream_key = " << task_data.vstream_key
-                  << ";  spawned id_descriptor = " << id_descriptor
-                  << ";  parent id_descriptor = " << id_parent;
+                USERVER_IMPL_LOG_TO(logger_, userver::logging::Level::kTrace,
+                  "vstream_key = {};  spawned id_descriptor = {};  parent id_descriptor = {}",
+                  task_data.vstream_key, id_descriptor, id_parent);
               id_descriptor = id_parent;
             }
 
@@ -825,16 +821,16 @@ properties:
           }
 
           if (config.logs_level <= userver::logging::Level::kTrace || task_data.task_type == TASK_TEST)
-            USERVER_IMPL_LOG_TO(logger_, userver::logging::Level::kTrace)
-              << "vstream_key = " << task_data.vstream_key
-              << ";  after recognition";
+            USERVER_IMPL_LOG_TO(logger_, userver::logging::Level::kTrace,
+              "vstream_key = {};  after recognition",
+              task_data.vstream_key);
 
           face_data.back().cosine_distance = max_cos_distance;
 
           if (config.logs_level <= userver::logging::Level::kTrace || task_data.task_type == TASK_TEST)
-            USERVER_IMPL_LOG_TO(logger_, userver::logging::Level::kTrace)
-              << "vstream_key = " << task_data.vstream_key
-              << absl::Substitute(";  most similar data: cosine_distance = $0; id_descriptor = $1", max_cos_distance, id_descriptor);
+            USERVER_IMPL_LOG_TO(logger_, userver::logging::Level::kTrace,
+              "vstream_key = {};  most similar data: cosine_distance = {:.3f};  id_descriptor = {}",
+              task_data.vstream_key, max_cos_distance, id_descriptor);
 
           if (id_descriptor == 0 || max_cos_distance < config.tolerance)
           {
@@ -848,9 +844,9 @@ properties:
             if (config.flag_spawned_descriptors && task_data.task_type == TASK_RECOGNIZE)
             {
               if (config.logs_level <= userver::logging::Level::kTrace)
-                USERVER_IMPL_LOG_TO(logger_, userver::logging::Level::kTrace)
-                  << "vstream_key = " << task_data.vstream_key
-                  << ";  add an unknown descriptor";
+                USERVER_IMPL_LOG_TO(logger_, userver::logging::Level::kTrace,
+                  "vstream_key = {};  add an unknown descriptor",
+                  task_data.vstream_key);
 
               auto ud_ptr = unknown_descriptors.Lock();
               removeExpiredUnknownDescriptors((*ud_ptr)[config.id_vstream]);
@@ -908,10 +904,9 @@ properties:
                 if (k < (*ud_ptr)[config.id_vstream].size() && max_cd > config.tolerance)
                 {
                   if (config.logs_level <= userver::logging::Level::kTrace)
-                    USERVER_IMPL_LOG_TO(logger_, userver::logging::Level::kTrace)
-                      << "vstream_key = " << task_data.vstream_key
-                      << absl::Substitute(";  unknown descriptors cosine distance = $0;  index = $1;  size = $2", max_cd, k,
-                        (*ud_ptr)[config.id_vstream].size());
+                    USERVER_IMPL_LOG_TO(logger_, userver::logging::Level::kTrace,
+                      "vstream_key = {};  unknown descriptors cosine distance = {:.3f};  index = {};  size = {}",
+                      task_data.vstream_key, max_cd, k, (*ud_ptr)[config.id_vstream].size());
                   fd_spawned = std::move((*ud_ptr)[config.id_vstream][k].fd);
                   face_image_spawned = std::move((*ud_ptr)[config.id_vstream][k].face_image);
                 }
@@ -924,9 +919,9 @@ properties:
               {
                 auto id_spawned = addFaceDescriptor(config.id_group, config.id_vstream, fd_spawned, face_image_spawned, id_descriptor);
                 if (config.logs_level <= userver::logging::Level::kTrace)
-                  USERVER_IMPL_LOG_TO(logger_, userver::logging::Level::kTrace)
-                    << "vstream_key = " << task_data.vstream_key
-                    << absl::Substitute(";  created spawned descriptor with id = $0;  id_parent = $1", id_spawned, id_descriptor);
+                  USERVER_IMPL_LOG_TO(logger_, userver::logging::Level::kTrace,
+                    "vstream_key = {};  created spawned descriptor with id = {};  id_parent = {}",
+                    task_data.vstream_key, id_spawned, id_descriptor);
               }
             }
           }
@@ -958,9 +953,9 @@ properties:
         if (best_face_index >= 0 && task_data.task_type == TASK_RECOGNIZE)
         {
           if (config.logs_level <= userver::logging::Level::kInfo)
-            USERVER_IMPL_LOG_TO(logger_, userver::logging::Level::kInfo)
-              << "vstream_key = " << task_data.vstream_key
-              << absl::Substitute(";  faces detected: id_vstream = $0", config.id_vstream);
+            USERVER_IMPL_LOG_TO(logger_, userver::logging::Level::kInfo,
+              "vstream_key = {};  faces detected: id_vstream = {}",
+              task_data.vstream_key, config.id_vstream);
 
           // draw, if necessary, OSD
           if (!config.title.empty())
@@ -1019,15 +1014,13 @@ properties:
             try
             {
               auto delivery_response = http_client_.CreateRequest()
-                           .post(config.callback_url)
-                           .headers({{userver::http::headers::kContentType, userver::http::content_type::kApplicationJson.ToString()}})
-                           .data(ToString(json_data.ExtractValue()))
-                           .timeout(common_config.callback_timeout)
-                           .perform();
-              delivery_result = delivery_response->status_code() == userver::clients::http::Status::OK
-                                    || delivery_response->status_code() == userver::clients::http::Status::NoContent
-                                  ? SUCCESSFUL
-                                  : ERROR;
+               .post(config.callback_url)
+               .headers({{userver::http::headers::kContentType, userver::http::content_type::kApplicationJson.ToString()}})
+               .data(ToString(json_data.ExtractValue()))
+               .timeout(common_config.callback_timeout)
+               .perform();
+              delivery_result = (delivery_response->status_code() == userver::clients::http::Status::OK
+                || delivery_response->status_code() == userver::clients::http::Status::NoContent) ? SUCCESSFUL : ERROR;
             } catch (const std::exception& e)
             {
               delivery_result = ERROR;
@@ -1036,14 +1029,13 @@ properties:
             if (delivery_result == SUCCESSFUL)
             {
               if (config.logs_level <= userver::logging::Level::kInfo)
-                USERVER_IMPL_LOG_TO(logger_, userver::logging::Level::kInfo)
-                  << "vstream_key = " << task_data.vstream_key
-                  << absl::Substitute(";  facial recognition event sent: id_vstream = $0; id_descriptor = $1",
-                       config.id_vstream, face_data[best_face_index].id_descriptor);
+                USERVER_IMPL_LOG_TO(logger_, userver::logging::Level::kInfo,
+                  "vstream_key = {};  facial recognition event sent: id_vstream = {}; id_descriptor = {}",
+                  task_data.vstream_key, config.id_vstream, face_data[best_face_index].id_descriptor);
             } else
-              LOG_ERROR_TO(logger_)
-                << "vstream_key = " << task_data.vstream_key
-                << ";  error sending facial recognition event data to callback " << config.callback_url;
+              LOG_ERROR_TO(logger_,
+                "vstream_key = {};  error sending facial recognition event data to callback {}",
+                task_data.vstream_key, config.callback_url);
           }
 
           // write event's data to files
@@ -1136,15 +1128,13 @@ properties:
                 try
                 {
                   auto delivery_response = http_client_.CreateRequest()
-                               .post(sg_group_callback_url)
-                               .headers({{userver::http::headers::kContentType, userver::http::content_type::kApplicationJson.ToString()}})
-                               .data(ToString(json_data.ExtractValue()))
-                               .timeout(common_config.callback_timeout)
-                               .perform();
-                  delivery_result = delivery_response->status_code() == userver::clients::http::Status::OK
-                                        || delivery_response->status_code() == userver::clients::http::Status::NoContent
-                                      ? SUCCESSFUL
-                                      : ERROR;
+                   .post(sg_group_callback_url)
+                   .headers({{userver::http::headers::kContentType, userver::http::content_type::kApplicationJson.ToString()}})
+                   .data(ToString(json_data.ExtractValue()))
+                   .timeout(common_config.callback_timeout)
+                   .perform();
+                  delivery_result = (delivery_response->status_code() == userver::clients::http::Status::OK
+                    || delivery_response->status_code() == userver::clients::http::Status::NoContent) ? SUCCESSFUL : ERROR;
                 } catch (const std::exception& e)
                 {
                   delivery_result = ERROR;
@@ -1153,14 +1143,13 @@ properties:
                 if (delivery_result == SUCCESSFUL)
                 {
                   if (config.logs_level <= userver::logging::Level::kInfo)
-                    USERVER_IMPL_LOG_TO(logger_, userver::logging::Level::kInfo)
-                      << "vstream_key = " << task_data.vstream_key
-                      << absl::Substitute(";  an event was sent about facial recognition in a special group: id_sgroup = $0; id_vstream = $1; id_descriptor = $2",
-                           fst, config.id_vstream, snd.id_descriptor);
+                    USERVER_IMPL_LOG_TO(logger_, userver::logging::Level::kInfo,
+                      "vstream_key = {};  an event was sent about facial recognition in a special group: id_sgroup = {}; id_vstream = {}; id_descriptor = {}",
+                      task_data.vstream_key, fst, config.id_vstream, snd.id_descriptor);
                 } else
-                  LOG_ERROR_TO(logger_)
-                    << "vstream_key = " << task_data.vstream_key
-                    << ";  failed to send face recognition event data to special group by callback " << sg_group_callback_url;
+                  LOG_ERROR_TO(logger_,
+                    "vstream_key = {};  failed to send face recognition event data to special group by callback ",
+                    task_data.vstream_key, sg_group_callback_url);
               }
             }
 
@@ -1187,16 +1176,16 @@ properties:
               {
                 result.comments = common_config.comments_new_descriptor;
                 if (config.logs_level <= userver::logging::Level::kInfo)
-                  USERVER_IMPL_LOG_TO(logger_, userver::logging::Level::kInfo)
-                    << "vstream_key = " << task_data.vstream_key
-                    << absl::Substitute(";  descriptor created: id = $0", result.id_descriptor);
+                  USERVER_IMPL_LOG_TO(logger_, userver::logging::Level::kInfo,
+                    "vstream_key = {};  descriptor created: id = {}",
+                    task_data.vstream_key, result.id_descriptor);
               } else
               {
                 result.comments = common_config.comments_descriptor_exists;
                 if (config.logs_level <= userver::logging::Level::kInfo)
-                  USERVER_IMPL_LOG_TO(logger_, userver::logging::Level::kInfo)
-                    << "vstream_key = " << task_data.vstream_key
-                    << absl::Substitute(";  descriptor already exists: id = $0", result.id_descriptor);
+                  USERVER_IMPL_LOG_TO(logger_, userver::logging::Level::kInfo,
+                    "vstream_key = {};  descriptor already exists: id = {}",
+                    task_data.vstream_key, result.id_descriptor);
               }
               result.face_image = frame(r).clone();
               result.face_left = face_data[best_register_index].face_rect.x;
@@ -1242,10 +1231,9 @@ properties:
             {
               cv::imwrite(absl::Substitute("$0/frame_$1.jpg", std::filesystem::current_path().string(), frame_indx), frame);
             }).Get();
-          USERVER_IMPL_LOG_TO(logger_, userver::logging::Level::kInfo)
-            << "vstream_key = " << task_data.vstream_key
-            << ";  task_type = " << task_data.task_type
-            << absl::Substitute(";  frame index: $0", frame_indx);
+          USERVER_IMPL_LOG_TO(logger_, userver::logging::Level::kInfo,
+            "vstream_key = {};  task_type = {};  frame index: {}",
+            task_data.vstream_key, static_cast<int>(task_data.task_type), frame_indx);
         }
       } else
       {
@@ -1258,15 +1246,17 @@ properties:
     } catch (const std::exception& e)
     {
       if (config.logs_level <= userver::logging::Level::kError || task_data.task_type == TASK_TEST)
-        USERVER_IMPL_LOG_TO(logger_, userver::logging::Level::kError) << "vstream_key = " << task_data.vstream_key << ";  " << e.what();
+        USERVER_IMPL_LOG_TO(logger_, userver::logging::Level::kError,
+          "vstream_key = {};  {}",
+          task_data.vstream_key, e.what());
       if (task_data.task_type == TASK_RECOGNIZE)
       {
         if (config.delay_after_error.count() > 0)
         {
           if (config.logs_level <= userver::logging::Level::kError || task_data.task_type == TASK_TEST)
-            USERVER_IMPL_LOG_TO(logger_, userver::logging::Level::kError)
-              << "vstream_key = " << task_data.vstream_key
-              << ";  delay for " << config.delay_after_error.count() << "ms";
+            USERVER_IMPL_LOG_TO(logger_, userver::logging::Level::kError,
+              "vstream_key = {};  delay for {}ms",
+              task_data.vstream_key, config.delay_after_error.count());
           delay_between_frames = config.delay_after_error;
         } else
         {
@@ -1278,7 +1268,9 @@ properties:
     }
 
     if (config.logs_level <= userver::logging::Level::kDebug || task_data.task_type == TASK_TEST)
-      USERVER_IMPL_LOG_TO(logger_, userver::logging::Level::kDebug) << "End processPipeline: vstream_key = " << task_data.vstream_key << ";";
+      USERVER_IMPL_LOG_TO(logger_, userver::logging::Level::kDebug,
+        "End processPipeline: vstream_key = {};",
+        task_data.vstream_key);
 
     if (task_data.task_type == TASK_RECOGNIZE)
       nextPipeline(std::move(task_data), delay_between_frames);
@@ -1302,8 +1294,7 @@ properties:
         (*dnn_stats_ptr)[item["id_vstream"].As<int32_t>()] = DNNStatsData{
           item["fd_count"].As<int32_t>(),
           item["fc_count"].As<int32_t>(),
-          item["fr_count"].As<int32_t>()
-        };
+          item["fr_count"].As<int32_t>()};
     } catch (const std::exception& e)
     {
       LOG_ERROR_TO(logger_) << e.what();
@@ -1347,7 +1338,7 @@ properties:
 
   void Workflow::doOldLogMaintenance() const
   {
-    LOG_INFO_TO(logger_) << "Removing obsolete entries from the log_faces table";
+    LOG_INFO_TO(logger_, "Removing obsolete entries from the log_faces table");
 
     auto tp = std::chrono::system_clock::now() - local_config_.log_faces_ttl;
     try
@@ -1360,7 +1351,7 @@ properties:
       return;
     }
 
-    LOG_INFO_TO(logger_) << "Removing outdated screenshots";
+    LOG_INFO_TO(logger_, "Removing outdated screenshots");
     const HashSet<std::string> img_extensions = {".png", ".jpg", ".jpeg", ".bmp", ".ppm", ".tiff", ".dat", ".json"};
     if (std::filesystem::exists(local_config_.screenshots_path))
       for (const auto& dir_entry : std::filesystem::recursive_directory_iterator(local_config_.screenshots_path))
@@ -1378,7 +1369,7 @@ properties:
 
   void Workflow::doFlagDeletedMaintenance() const
   {
-    LOG_DEBUG_TO(logger_) << "Deleting marked records from the database";
+    LOG_DEBUG_TO(logger_, "Deleting marked records from the database");
 
     auto tp = std::chrono::system_clock::now() - local_config_.flag_deleted_ttl;
     auto trx = pg_cluster_->Begin(userver::storages::postgres::ClusterHostType::kMaster, {});
@@ -1399,7 +1390,7 @@ properties:
 
   void Workflow::doCopyEventsMaintenance() const
   {
-    LOG_DEBUG_TO(logger_) << "Copying event data";
+    LOG_DEBUG_TO(logger_, "Copying event data");
     try
     {
       for (auto result = pg_cluster_->Execute(userver::storages::postgres::ClusterHostType::kMaster, SQL_GET_LOG_COPY_DATA); const auto& row : result)
@@ -1476,7 +1467,7 @@ properties:
 
   void Workflow::doOldEventsMaintenance() const
   {
-    LOG_INFO_TO(logger_) << "Removing outdated events";
+    LOG_INFO_TO(logger_, "Removing outdated events");
 
     const auto tp = std::chrono::system_clock::now() - local_config_.events_ttl;
     const HashSet<std::string> img_extensions = {".png", ".jpg", ".jpeg", ".bmp", ".ppm", ".tiff", ".dat", ".json"};
@@ -1526,7 +1517,9 @@ properties:
     }
 
     if (is_timeout)
-      LOG_INFO_TO(logger_) << "Stopping a workflow by timeout: vstream_key = " << task_data.vstream_key << ";";
+      LOG_INFO_TO(logger_,
+        "Stopping a workflow by timeout: vstream_key = {};",
+        task_data.vstream_key);
 
     if (do_next)
       tasks_.Detach(AsyncNoSpan(task_processor_, &Workflow::processPipeline, this, std::move(task_data)));
@@ -1562,7 +1555,7 @@ properties:
     decltype(CommonConfig::dnn_fd_input_height) dnn_fd_input_height = 320;
     decltype(CommonConfig::dnn_fd_input_tensor_name) dnn_fd_input_tensor_name = "input.1";
 
-    //scope for accessing cache
+    // scope for accessing cache
     {
       if (auto cache = common_config_cache_.Get(); cache->getCommonConfig().contains(config.id_group))
       {
@@ -1578,16 +1571,18 @@ properties:
     if (!err.IsOk())
     {
       if (config.logs_level <= userver::logging::Level::kError || task_data.task_type == TASK_TEST)
-        USERVER_IMPL_LOG_TO(logger_, userver::logging::Level::kError) << absl::Substitute("Error! Unable to create inference client: $0", err.Message());
+        USERVER_IMPL_LOG_TO(logger_, userver::logging::Level::kError,
+          "Error! Unable to create inference client: {}",
+          err.Message());
       return false;
     }
 
     float scale = 1.0f;
 
     if (config.logs_level <= userver::logging::Level::kTrace || task_data.task_type == TASK_TEST)
-      USERVER_IMPL_LOG_TO(logger_, userver::logging::Level::kTrace)
-        << "vstream_key = " << task_data.vstream_key
-        << ";  before image preprocessing for face detection";
+      USERVER_IMPL_LOG_TO(logger_, userver::logging::Level::kTrace,
+        "vstream_key = {};  before image preprocessing for face detection",
+        task_data.vstream_key);
     cv::Mat pr_img = preprocessImage(frame, dnn_fd_input_width, dnn_fd_input_height, scale);
     int channels = 3;
     int input_size = channels * dnn_fd_input_width * dnn_fd_input_height;
@@ -1597,9 +1592,9 @@ properties:
         for (int w = 0; w < dnn_fd_input_width; ++w)
           input_buffer[c * dnn_fd_input_height * dnn_fd_input_width + h * dnn_fd_input_width + w] = (static_cast<float>(pr_img.at<cv::Vec3b>(h, w)[2 - c]) - 127.5f) / 128.0f;
     if (config.logs_level <= userver::logging::Level::kTrace || task_data.task_type == TASK_TEST)
-      USERVER_IMPL_LOG_TO(logger_, userver::logging::Level::kTrace)
-        << "vstream_key = " << task_data.vstream_key
-        << ";  after image preprocessing for face detection";
+      USERVER_IMPL_LOG_TO(logger_, userver::logging::Level::kTrace,
+        "vstream_key = {};  after image preprocessing for face detection",
+        task_data.vstream_key);
 
     std::vector<uint8_t> input_data(input_size * sizeof(float));
     memcpy(input_data.data(), input_buffer.data(), input_data.size());
@@ -1609,7 +1604,8 @@ properties:
     if (!err.IsOk())
     {
       if (config.logs_level <= userver::logging::Level::kError || task_data.task_type == TASK_TEST)
-        USERVER_IMPL_LOG_TO(logger_, userver::logging::Level::kError) << absl::Substitute("Error! Unable to create input data: $0", err.Message());
+        USERVER_IMPL_LOG_TO(logger_, userver::logging::Level::kError,
+          "Error! Unable to create input data: {}", err.Message());
       return false;
     }
     std::shared_ptr<tc::InferInput> input_ptr(input);
@@ -1618,7 +1614,9 @@ properties:
     if (!err.IsOk())
     {
       if (config.logs_level <= userver::logging::Level::kError || task_data.task_type == TASK_TEST)
-        USERVER_IMPL_LOG_TO(logger_, userver::logging::Level::kError) << absl::Substitute("Error! Unable to append input data: $0", err.Message());
+        USERVER_IMPL_LOG_TO(logger_, userver::logging::Level::kError,
+          "Error! Unable to append input data: {}",
+          err.Message());
       return false;
     }
 
@@ -1634,7 +1632,9 @@ properties:
       if (!err.IsOk())
       {
         if (config.logs_level <= userver::logging::Level::kError || task_data.task_type == TASK_TEST)
-          USERVER_IMPL_LOG_TO(logger_, userver::logging::Level::kError) << absl::Substitute("Error! Unable to create output data: $0", err.Message());
+          USERVER_IMPL_LOG_TO(logger_, userver::logging::Level::kError,
+            "Error! Unable to create output data: {}",
+            err.Message());
         return false;
       }
       outputs_ptr.emplace_back(p);
@@ -1646,24 +1646,25 @@ properties:
     tc::InferResult* result;
 
     if (config.logs_level <= userver::logging::Level::kTrace || task_data.task_type == TASK_TEST)
-      USERVER_IMPL_LOG_TO(logger_, userver::logging::Level::kTrace)
-        << "vstream_key = " << task_data.vstream_key
-        << ";  before inference face detection";
+      USERVER_IMPL_LOG_TO(logger_, userver::logging::Level::kTrace,
+        "vstream_key = {};  before inference face detection",
+        task_data.vstream_key);
     userver::engine::AsyncNoSpan(fs_task_processor_,
       [&]
       {
         err = triton_client->Infer(&result, options, inputs, outputs);
-      })
-      .Get();
+      }).Get();
     if (config.logs_level <= userver::logging::Level::kTrace || task_data.task_type == TASK_TEST)
-      USERVER_IMPL_LOG_TO(logger_, userver::logging::Level::kTrace)
-        << "vstream_key = " << task_data.vstream_key
-        << ";  after inference face detection";
+      USERVER_IMPL_LOG_TO(logger_, userver::logging::Level::kTrace,
+        "vstream_key = {};  after inference face detection",
+        task_data.vstream_key);
 
     if (!err.IsOk())
     {
       if (config.logs_level <= userver::logging::Level::kError || task_data.task_type == TASK_TEST)
-        USERVER_IMPL_LOG_TO(logger_, userver::logging::Level::kError) << absl::Substitute("Error! Unable to send inference request: $0", err.Message());
+        USERVER_IMPL_LOG_TO(logger_, userver::logging::Level::kError,
+          "Error! Unable to send inference request: {}",
+          err.Message());
       return false;
     }
 
@@ -1671,16 +1672,18 @@ properties:
     if (!result_ptr->RequestStatus().IsOk())
     {
       if (config.logs_level <= userver::logging::Level::kError || task_data.task_type == TASK_TEST)
-        USERVER_IMPL_LOG_TO(logger_, userver::logging::Level::kError) << absl::Substitute("Error! Unable to receive inference result: $0", err.Message());
+        USERVER_IMPL_LOG_TO(logger_, userver::logging::Level::kError,
+          "Error! Unable to receive inference result: {}",
+          err.Message());
       return false;
     }
 
     if (config.logs_level <= userver::logging::Level::kDebug || task_data.task_type == TASK_TEST)
-      USERVER_IMPL_LOG_TO(logger_, userver::logging::Level::kDebug)
-        << "vstream_key = " << task_data.vstream_key
-        << ";  inference face detection OK";
+      USERVER_IMPL_LOG_TO(logger_, userver::logging::Level::kDebug,
+        "vstream_key = {};  inference face detection OK",
+        task_data.vstream_key);
 
-    std::vector<int> feat_stride = {8, 16, 32};
+    std::vector feat_stride = {8, 16, 32};
 
     detected_faces.clear();
     for (size_t i = 0; i < feat_stride.size(); ++i)
@@ -1755,7 +1758,7 @@ properties:
     decltype(CommonConfig::dnn_fc_output_tensor_name) dnn_fc_output_tensor_name = "419";
     decltype(CommonConfig::dnn_fc_output_size) dnn_fc_output_size = 3;
 
-    //scope for accessing cache
+    // scope for accessing cache
     {
       if (auto cache = common_config_cache_.Get(); cache->getCommonConfig().contains(config.id_group))
       {
@@ -1772,8 +1775,10 @@ properties:
     auto err = tc::InferenceServerHttpClient::Create(&triton_client, config.dnn_fc_inference_server, false);
     if (!err.IsOk())
     {
-      if (config.logs_level <= userver::logging::Level::kError  || task_data.task_type == TASK_TEST)
-        USERVER_IMPL_LOG_TO(logger_, userver::logging::Level::kError) << absl::Substitute("Error! Unable to create inference client: $0", err.Message());
+      if (config.logs_level <= userver::logging::Level::kError || task_data.task_type == TASK_TEST)
+        USERVER_IMPL_LOG_TO(logger_, userver::logging::Level::kError,
+          "Error! Unable to create inference client: {}",
+          err.Message());
       return false;
     }
 
@@ -1813,7 +1818,9 @@ properties:
     if (!err.IsOk())
     {
       if (config.logs_level <= userver::logging::Level::kError || task_data.task_type == TASK_TEST)
-        USERVER_IMPL_LOG_TO(logger_, userver::logging::Level::kError) << absl::Substitute("Error! Unable to create input data: $0", err.Message());
+        USERVER_IMPL_LOG_TO(logger_, userver::logging::Level::kError,
+          "Error! Unable to create input data: {}",
+          err.Message());
       return false;
     }
     std::shared_ptr<tc::InferInput> input_ptr(input);
@@ -1821,7 +1828,9 @@ properties:
     if (!err.IsOk())
     {
       if (config.logs_level <= userver::logging::Level::kError || task_data.task_type == TASK_TEST)
-        USERVER_IMPL_LOG_TO(logger_, userver::logging::Level::kError) << absl::Substitute("Error! Unable to append input data: $0", err.Message());
+        USERVER_IMPL_LOG_TO(logger_, userver::logging::Level::kError,
+          "Error! Unable to append input data: {}",
+          err.Message());
       return false;
     }
     std::vector inputs = {input_ptr.get()};
@@ -1831,7 +1840,9 @@ properties:
     if (!err.IsOk())
     {
       if (config.logs_level <= userver::logging::Level::kError || task_data.task_type == TASK_TEST)
-        USERVER_IMPL_LOG_TO(logger_, userver::logging::Level::kError) << absl::Substitute("Error! Unable to create output data: $0", err.Message());
+        USERVER_IMPL_LOG_TO(logger_, userver::logging::Level::kError,
+          "Error! Unable to create output data: {}",
+          err.Message());
       return false;
     }
     std::shared_ptr<tc::InferRequestedOutput> output_ptr(output);
@@ -1842,24 +1853,25 @@ properties:
     tc::InferResult* result;
 
     if (config.logs_level <= userver::logging::Level::kTrace || task_data.task_type == TASK_TEST)
-      USERVER_IMPL_LOG_TO(logger_, userver::logging::Level::kTrace)
-        << "vstream_key = " << task_data.vstream_key
-        << ";  before inference face class";
+      USERVER_IMPL_LOG_TO(logger_, userver::logging::Level::kTrace,
+        "vstream_key = {};  before inference face class",
+        task_data.vstream_key);
     userver::engine::AsyncNoSpan(fs_task_processor_,
       [&]
       {
         err = triton_client->Infer(&result, options, inputs, outputs);
-      })
-      .Get();
+      }).Get();
     if (config.logs_level <= userver::logging::Level::kTrace || task_data.task_type == TASK_TEST)
-      USERVER_IMPL_LOG_TO(logger_, userver::logging::Level::kTrace)
-        << "vstream_key = " << task_data.vstream_key
-        << ";  after inference face class";
+      USERVER_IMPL_LOG_TO(logger_, userver::logging::Level::kTrace,
+        "vstream_key = {};  after inference face class",
+        task_data.vstream_key);
 
     if (!err.IsOk())
     {
       if (config.logs_level <= userver::logging::Level::kError || task_data.task_type == TASK_TEST)
-        USERVER_IMPL_LOG_TO(logger_, userver::logging::Level::kError) << absl::Substitute("Error! Unable to send inference request: $0", err.Message());
+        USERVER_IMPL_LOG_TO(logger_, userver::logging::Level::kError,
+          "Error! Unable to send inference request: {}",
+          err.Message());
       return false;
     }
 
@@ -1867,14 +1879,14 @@ properties:
     if (!result_ptr->RequestStatus().IsOk())
     {
       if (config.logs_level <= userver::logging::Level::kError || task_data.task_type == TASK_TEST)
-        USERVER_IMPL_LOG_TO(logger_, userver::logging::Level::kError) << absl::Substitute("Error! Unable to receive inference result: $0", err.Message());
+        USERVER_IMPL_LOG_TO(logger_, userver::logging::Level::kError, "Error! Unable to receive inference result");
       return false;
     }
 
     if (config.logs_level <= userver::logging::Level::kDebug || task_data.task_type == TASK_TEST)
-      USERVER_IMPL_LOG_TO(logger_, userver::logging::Level::kDebug)
-        << "vstream_key = " << task_data.vstream_key
-        << ";  inference face class OK";
+      USERVER_IMPL_LOG_TO(logger_, userver::logging::Level::kDebug,
+        "vstream_key = {};  inference face class OK",
+        task_data.vstream_key);
 
     const float* result_data;
     size_t output_size;
@@ -1882,7 +1894,9 @@ properties:
     if (!err.IsOk())
     {
       if (config.logs_level <= userver::logging::Level::kError || task_data.task_type == TASK_TEST)
-        USERVER_IMPL_LOG_TO(logger_, userver::logging::Level::kError) << absl::Substitute("Error! Failed to get output");
+        USERVER_IMPL_LOG_TO(logger_, userver::logging::Level::kError,
+          "Error! Failed to get output: {}",
+          err.Message());
       return false;
     }
 
@@ -1902,7 +1916,7 @@ properties:
     decltype(CommonConfig::dnn_fr_output_tensor_name) dnn_fr_output_tensor_name = "683";
     decltype(CommonConfig::dnn_fr_output_size) dnn_fr_output_size = 512;
 
-    //scope for accessing cache
+    // scope for accessing cache
     {
       if (auto cache = common_config_cache_.Get(); cache->getCommonConfig().contains(config.id_group))
       {
@@ -1920,7 +1934,9 @@ properties:
     if (!err.IsOk())
     {
       if (config.logs_level <= userver::logging::Level::kError || task_data.task_type == TASK_TEST)
-        USERVER_IMPL_LOG_TO(logger_, userver::logging::Level::kError) << absl::Substitute("Error! Unable to create inference client: $0", err.Message());
+        USERVER_IMPL_LOG_TO(logger_, userver::logging::Level::kError,
+          "Error! Unable to create inference client: {}",
+          err.Message());
       return false;
     }
 
@@ -1942,7 +1958,9 @@ properties:
     if (!err.IsOk())
     {
       if (config.logs_level <= userver::logging::Level::kError || task_data.task_type == TASK_TEST)
-        USERVER_IMPL_LOG_TO(logger_, userver::logging::Level::kError) << absl::Substitute("Error! Unable to create input data: $0", err.Message());
+        USERVER_IMPL_LOG_TO(logger_, userver::logging::Level::kError,
+          "Error! Unable to create input data: {}",
+          err.Message());
       return false;
     }
     std::shared_ptr<tc::InferInput> input_ptr(input);
@@ -1950,7 +1968,9 @@ properties:
     if (!err.IsOk())
     {
       if (config.logs_level <= userver::logging::Level::kError || task_data.task_type == TASK_TEST)
-        USERVER_IMPL_LOG_TO(logger_, userver::logging::Level::kError) << absl::Substitute("Error! Unable to append input data: $0", err.Message());
+        USERVER_IMPL_LOG_TO(logger_, userver::logging::Level::kError,
+          "Error! Unable to append input data: {}",
+          err.Message());
       return false;
     }
     std::vector inputs = {input_ptr.get()};
@@ -1960,7 +1980,9 @@ properties:
     if (!err.IsOk())
     {
       if (config.logs_level <= userver::logging::Level::kError || task_data.task_type == TASK_TEST)
-        USERVER_IMPL_LOG_TO(logger_, userver::logging::Level::kError) << absl::Substitute("Error! Unable to create output data: $0", err.Message());
+        USERVER_IMPL_LOG_TO(logger_, userver::logging::Level::kError,
+          "Error! Unable to create output data: {}",
+          err.Message());
       return false;
     }
     std::shared_ptr<tc::InferRequestedOutput> output_ptr(output);
@@ -1971,24 +1993,25 @@ properties:
     tc::InferResult* result;
 
     if (config.logs_level <= userver::logging::Level::kTrace || task_data.task_type == TASK_TEST)
-      USERVER_IMPL_LOG_TO(logger_, userver::logging::Level::kTrace)
-        << "vstream_key = " << task_data.vstream_key
-        << ";  before inference for extracting descriptor";
+      USERVER_IMPL_LOG_TO(logger_, userver::logging::Level::kTrace,
+        "vstream_key = {};  before inference for extracting descriptor",
+        task_data.vstream_key);
     userver::engine::AsyncNoSpan(fs_task_processor_,
       [&]
       {
         err = triton_client->Infer(&result, options, inputs, outputs);
-      })
-      .Get();
+      }).Get();
     if (config.logs_level <= userver::logging::Level::kTrace || task_data.task_type == TASK_TEST)
-      USERVER_IMPL_LOG_TO(logger_, userver::logging::Level::kTrace)
-        << "vstream_key = " << task_data.vstream_key
-        << ";  after inference for extracting descriptor";
+      USERVER_IMPL_LOG_TO(logger_, userver::logging::Level::kTrace,
+        "vstream_key = {};  after inference for extracting descriptor",
+        task_data.vstream_key);
 
     if (!err.IsOk())
     {
       if (config.logs_level <= userver::logging::Level::kError || task_data.task_type == TASK_TEST)
-        USERVER_IMPL_LOG_TO(logger_, userver::logging::Level::kError) << absl::Substitute("Error! Unable to send inference request: $0", err.Message());
+        USERVER_IMPL_LOG_TO(logger_, userver::logging::Level::kError,
+          "Error! Unable to send inference request: {}",
+          err.Message());
       return false;
     }
 
@@ -1996,14 +2019,16 @@ properties:
     if (!result_ptr->RequestStatus().IsOk())
     {
       if (config.logs_level <= userver::logging::Level::kError || task_data.task_type == TASK_TEST)
-        USERVER_IMPL_LOG_TO(logger_, userver::logging::Level::kError) << absl::Substitute("Error! Unable to receive inference result: $0", err.Message());
+        USERVER_IMPL_LOG_TO(logger_, userver::logging::Level::kError,
+          "Error! Unable to receive inference result: {}",
+          err.Message());
       return false;
     }
 
     if (config.logs_level <= userver::logging::Level::kDebug || task_data.task_type == TASK_TEST)
-      USERVER_IMPL_LOG_TO(logger_, userver::logging::Level::kDebug)
-        << "vstream_key = " << task_data.vstream_key
-        << ";  inference face descriptor extractor OK";
+      USERVER_IMPL_LOG_TO(logger_, userver::logging::Level::kDebug,
+        "vstream_key = {};  inference face descriptor extractor OK",
+        task_data.vstream_key);
 
     const float* result_data;
     size_t output_size;
@@ -2011,7 +2036,9 @@ properties:
     if (!err.IsOk())
     {
       if (config.logs_level <= userver::logging::Level::kError || task_data.task_type == TASK_TEST)
-        USERVER_IMPL_LOG_TO(logger_, userver::logging::Level::kError) << absl::Substitute("Error! Failed to get output");
+        USERVER_IMPL_LOG_TO(logger_, userver::logging::Level::kError,
+          "Error! Failed to get output: {}",
+          err.Message());
       return false;
     }
 
@@ -2048,7 +2075,7 @@ properties:
     const int32_t id_parent)
   {
     decltype(CommonConfig::dnn_fr_output_size) dnn_fr_output_size = 512;
-    //scope for accessing cache
+    // scope for accessing cache
     {
       if (const auto cache = common_config_cache_.Get(); cache->getCommonConfig().contains(id_group))
         dnn_fr_output_size = cache->getCommonConfig().at(id_group).dnn_fr_output_size;
@@ -2092,7 +2119,7 @@ properties:
       return id_descriptor;
 
     decltype(CommonConfig::dnn_fr_output_size) dnn_fr_output_size = 512;
-    //scope for accessing cache
+    // scope for accessing cache
     {
       if (const auto cache = common_config_cache_.Get(); cache->getCommonConfig().contains(id_group))
         dnn_fr_output_size = cache->getCommonConfig().at(id_group).dnn_fr_output_size;

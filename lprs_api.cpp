@@ -25,7 +25,9 @@ namespace Lprs
     // check authorization
     const auto& auth_value = request.GetHeader("Authorization");
     const auto& api_method = request.GetPathArg(0);
-    LOG_INFO_TO(workflow_.getLogger()) << "API call from: " << request.GetRemoteAddress() << ";  method: " << api_method << ";  body: " << json;
+    LOG_INFO_TO(workflow_.getLogger(),
+      "API call from: {};  method: {};  body: {}",
+      request.GetRemoteAddress(), api_method, absl::ClippedSubstr(ToStableString(json), 0, 300));
     int32_t id_group = workflow_.getLocalConfig().allow_group_id_without_auth;
 
     // check authorization
