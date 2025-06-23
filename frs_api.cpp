@@ -322,7 +322,11 @@ namespace Frs
       try
       {
         for (const auto& item : json[P_FACE_IDS].As<std::vector<userver::formats::json::Value>>())
-          faces.emplace_back(convertToNumber<int32_t>(item, 0));
+        {
+          auto id_d = convertToNumber<int32_t>(item, 0);
+          if (id_d > 0)
+            faces.emplace_back(id_d);
+        }
       } catch (const std::exception& e)
       {
         throw userver::server::handlers::ClientError(ExternalBody{e.what()});
@@ -610,7 +614,11 @@ namespace Frs
       try
       {
         for (const auto& item : json[P_FACE_IDS].As<std::vector<userver::formats::json::Value>>())
-          faces.emplace_back(convertToNumber<int32_t>(item, 0));
+        {
+          auto id_d = convertToNumber<int32_t>(item, 0);
+          if (id_d > 0)
+            faces.emplace_back(id_d);
+        }
       } catch (const std::exception& e)
       {
         throw userver::server::handlers::ClientError(ExternalBody{e.what()});
@@ -644,7 +652,11 @@ namespace Frs
       try
       {
         for (const auto& item : json[P_FACE_IDS].As<std::vector<userver::formats::json::Value>>())
-          faces.emplace_back(convertToNumber<int32_t>(item, 0));
+        {
+          auto id_d = convertToNumber<int32_t>(item, 0);
+          if (id_d > 0)
+            faces.emplace_back(id_d);
+        }
       } catch (const std::exception& e)
       {
         throw userver::server::handlers::ClientError(ExternalBody{e.what()});
@@ -715,7 +727,11 @@ namespace Frs
       try
       {
         for (const auto& item : json[P_FACE_IDS].As<std::vector<userver::formats::json::Value>>())
-          faces.emplace_back(convertToNumber<int32_t>(item, 0));
+        {
+          auto id_d = convertToNumber<int32_t>(item, 0);
+          if (id_d > 0)
+            faces.emplace_back(id_d);
+        }
       } catch (const std::exception& e)
       {
         throw userver::server::handlers::ClientError(ExternalBody{e.what()});
@@ -1094,7 +1110,11 @@ namespace Frs
       try
       {
         for (const auto& item : json[P_FACE_IDS].As<std::vector<userver::formats::json::Value>>())
-          faces.emplace_back(convertToNumber<int32_t>(item, 0));
+        {
+          auto id_d = convertToNumber<int32_t>(item, 0);
+          if (id_d > 0)
+            faces.emplace_back(id_d);
+        }
       } catch (const std::exception& e)
       {
         throw userver::server::handlers::ClientError(ExternalBody{e.what()});
@@ -1214,7 +1234,11 @@ namespace Frs
     try
     {
       for (const auto& item : json[P_FACE_IDS].As<std::vector<userver::formats::json::Value>>())
-        faces.emplace_back(convertToNumber<int32_t>(item, 0));
+      {
+        auto id_d = convertToNumber<int32_t>(item, 0);
+        if (id_d > 0)
+          faces.emplace_back(convertToNumber<int32_t>(item, 0));
+      }
       similarity_threshold = json[P_SIMILARITY_THRESHOLD].As<float>(similarity_threshold);
     } catch (const std::exception& e)
     {
