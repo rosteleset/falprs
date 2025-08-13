@@ -1,7 +1,7 @@
 [submodule "contrib/abseil-cpp"]
 	path = contrib/abseil-cpp
 	url = https://github.com/abseil/abseil-cpp.git
-	branch = lts_2025_01_27
+	branch = lts_2025_05_12
 [submodule "contrib/userver"]
 	path = contrib/userver
 	url = https://github.com/userver-framework/userver.git
