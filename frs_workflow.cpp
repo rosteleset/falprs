@@ -893,7 +893,7 @@ properties:
                   double n_l2 = cv::norm(fd, cv::NORM_L2);
                   if (n_l2 <= 0.0)
                     n_l2 = 1.0;
-                  fd = fd / norm_l2;
+                  fd = fd / n_l2;
                   if (double cos_distance = cosineDistance(face_descriptor, fd); cos_distance > max_cd)
                   {
                     max_cd = cos_distance;
