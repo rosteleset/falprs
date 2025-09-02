@@ -209,10 +209,6 @@ If you have a GPU with Compute Capability 7.5 or higher, you can use the latest 
 ```bash
 sudo LLVM_VERSION=18 PG_VERSION=16 TRITON_VERSION=24.09 ~/falprs/scripts/build_falprs.sh
 ```
-For Ubuntu 22.04 and GPU with Pascal architecture:
-```bash
-sudo LLVM_VERSION=15 PG_VERSION=14 TRITON_VERSION=24.04 ~/falprs/scripts/build_falprs.sh
-```
 
 <a id="create_models"></a>
 ### Creating TensorRT neural network model plans

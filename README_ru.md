@@ -207,10 +207,6 @@ nvidia-smi --query-gpu=compute_cap --format=csv
 ```bash
 sudo LLVM_VERSION=18 PG_VERSION=16 TRITON_VERSION=24.09 ~/falprs/scripts/build_falprs.sh
 ```
-Для Ubuntu 22.04 и GPU с архитектурой Pascal:
-```bash
-sudo LLVM_VERSION=15 PG_VERSION=14 TRITON_VERSION=24.04 ~/falprs/scripts/build_falprs.sh
-```
 
 <a id="create_models"></a>
 ### Создание TensorRT планов моделей нейронных сетей
