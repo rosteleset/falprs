@@ -189,7 +189,7 @@ alter database lprs owner to falprs;
 
 <a id="build_falprs"></a>
 ### Building the project
-To build the project, you can use the script **scripts/build_falprs.sh**. The project is built using [LLVM](https://llvm.org/). The version is set by the **LLVM_VERSION** variable. The major PostgreSQL version is set by the **PG_VERSION** variable. You can find out the installed version of PostgreSQL with the command:
+To build the project, you can use the script **scripts/build_falprs.sh**. The major PostgreSQL version is set by the **PG_VERSION** variable. You can find out the installed version of PostgreSQL with the command:
 ```bash
 psql --version
 ```
@@ -207,7 +207,7 @@ nvidia-smi --query-gpu=compute_cap --format=csv
 ```
 If you have a GPU with Compute Capability 7.5 or higher, you can use the latest version of the [container](https://catalog.ngc.nvidia.com/orgs/nvidia/containers/tritonserver/tags). For example, build for Ubuntu 24.04 and GPU with Volta architecture:
 ```bash
-sudo LLVM_VERSION=18 PG_VERSION=16 TRITON_VERSION=24.09 ~/falprs/scripts/build_falprs.sh
+sudo PG_VERSION=16 TRITON_VERSION=24.09 ~/falprs/scripts/build_falprs.sh
 ```
 
 <a id="create_models"></a>

@@ -2,25 +2,17 @@
 
 # External variables used in the script
 
-# LLVM_VERSION - LLVM Project version
 # PG_VERSION - PostgreSQL database system version
 # TRITON_VERSION - NVIDIA Triton Inference Server version
 # FALPRS_WORKDIR - FALPRS working directory
 
-LLVM_VERSION="${LLVM_VERSION:=15}"
 PG_VERSION="${PG_VERSION:=14}"
 TRITON_VERSION="${TRITON_VERSION:=22.12}"
 FALPRS_WORKDIR="${FALPRS_WORKDIR:=/opt/falprs}"
 
 BASEDIR=$(realpath `dirname $0`)
 apt-get update
-apt-get install -y build-essential ccache cmake git libboost-dev libboost-context-dev libboost-coroutine-dev libboost-filesystem-dev libboost-iostreams-dev libboost-locale-dev libboost-program-options-dev libboost-regex-dev libboost-stacktrace-dev zlib1g-dev nasm clang-$LLVM_VERSION lldb-$LLVM_VERSION lld-$LLVM_VERSION clangd-$LLVM_VERSION clang-format libssl-dev libyaml-cpp-dev libjemalloc-dev libpq-dev postgresql-server-dev-$PG_VERSION rapidjson-dev python3-dev python3-jinja2 python3-protobuf python3-venv python3-voluptuous python3-yaml libgtest-dev libnghttp2-dev libev-dev libldap2-dev libkrb5-dev libzstd-dev libopencv-dev libbz2-dev
-if [[ $LLVM_VERSION == "15" ]]; then
-    apt-get install -y libstdc++-12-dev
-fi
-
-export CC=clang-$LLVM_VERSION
-export CXX=clang++-$LLVM_VERSION
+apt-get install -y build-essential ccache cmake git libboost-dev libboost-context-dev libboost-coroutine-dev libboost-filesystem-dev libboost-iostreams-dev libboost-locale-dev libboost-program-options-dev libboost-regex-dev libboost-stacktrace-dev zlib1g-dev nasm clang-format libssl-dev libyaml-cpp-dev libjemalloc-dev libpq-dev postgresql-server-dev-$PG_VERSION rapidjson-dev python3-dev python3-jinja2 python3-protobuf python3-venv python3-voluptuous python3-yaml libgtest-dev libnghttp2-dev libev-dev libldap2-dev libkrb5-dev libzstd-dev libopencv-dev libbz2-dev
 
 cd ~
 git clone https://github.com/triton-inference-server/client.git triton-client
