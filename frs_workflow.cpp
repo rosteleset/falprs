@@ -529,12 +529,14 @@ properties:
               task_data.vstream_key, url, capture_response->status_code());
           if (config.delay_after_error.count() > 0)
           {
-            if (config.logs_level <= userver::logging::Level::kError || task_data.task_type == TASK_TEST)
-              USERVER_IMPL_LOG_TO(logger_, userver::logging::Level::kError,
-                "vstream_key = {};  delay for {}ms",
-                task_data.vstream_key, config.delay_after_error.count());
             if (task_data.task_type == TASK_RECOGNIZE)
+            {
+              if (config.logs_level <= userver::logging::Level::kError)
+                USERVER_IMPL_LOG_TO(logger_, userver::logging::Level::kError,
+                  "vstream_key = {};  delay for {}ms",
+                  task_data.vstream_key, config.delay_after_error.count());
               nextPipeline(std::move(task_data), config.delay_after_error);
+            }
           } else if (task_data.task_type == TASK_RECOGNIZE)
             stopWorkflow(std::move(task_data.vstream_key));
 
