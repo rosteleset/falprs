@@ -215,7 +215,7 @@ namespace Frs
     static constexpr auto kQuery = "select auth_token::varchar, id_group from vstream_groups";
     static constexpr const char* kUpdatedField = nullptr;
     using CacheContainer = HashMap<std::string, VStreamGroups>;
-    static constexpr auto kClusterHostType = userver::storages::postgres::ClusterHostType::kSlave;
+    static constexpr auto kClusterHostType = userver::storages::postgres::ClusterHostType::kMaster;
   };
 
   using GroupsCache = userver::components::PostgreCache<GroupsCachePolicy>;
@@ -317,7 +317,7 @@ namespace Frs
     )__SQL__";
     static constexpr const char* kUpdatedField = nullptr;
     using CacheContainer = ConfigContainer;
-    static constexpr auto kClusterHostType = userver::storages::postgres::ClusterHostType::kSlave;
+    static constexpr auto kClusterHostType = userver::storages::postgres::ClusterHostType::kMaster;
   };
 
   using ConfigCache = userver::components::PostgreCache<ConfigCachePolicy>;
@@ -397,7 +397,7 @@ namespace Frs
     static constexpr auto kUpdatedField = "last_updated";
     using UpdatedFieldType = userver::storages::postgres::TimePointTz;
     using CacheContainer = VStreamConfigContainer;
-    static constexpr auto kClusterHostType = userver::storages::postgres::ClusterHostType::kSlave;
+    static constexpr auto kClusterHostType = userver::storages::postgres::ClusterHostType::kMaster;
   };
 
   using VStreamsConfigCache = userver::components::PostgreCache<VStreamsConfigCachePolicy>;
@@ -469,7 +469,7 @@ namespace Frs
     static constexpr auto kUpdatedField = "last_updated";
     using UpdatedFieldType = userver::storages::postgres::TimePointTz;
     using CacheContainer = FaceDescriptorCacheContainer;
-    static constexpr auto kClusterHostType = userver::storages::postgres::ClusterHostType::kSlave;
+    static constexpr auto kClusterHostType = userver::storages::postgres::ClusterHostType::kMaster;
   };
 
   using FaceDescriptorCache = userver::components::PostgreCache<FaceDescriptorPolicy>;
@@ -544,7 +544,7 @@ namespace Frs
     static constexpr auto kUpdatedField = "ldv.last_updated";
     using UpdatedFieldType = userver::storages::postgres::TimePointTz;
     using CacheContainer = VStreamDescriptorsCacheContainer;
-    static constexpr auto kClusterHostType = userver::storages::postgres::ClusterHostType::kSlave;
+    static constexpr auto kClusterHostType = userver::storages::postgres::ClusterHostType::kMaster;
   };
 
   using VStreamDescriptorsCache = userver::components::PostgreCache<VStreamDescriptorsPolicy>;
@@ -604,7 +604,7 @@ namespace Frs
     static constexpr auto kQuery = "select sg_api_token, id_special_group, coalesce(callback_url, '') callback_url, max_descriptor_count, id_group from special_groups";
     static constexpr const char* kUpdatedField = nullptr;
     using CacheContainer = SGConfigCacheContainer;
-    static constexpr auto kClusterHostType = userver::storages::postgres::ClusterHostType::kSlave;
+    static constexpr auto kClusterHostType = userver::storages::postgres::ClusterHostType::kMaster;
   };
 
   using SGConfigCache = userver::components::PostgreCache<SGConfigCachePolicy>;
@@ -657,7 +657,7 @@ namespace Frs
     static constexpr auto kUpdatedField = "last_updated";
     using UpdatedFieldType = userver::storages::postgres::TimePointTz;
     using CacheContainer = SGDescriptorsCacheContainer;
-    static constexpr auto kClusterHostType = userver::storages::postgres::ClusterHostType::kSlave;
+    static constexpr auto kClusterHostType = userver::storages::postgres::ClusterHostType::kMaster;
   };
 
   using SGDescriptorsCache = userver::components::PostgreCache<SGDescriptorsPolicy>;

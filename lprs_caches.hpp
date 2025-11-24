@@ -237,7 +237,7 @@ namespace Lprs
     static constexpr auto kQuery = "select auth_token::varchar, id_group from vstream_groups";
     static constexpr const char* kUpdatedField = nullptr;
     using CacheContainer = HashMap<std::string, VStreamGroups>;
-    static constexpr auto kClusterHostType = userver::storages::postgres::ClusterHostType::kSlave;
+    static constexpr auto kClusterHostType = userver::storages::postgres::ClusterHostType::kMaster;
   };
 
   using GroupsCache = userver::components::PostgreCache<GroupsCachePolicy>;
@@ -300,7 +300,7 @@ namespace Lprs
     )__SQL__";
     static constexpr const char* kUpdatedField = nullptr;
     using CacheContainer = VStreamConfigContainer;
-    static constexpr auto kClusterHostType = userver::storages::postgres::ClusterHostType::kSlave;
+    static constexpr auto kClusterHostType = userver::storages::postgres::ClusterHostType::kMaster;
   };
 
   using VStreamsConfigCache = userver::components::PostgreCache<VStreamsConfigCachePolicy>;
@@ -321,7 +321,7 @@ namespace Lprs
     static constexpr auto kQuery = "select id_vstream, id_group from vstreams";
     static constexpr const char* kUpdatedField = nullptr;
     using CacheContainer = HashMap<int32_t, VStreamGroup>;
-    static constexpr auto kClusterHostType = userver::storages::postgres::ClusterHostType::kSlave;
+    static constexpr auto kClusterHostType = userver::storages::postgres::ClusterHostType::kMaster;
   };
 
   using VStreamGroupCache = userver::components::PostgreCache<VStreamGroupCachePolicy>;
