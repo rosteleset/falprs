@@ -252,6 +252,10 @@ To create the **falprs** service and rotate logs, run the command:
 ```bash
 sudo ~/falprs/scripts/falprs_service.sh
 ```
+To run the **falprs** service:
+```bash
+sudo systemctl start falprs.service
+```
 
 <a id="vstream_groups"></a>
 ### Managing video stream groups

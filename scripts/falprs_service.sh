@@ -16,4 +16,3 @@ chown -R falprs:falprs /var/log/falprs/
 chown -R falprs:falprs $FALPRS_WORKDIR
 systemctl daemon-reload
 systemctl enable falprs
-systemctl start falprs

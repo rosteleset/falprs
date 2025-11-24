@@ -250,6 +250,10 @@ sudo TRITON_VERSION=24.09 ~/falprs/scripts/triton_service.sh
 ```bash
 sudo ~/falprs/scripts/falprs_service.sh
 ```
+Для запуска сервиса **falprs** выполните команду:
+```bash
+sudo systemctl start falprs.service
+```
 
 <a id="vstream_groups"></a>
 ### Управление группами видео потоков
