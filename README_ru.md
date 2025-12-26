@@ -1,4 +1,4 @@
-## [![Generic badge](https://img.shields.io/badge/LANG-EN-blue.svg)](./README.md) Описание проекта FALPRS
+## [![Generic badge](https://img.shields.io/badge/LANG-EN-blue.svg)](https://github.com/rosteleset/falprs/blob/main/README.md) Описание проекта FALPRS
 Этот проект является заменой [старого](https://github.com/rosteleset/frs). Основные отличия:
 * В качестве СУБД используется PostgreSQL.
 * Проект использует [userver](https://github.com/userver-framework/userver) — асинхронный фреймворк с открытым исходным кодом.
