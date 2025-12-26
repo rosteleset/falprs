@@ -1,6 +1,6 @@
 
 
-## [![Generic badge](https://img.shields.io/badge/LANG-RU-blue.svg)](./README_ru.md) Description of the FALPRS project
+## [![Generic badge](https://img.shields.io/badge/LANG-RU-blue.svg)](https://github.com/rosteleset/falprs/blob/main/README_ru.md) Description of the FALPRS project
 This project is a replacement for the [old](https://github.com/rosteleset/frs) one. Main differences:
 * PostgreSQL is used as a DBMS.
 * The project uses [userver](https://github.com/userver-framework/userver), an open-source asynchronous framework.
