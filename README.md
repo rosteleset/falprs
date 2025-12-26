@@ -165,7 +165,7 @@ sudo systemctl restart docker
 ```
 
 <a id="install_pg"></a>
-### Установка PostgreSQL
+### Installing PostgreSQL
 If PostgreSQL is not installed, then run the command:
 ```.bash
 sudo apt-get install -y postgresql
