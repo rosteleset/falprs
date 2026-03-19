@@ -16,10 +16,10 @@ namespace Lprs
     static constexpr auto kName = "lprs-api-http";
 
     // API methods
-    static constexpr auto METHOD_ADD_STREAM = "addStream";                              // add or change video stream
+    static constexpr auto METHOD_ADD_STREAM = "addStream";                              // add or change a video stream
     static constexpr auto METHOD_REMOVE_STREAM = "removeStream";                        // remove video stream
     static constexpr auto METHOD_LIST_STREAMS = "listStreams";                          // list video streams with config
-    static constexpr auto METHOD_START_WORKFLOW = "startWorkflow";                      // start license plate recognition workflow
+    static constexpr auto METHOD_START_WORKFLOW = "startWorkflow";                      // start a license plate recognition workflow
     static constexpr auto METHOD_STOP_WORKFLOW = "stopWorkflow";                        // stop license plate recognition workflow
     static constexpr auto METHOD_GET_EVENT_DATA = "getEventData";                       // get a list of events from a time interval
     static constexpr auto METHOD_SET_STREAM_DEFAULT_CONFIG = "setStreamDefaultConfig";  // set the default video stream configuration parameters
@@ -113,11 +113,11 @@ namespace Lprs
       from
         events_log
       where
-        id_vstream = $0
-        and (log_date > timestamptz '$1' - interval '$2 millisecond')
-        and (log_date < timestamptz '$1' + interval '$3 millisecond')
+        id_vstream = $1
+        and (log_date > $2::timestamptz - $3 * interval '1 millisecond')
+        and (log_date < $2::timestamptz + $4 * interval '1 millisecond')
       order by
-        abs(extract(epoch from (log_date - timestamptz '$1')))
+        abs(extract(epoch from (log_date - $2::timestamptz)))
       limit
         1
     )__SQL__";

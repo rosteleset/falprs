@@ -836,7 +836,7 @@ properties:
 
           if (id_descriptor == 0 || max_cos_distance < config.tolerance)
           {
-            // face not recognized
+            // face isn't recognized
             if (face_data.back().laplacian > best_quality && recognized_face_count == 0)
             {
               best_quality = face_data.back().laplacian;
@@ -998,7 +998,7 @@ properties:
             face_data[best_face_index].laplacian, face_data[best_face_index].face_rect,
             absl::StrCat(local_config_.screenshots_url_prefix, path_suffix, s_uuid, screenshot_extension), log_uuid);
 
-          // write screenshot to a file
+          // write a screenshot to a file
           auto path_prefix = absl::StrCat(local_config_.screenshots_path, path_suffix);
           userver::fs::CreateDirectories(fs_task_processor_, path_prefix);
           auto path = absl::StrCat(path_prefix, s_uuid, screenshot_extension);
@@ -1104,7 +1104,7 @@ properties:
               auto log_date = userver::storages::postgres::TimePointTz{std::chrono::system_clock::now()};
               auto id_log = addLogFace(config.id_vstream, log_date, snd.id_descriptor, laplacian, face_rect, screenshot_url, log_uuid, DISABLED);
 
-              // write screenshot to a file
+              // write a screenshot to a file
               auto path_prefix = absl::StrCat(local_config_.screenshots_path, path_suffix);
               userver::fs::CreateDirectories(fs_task_processor_, path_prefix);
               auto path = absl::StrCat(path_prefix, s_uuid, screenshot_extension);

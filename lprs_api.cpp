@@ -271,11 +271,11 @@ namespace Lprs
           event_log_after = cache->getData().at(vstream_key).event_log_after;
         }
         const auto result = pg_cluster_->Execute(userver::storages::postgres::ClusterHostType::kMaster,
-          absl::Substitute(SQL_GET_NEAREST_EVENT,
+          SQL_GET_NEAREST_EVENT,
             id_vstream,
             json[PARAM_EVENT_DATE].As<std::string>(),
             event_log_before.count(),
-            event_log_after.count()));
+            event_log_after.count());
         if (!result.IsEmpty())
         {
           userver::formats::json::ValueBuilder event_data = result[0][DatabaseFields::INFO].As<userver::formats::json::Value>();

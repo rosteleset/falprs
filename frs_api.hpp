@@ -111,23 +111,23 @@ namespace Frs
     static constexpr auto kName = "frs-api-http";
 
     // API methods
-    static constexpr auto METHOD_ADD_STREAM = "addStream";                              // add or change video stream
+    static constexpr auto METHOD_ADD_STREAM = "addStream";                              // add or change a video stream
     static constexpr auto METHOD_MOTION_DETECTION = "motionDetection";                  // provide motion detection info
-    static constexpr auto METHOD_DOOR_IS_OPEN = "doorIsOpen";                           // notify that door is open
+    static constexpr auto METHOD_DOOR_IS_OPEN = "doorIsOpen";                           // notify that a door is open
     static constexpr auto METHOD_BEST_QUALITY = "bestQuality";                          // get best face info
     static constexpr auto METHOD_GET_EVENTS = "getEvents";                              // get a list of events from a time interval
     static constexpr auto METHOD_REGISTER_FACE = "registerFace";                        // register face
-    static constexpr auto METHOD_ADD_FACES = "addFaces";                                // attach face descriptor to video stream
-    static constexpr auto METHOD_REMOVE_FACES = "removeFaces";                          // detach face descriptor from video stream
+    static constexpr auto METHOD_ADD_FACES = "addFaces";                                // attach a face descriptor to the video stream
+    static constexpr auto METHOD_REMOVE_FACES = "removeFaces";                          // detach face descriptor from the video stream
     static constexpr auto METHOD_LIST_STREAMS = "listStreams";                          // list video streams with attached faces
     static constexpr auto METHOD_REMOVE_STREAM = "removeStream";                        // remove video stream
     static constexpr auto METHOD_LIST_ALL_FACES = "listAllFaces";                       // list all faces
-    static constexpr auto METHOD_DELETE_FACES = "deleteFaces";                          // delete faces from database (regardless of attaching to video streams)
+    static constexpr auto METHOD_DELETE_FACES = "deleteFaces";                          // delete faces from a database (regardless of attaching to video streams)
     static constexpr auto METHOD_TEST_IMAGE = "testImage";                              // test image
     static constexpr auto METHOD_PROCESS_FRAME = "processFrame";                        // process frame by url
-    static constexpr auto METHOD_ADD_SPECIAL_GROUP = "addSpecialGroup";                 // add special group
+    static constexpr auto METHOD_ADD_SPECIAL_GROUP = "addSpecialGroup";                 // add a special group
     static constexpr auto METHOD_UPDATE_SPECIAL_GROUP = "updateSpecialGroup";           // update special group
-    static constexpr auto METHOD_DELETE_SPECIAL_GROUP = "deleteSpecialGroup";           // delete special group
+    static constexpr auto METHOD_DELETE_SPECIAL_GROUP = "deleteSpecialGroup";           // delete a special group
     static constexpr auto METHOD_LIST_SPECIAL_GROUPS = "listSpecialGroups";             // list special groups
     static constexpr auto SG_METHOD_PREFIX = "sg";                                      // prefix for special group methods
     static constexpr auto METHOD_SG_REGISTER_FACE = "sgRegisterFace";                   // register a person in a special group
@@ -135,7 +135,7 @@ namespace Frs
     static constexpr auto METHOD_SG_LIST_FACES = "sgListFaces";                         // get a list of all special group face descriptors
     static constexpr auto METHOD_SG_UPDATE_GROUP = "sgUpdateGroup";                     // update special group parameters
     static constexpr auto METHOD_SG_RENEW_TOKEN = "sgRenewToken";                       // renew special group authorization Token
-    static constexpr auto METHOD_SG_SEARCH_FACES = "sgSearchFaces";                     // search faces in special group
+    static constexpr auto METHOD_SG_SEARCH_FACES = "sgSearchFaces";                     // search faces in a special group
     static constexpr auto METHOD_SAVE_DNN_STATS_DATA = "saveDnnStatsData";              // save inference statistics data
     static constexpr auto METHOD_SET_COMMON_CONFIG = "setCommonConfig";                 // set common configuration parameters
     static constexpr auto METHOD_GET_COMMON_CONFIG = "getCommonConfig";                 // get common configuration parameters
@@ -221,23 +221,23 @@ namespace Frs
       on conflict (id_vstream, id_descriptor) do update set last_updated = now(), flag_deleted = false
     )__SQL__";
 
-    // do not delete row from database, just mark for deletion
+    // do not delete row from a database, just mark for deletion
     static constexpr auto SQL_REMOVE_LINK_DESCRIPTOR_VSTREAM =
       "update link_descriptor_vstream set last_updated = now(), flag_deleted = true where id_vstream = $1 and id_descriptor = $2";
 
-    // do not delete rows from database, just mark for deletion
+    // do not delete rows from a database, just mark for deletion
     static constexpr auto SQL_REMOVE_LINK_DESCRIPTOR_VSTREAM_BY_VSTREAM =
       "update link_descriptor_vstream set last_updated = now(), flag_deleted = true where id_vstream = $1";
 
-    // do not delete descriptor from database, just mark for deletion
+    // do not delete descriptor from a database, just mark for deletion
     static constexpr auto SQL_REMOVE_DESCRIPTOR =
       "update face_descriptors set last_updated = now(), flag_deleted = true where id_group = $1 and id_descriptor = $2";
 
-    // do not delete spawned descriptors from database, just mark for deletion
+    // do not delete spawned descriptors from a database, just mark for deletion
     static constexpr auto SQL_REMOVE_SPAWNED_DESCRIPTORS =
       "update face_descriptors set last_updated = now(), flag_deleted = true where id_group = $1 and id_parent = $2";
 
-    // do not delete rows from database, just mark for deletion
+    // do not delete rows from a database, just mark for deletion
     static constexpr auto SQL_REMOVE_LINK_DESCRIPTOR_VSTREAM_BY_DESCRIPTOR = R"__SQL__(
       update
         link_descriptor_vstream
@@ -289,8 +289,8 @@ namespace Frs
       from
         log_faces l
       where
-        l.id_vstream = $0
-        and (l.log_date >= timestamptz '$1' - interval '$2 millisecond') and (l.log_date <= timestamptz '$1' + interval '$3 millisecond')
+        l.id_vstream = $1
+        and (l.log_date >= $2::timestamptz - $3 * interval '1 millisecond') and (l.log_date <= $2::timestamptz + $4 * interval '1 millisecond')
         and l.copy_data >= 0
       order by
         l.quality desc
@@ -331,9 +331,9 @@ namespace Frs
       from
         log_faces l
       where
-        l.id_vstream = $0
-        and l.log_date >= '$1'
-        and l.log_date <= '$2'
+        l.id_vstream = $1
+        and l.log_date >= $2::timestamptz
+        and l.log_date <= $3::timestamptz
       order by
         l.log_date
     )_SQL_";
@@ -381,11 +381,11 @@ namespace Frs
       update
         special_groups
       set
-        group_name = $0,
-        max_descriptor_count = $1
+        group_name = coalesce($1, group_name),
+        max_descriptor_count = coalesce($2, max_descriptor_count)
       where
-        id_group = $2
-        and id_special_group = $3
+        id_group = $3
+        and id_special_group = $4
     )_SQL_";
 
     static constexpr auto SQL_DELETE_SPECIAL_GROUP = R"_SQL_(
@@ -418,15 +418,15 @@ namespace Frs
     static constexpr auto SQL_SET_STREAM_DEFAULT_CONFIG_PARAMS = "update default_vstream_config set config = coalesce(config, $2) || $2 where id_group = $1";
     static constexpr auto SQL_GET_STREAM_DEFAULT_CONFIG_PARAMS = "select config from default_vstream_config where id_group = $1";
 
-    // do not delete row from database, just mark for deletion
+    // do not delete row from a database, just mark for deletion
     static constexpr auto SQL_REMOVE_LINK_DESCRIPTOR_SG =
       "update link_descriptor_sgroup set last_updated = now(), flag_deleted = true where id_sgroup = $1 and id_descriptor = $2";
 
-    // do not delete rows from database, just mark for deletion
+    // do not delete rows from a database, just mark for deletion
     static constexpr auto SQL_REMOVE_LINK_DESCRIPTOR_SG_ALL =
       "update link_descriptor_sgroup set last_updated = now(), flag_deleted = true where id_sgroup = $1";
 
-    // do not delete descriptor from database, just mark for deletion
+    // do not delete descriptor from a database, just mark for deletion
     static constexpr auto SQL_REMOVE_SG_FACE_DESCRIPTOR = R"_SQL_(
       update
         face_descriptors fd
@@ -438,7 +438,7 @@ namespace Frs
         and id_descriptor in (select ldsg.id_descriptor from link_descriptor_sgroup ldsg where ldsg.id_sgroup = $1)
     )_SQL_";
 
-    // do not delete descriptor from database, just mark for deletion
+    // do not delete descriptor from a database, just mark for deletion
     static constexpr auto SQL_REMOVE_SG_FACE_DESCRIPTORS = R"_SQL_(
       update
         face_descriptors fd
@@ -494,8 +494,8 @@ namespace Frs
         on f.id_descriptor = l.id_descriptor
       where
         not l.flag_deleted
-        and l.id_sgroup = $0
-        and f.id_descriptor in ($1)
+        and l.id_sgroup = $1
+        and f.id_descriptor = any($2)
     )_SQL_";
 
     // Component is valid after construction and is able to accept requests

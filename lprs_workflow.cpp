@@ -160,14 +160,15 @@ namespace Lprs
     return r;
   }
 
-  inline std::vector<std::vector<cv::Point>> convertToAbsolute(const std::vector<std::vector<cv::Point2f>>& work_area, int32_t width, int32_t height)
+  inline std::vector<std::vector<cv::Point>> convertToAbsolute(const std::vector<std::vector<cv::Point2f>>& work_area, const int32_t width, const int32_t height)
   {
     std::vector<std::vector<cv::Point>> wa(work_area.size());
     for (size_t i = 0; i < work_area.size(); ++i)
     {
       wa[i].reserve(work_area[i].size());
       for (size_t j = 0; j < work_area[i].size(); ++j)
-        wa[i].emplace_back(static_cast<int>(work_area[i][j].x * width / 100.0f), static_cast<int>(work_area[i][j].y * height / 100.0f));
+        wa[i].emplace_back(static_cast<int>(work_area[i][j].x * static_cast<float>(width) / 100.0f),
+          static_cast<int>(work_area[i][j].y * static_cast<float>(height) / 100.0f));
     }
 
     return wa;
@@ -472,7 +473,7 @@ properties:
             "vstream_key = {};  vehicle {} confidence: {:.3f}",
             vstream_key, i, detected_vehicles[i].confidence);
 
-      // check for special vehicles ban
+      // check for a special vehicles ban
       bool is_special_banned = false;
       {
         auto ban_special_data_ptr = ban_special_data.Lock();
@@ -511,12 +512,12 @@ properties:
 
       // for test
       // save images of the special vehicles
-      /*for (size_t v = 0;  v < detected_vehicles.size(); ++v)
+      /*for (size_t v = 0; v < detected_vehicles.size(); ++v)
         if (detected_vehicles[v].is_special)
         {
           cv::Rect roi(cv::Point{static_cast<int>(detected_vehicles[v].bbox[0]), static_cast<int>(detected_vehicles[v].bbox[1])},
             cv::Point{static_cast<int>(detected_vehicles[v].bbox[2]), static_cast<int>(detected_vehicles[v].bbox[3])});
-          imwrite(absl::Substitute("special_$0_$1.jpg",  config.id_vstream, v), frame(roi));
+          imwrite(absl::Substitute("special_$0_$1.jpg", config.id_vstream, v), frame(roi));
         }*/
 
       std::vector<LicensePlate*> detected_plates;
@@ -548,7 +549,7 @@ properties:
         {
           userver::formats::json::ValueBuilder vehicle_data;
           has_special = has_special || is_special;
-          for (const auto& [bbox, confidence, kpts, plate_class, plate_numbers] : license_plates)
+          for (const auto& [bbox_plate, confidence_plate, kpts, plate_class, plate_numbers] : license_plates)
           {
             has_failed = has_failed || plate_numbers.empty();
             for (const auto& [number, score] : plate_numbers)
@@ -566,7 +567,7 @@ properties:
                 bool is_banned = false;
                 auto banned_tp1 = now + config.ban_duration;
                 auto banned_tp2 = now + config.ban_duration_area;
-                auto banned_bbox = cv::Rect2f(cv::Point2f{bbox[0], bbox[1]}, cv::Point2f{bbox[2], bbox[3]});
+                auto banned_bbox = cv::Rect2f(cv::Point2f{bbox_plate[0], bbox_plate[1]}, cv::Point2f{bbox_plate[2], bbox_plate[3]});
                 auto data_ptr = ban_data.Lock();
                 if (data_ptr->contains(k))
                 {
@@ -613,10 +614,10 @@ properties:
                   vstream_key, number);
               userver::formats::json::ValueBuilder plate_data;
               plate_data[Api::PARAM_BOX] = userver::formats::json::MakeArray(
-                static_cast<int32_t>(bbox[0]),
-                static_cast<int32_t>(bbox[1]),
-                static_cast<int32_t>(bbox[2]),
-                static_cast<int32_t>(bbox[3]));
+                static_cast<int32_t>(bbox_plate[0]),
+                static_cast<int32_t>(bbox_plate[1]),
+                static_cast<int32_t>(bbox_plate[2]),
+                static_cast<int32_t>(bbox_plate[3]));
               plate_data[Api::PARAM_KPTS] = userver::formats::json::MakeArray(
                 static_cast<int32_t>(kpts[0]),
                 static_cast<int32_t>(kpts[1]),
@@ -661,7 +662,7 @@ properties:
           json_data[Api::PARAM_EVENT_DATE] = log_date;
           auto id_event = addEventLog(config.id_vstream, log_date, json_data.ExtractValue());
 
-          // write screenshot to a file
+          // write a screenshot to a file
           auto path_prefix = absl::StrCat(local_config_.events_screenshots_path, path_suffix);
           userver::fs::CreateDirectories(fs_task_processor_, path_prefix);
           auto path = absl::StrCat(path_prefix, uuid, screenshot_extension);
@@ -713,7 +714,7 @@ properties:
           auto path_suffix = absl::Substitute("$0/", config.ext_id);
           auto screenshot_extension = ".jpg";
 
-          // write failed screenshot to a file
+          // write a failed screenshot to a file
           auto path_prefix = absl::StrCat(local_config_.failed_path, path_suffix);
           userver::fs::CreateDirectories(fs_task_processor_, path_prefix);
           auto path = absl::StrCat(path_prefix, uuid, screenshot_extension);
@@ -1460,7 +1461,7 @@ properties:
       size_t data_size;
       result_ptr->RawData(config.lpd_net_output_tensor_name, reinterpret_cast<const uint8_t**>(&data), &data_size);
 
-      // the output tensor has a dimension of [14, 8400] and each column contains:
+      // the output tensor has a dimension of [14, 8400], and each column contains:
       //  0 - bbox x_center
       //  1 - bbox y_center
       //  2 - bbox width
@@ -1524,8 +1525,7 @@ properties:
               std::vector<cv::Point> intersection_polygon;
               const auto plate_area = intersectConvexConvex(plate_polygon, plate_polygon, intersection_polygon, true);
 
-              auto wa = convertToAbsolute(config.work_area, img_width, img_height);
-              for (const auto& v : wa)
+              for (const auto wa = convertToAbsolute(config.work_area, img_width, img_height); const auto& v : wa)
               {
                 constexpr auto threshold = 0.999;
                 intersection_polygon.clear();
@@ -1583,7 +1583,7 @@ properties:
              {
                auto r1 = cv::Rect2f(cv::Point2f{m->bbox[0], m->bbox[1]}, cv::Point2f{m->bbox[2], m->bbox[3]});
                auto r2 = cv::Rect2f(cv::Point2f{n->bbox[0], n->bbox[1]}, cv::Point2f{n->bbox[2], n->bbox[3]});
-               if (iou(r1, r2) > 0.7)  // intersection is large enough
+               if (iou(r1, r2) > 0.7)  // the intersection is large enough
                {
                  if (detected_vehicles[i].license_plates.size() == detected_vehicles[j].license_plates.size())
                  {
@@ -1642,8 +1642,7 @@ properties:
             {vehicle.bbox[2], vehicle.bbox[1]},
             {vehicle.bbox[2], vehicle.bbox[3]},
             {vehicle.bbox[0], vehicle.bbox[3]}};
-          auto wa = convertToAbsolute(config.work_area, img_width, img_height);
-          for (const auto& v : wa)
+          for (const auto wa = convertToAbsolute(config.work_area, img_width, img_height); const auto& v : wa)
           {
             std::vector<cv::Point> intersection_polygon;
             intersectConvexConvex(v, vehicle_polygon, intersection_polygon, true);

@@ -445,7 +445,7 @@ namespace Frs
 
       if (!faces.empty())
       {
-        // bind faces to video stream
+        // bind faces to a video stream
         for (const auto& id_descriptor : faces)
           trx.Execute(SQL_ADD_LINK_DESCRIPTOR_VSTREAM, id_group, id_vstream, id_descriptor);
       }
@@ -568,14 +568,14 @@ namespace Frs
 
     try
     {
-      const auto result = (id_log)
+      const auto result = id_log
                             ? pg_cluster_->Execute(userver::storages::postgres::ClusterHostType::kMaster, SQL_GET_LOG_FACE_BY_ID, id_group, id_log.value())
                             : pg_cluster_->Execute(userver::storages::postgres::ClusterHostType::kMaster,
-                                absl::Substitute(SQL_GET_LOG_FACE_BEST_QUALITY,
+                                SQL_GET_LOG_FACE_BEST_QUALITY,
                                   id_vstream,
                                   json[P_DATE].As<std::string>(),
                                   interval_before.count(),
-                                  interval_after.count()));
+                                  interval_after.count());
       if (!result.IsEmpty())
       {
         userver::formats::json::ValueBuilder event_data;
@@ -627,7 +627,7 @@ namespace Frs
       auto trx = pg_cluster_->Begin(userver::storages::postgres::ClusterHostType::kMaster, {});
       try
       {
-        // bind faces to video stream
+        // bind faces to a video stream
         for (const auto& id_descriptor : faces)
           trx.Execute(SQL_ADD_LINK_DESCRIPTOR_VSTREAM, id_group, id_vstream, id_descriptor);
         trx.Commit();
@@ -664,7 +664,7 @@ namespace Frs
       auto trx = pg_cluster_->Begin(userver::storages::postgres::ClusterHostType::kMaster, {});
       try
       {
-        // unbind faces from video stream: we don't delete rows from database right now, just mark them to delete later
+        // unbind faces from the video stream: we don't delete rows from a database right now, just mark them to delete later
         for (const auto& id_descriptor : faces)
           trx.Execute(SQL_REMOVE_LINK_DESCRIPTOR_VSTREAM, id_vstream, id_descriptor);
         trx.Commit();
@@ -740,13 +740,13 @@ namespace Frs
       {
         for (const auto& id_descriptor : faces)
         {
-          // unbind faces from all video streams: we don't delete rows from database right now, just mark them to delete later
+          // unbind faces from all video streams: we don't delete rows from a database right now, just mark them to delete later
           trx.Execute(SQL_REMOVE_LINK_DESCRIPTOR_VSTREAM_BY_DESCRIPTOR, id_group, id_descriptor);
 
-          // do not delete descriptor from database, just mark for deletion
+          // do not delete descriptor from a database, just mark for deletion
           trx.Execute(SQL_REMOVE_DESCRIPTOR, id_group, id_descriptor);
 
-          // do not delete spawned descriptors from database, just mark for deletion
+          // do not delete spawned descriptors from a database, just mark for deletion
           trx.Execute(SQL_REMOVE_SPAWNED_DESCRIPTORS, id_group, id_descriptor);
         }
         trx.Commit();
@@ -770,10 +770,10 @@ namespace Frs
     try
     {
       const auto result = pg_cluster_->Execute(userver::storages::postgres::ClusterHostType::kMaster,
-        absl::Substitute(SQL_GET_LOG_FACES_FROM_INTERVAL,
+        SQL_GET_LOG_FACES_FROM_INTERVAL,
           id_vstream,
           json[P_DATE_START].As<std::string>(),
-          json[P_DATE_END].As<std::string>()));
+          json[P_DATE_END].As<std::string>());
       for (const auto& row : result)
       {
         userver::formats::json::ValueBuilder v;
@@ -923,17 +923,17 @@ namespace Frs
       throw userver::server::handlers::ClientError(ExternalBody{absl::Substitute("Member `$0` is invalid.", P_MAX_DESCRIPTOR_COUNT)});
 
     const auto id_sgroup = json[P_SG_ID].As<int32_t>();
-    std::string group_name = DatabaseFields::SG_NAME;
+    std::optional<std::string> group_name;
     if (json.HasMember(P_SPECIAL_GROUP_NAME))
-      group_name = absl::Substitute("'$0'", absl::StrReplaceAll(json[P_SPECIAL_GROUP_NAME].As<std::string>(), {{"'", "''"}}));
-    std::string max_descriptor_count = DatabaseFields::SG_MAX_DESCRIPTOR_COUNT;
+      group_name = json[P_SPECIAL_GROUP_NAME].As<std::string>();
+    std::optional<int32_t> max_descriptor_count;
     if (json.HasMember(P_MAX_DESCRIPTOR_COUNT))
-      max_descriptor_count = std::to_string(json[P_MAX_DESCRIPTOR_COUNT].As<int32_t>());
+      max_descriptor_count = json[P_MAX_DESCRIPTOR_COUNT].As<int32_t>();
 
     try
     {
       pg_cluster_->Execute(userver::storages::postgres::ClusterHostType::kMaster,
-        absl::Substitute(SQL_UPDATE_SPECIAL_GROUP, group_name, max_descriptor_count, id_group, id_sgroup));
+        SQL_UPDATE_SPECIAL_GROUP, group_name, max_descriptor_count, id_group, id_sgroup);
     } catch (const std::exception& e)
     {
       LOG_ERROR_TO(workflow_.getLogger()) << e.what();
@@ -951,7 +951,7 @@ namespace Frs
     auto trx = pg_cluster_->Begin(userver::storages::postgres::ClusterHostType::kMaster, {});
     try
     {
-      // do not delete data from database, just mark for deletion
+      // do not delete data from a database, just mark for deletion
       trx.Execute(SQL_REMOVE_LINK_DESCRIPTOR_SG_ALL, id_sgroup);
       trx.Execute(SQL_REMOVE_SG_FACE_DESCRIPTORS, id_sgroup);
       trx.Execute(SQL_DELETE_SPECIAL_GROUP, id_group, id_sgroup);
@@ -1122,10 +1122,10 @@ namespace Frs
       {
         for (const auto& id_descriptor : faces)
         {
-          // unbind face from special group: we don't delete row from database right now, just mark for deletion
+          // unbind face from a special group: we don't delete row from a database right now, just mark for deletion
           trx.Execute(SQL_REMOVE_LINK_DESCRIPTOR_SG, id_sgroup, id_descriptor);
 
-          // do not delete descriptor from database, just mark for deletion
+          // do not delete descriptor from a database, just mark for deletion
           trx.Execute(SQL_REMOVE_SG_FACE_DESCRIPTOR, id_sgroup, id_descriptor);
         }
         trx.Commit();
@@ -1243,7 +1243,7 @@ namespace Frs
     try
     {
       auto result = pg_cluster_->Execute(userver::storages::postgres::ClusterHostType::kMaster,
-        absl::Substitute(SQL_SG_DESCRIPTORS, id_sgroup, absl::StrJoin(faces, ",")));
+        SQL_SG_DESCRIPTORS, id_sgroup, faces);
       for (const auto& row : result)
       {
         auto id_descriptor = row[DatabaseFields::ID_DESCRIPTOR].As<int32_t>();
@@ -1291,7 +1291,7 @@ namespace Frs
                     auto event_id = std::string(data.event_id, sizeof(data.event_id));
                     event_ids.insert(event_id);
 
-                    // open json file with event identifier
+                    // open a JSON file with event identifier
                     std::string json_filename = absl::Substitute("$0group_$1/$2/$3/$4/$5/$6.json", workflow_.getLocalConfig().events_path,
                       id_group, event_id[0], event_id[1], event_id[2], event_id[3], event_id);
                     if (!std::filesystem::exists(json_filename, ec))
@@ -1353,7 +1353,7 @@ namespace Frs
                     if (event_ids.find(event_id) != event_ids.end())
                       continue;
 
-                    // open json log file
+                    // open a JSON log file
                     std::string f_name = dir_entry.path().stem();
                     std::string json_filename = dir_entry.path().parent_path() / (f_name + std::string(Workflow::JSON_SUFFIX));
                     if (auto json_size = std::filesystem::file_size(json_filename, ec); !ec && json_size > 0)
