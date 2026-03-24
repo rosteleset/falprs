@@ -442,11 +442,11 @@ rm -rf venv
 ### Examples of CPU and GPU load graphs
 Below are the load data for a cluster of two different servers with different shares of video stream processing. In this case, these are intercom cameras installed in apartment buildings, and processing is based on motion detection.
 
-#### Первый сервер
+#### First Server
 ![](./docs/srv1_cpu.png)
 ![](./docs/srv1_gpu.png)
 
-#### Второй сервер
+#### Second Server
 ![](./docs/srv2_cpu.png)
 ![](./docs/srv2_gpu0.png)
 ![](./docs/srv2_gpu1.png)
