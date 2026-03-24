@@ -31,7 +31,8 @@ This project is a replacement for the [old](https://github.com/rosteleset/frs) o
 * [Tests](#tests)
    * [LPRS](#lprs_tests)
    * [FRS](#frs_tests)
- * [Synchronizing data with an old FRS project](#frs_sync_data)
+* [Synchronizing data with an old FRS project](#frs_sync_data)
+* [Examples of CPU and GPU load graphs](#cpu_gpu_load)
 
 <a id="lprs"></a>
 ## LPRS
@@ -436,3 +437,16 @@ deactivate
 rm -rf ./__pycache__/
 rm -rf venv
 ```
+
+<a id="cpu_gpu_load"></a>
+### Examples of CPU and GPU load graphs
+Below are the load data for a cluster of two different servers with different shares of video stream processing. In this case, these are intercom cameras installed in apartment buildings, and processing is based on motion detection.
+
+#### Первый сервер
+![](./docs/srv1_cpu.png)
+![](./docs/srv1_gpu.png)
+
+#### Второй сервер
+![](./docs/srv2_cpu.png)
+![](./docs/srv2_gpu0.png)
+![](./docs/srv2_gpu1.png)
