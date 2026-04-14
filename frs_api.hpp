@@ -151,6 +151,7 @@ namespace Frs
     static constexpr auto P_URL = "url";
     static constexpr auto P_FACE_IDS = "faces";
     static constexpr auto P_CALLBACK_URL = "callback";
+    static constexpr auto P_CALLBACK_URL_BARCODES = "callbackBarcodes";
     static constexpr auto P_START = "start";
     static constexpr auto P_DATE = "date";
     static constexpr auto P_LOG_EVENT_ID = "eventId";
@@ -177,6 +178,10 @@ namespace Frs
     static constexpr auto P_SIMILARITY_THRESHOLD = "similarityThreshold";
     static constexpr auto P_TOKEN = "token";
     static constexpr auto P_DURATION = "duration";
+    static constexpr auto P_TEXT = "text";
+    static constexpr auto P_FORMAT = "format";
+    static constexpr auto P_POSITION = "position";
+    static constexpr auto P_BARCODES = "barcodes";
 
     // messages
     static constexpr auto MESSAGE_REQUEST_COMPLETED = "Request completed successfully";
@@ -191,7 +196,8 @@ namespace Frs
       select
         id_vstream,
         url,
-        callback_url
+        callback_url,
+        callback_url_barcodes
       from
         video_streams
       where
@@ -200,7 +206,7 @@ namespace Frs
     )__SQL__";
 
     static constexpr auto SQL_ADD_STREAM = R"__SQL__(
-      insert into video_streams(id_group, vstream_ext, url, callback_url, config) values($1, $2, $3, $4, $5) returning id_vstream
+      insert into video_streams(id_group, vstream_ext, url, callback_url, callback_url_barcodes, config) values($1, $2, $3, $4, $5, $6) returning id_vstream
     )__SQL__";
 
     static constexpr auto SQL_UPDATE_STREAM = R"__SQL__(
@@ -209,12 +215,13 @@ namespace Frs
       set
         url = $2,
         callback_url = $3,
+        callback_url_barcodes = $4,
         flag_deleted = false,
-        config = $4,
+        config = $5,
         last_updated = now()
       where
         id_group = $1
-        and id_vstream = $5
+        and id_vstream = $6
     )__SQL__";
 
     static constexpr auto SQL_ADD_LINK_DESCRIPTOR_VSTREAM = R"__SQL__(
@@ -256,6 +263,7 @@ namespace Frs
         v.vstream_ext,
         v.url,
         v.callback_url,
+        v.callback_url_barcodes,
         v.config
       from
         video_streams v
@@ -500,6 +508,17 @@ namespace Frs
         and f.id_descriptor = any($2)
     )_SQL_";
 
+    static constexpr auto SQL_GET_LOG_BARCODE_BY_ID = R"_SQL_(
+      select
+        log_date,
+        info,
+        id_vstream
+      from
+        log_barcodes
+      where
+        id_log = $1
+    )_SQL_";
+
     // Component is valid after construction and is able to accept requests
     Api(const userver::components::ComponentConfig& config, const userver::components::ComponentContext& context);
 
@@ -551,5 +570,8 @@ namespace Frs
     void sgUpdateGroup(int32_t id_sgroup, const userver::formats::json::Value& json) const;
     userver::formats::json::Value sgRenewToken(int32_t id_sgroup) const;
     userver::formats::json::Value sgSearchFaces(int32_t id_sgroup, const userver::formats::json::Value& json) const;
+
+    // member functions for barcodes
+    userver::formats::json::Value getBarcodeEvent(int32_t id_group, const userver::formats::json::Value& json) const;
   };
 }  // namespace Frs

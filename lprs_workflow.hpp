@@ -30,9 +30,9 @@ namespace Lprs
     std::chrono::milliseconds ban_maintenance_interval{std::chrono::seconds{5}};
     std::chrono::milliseconds events_log_maintenance_interval{std::chrono::hours{2}};
     std::chrono::milliseconds events_log_ttl{std::chrono::hours{4}};
-    std::string events_screenshots_path;
-    std::string events_screenshots_url_prefix;
-    std::string failed_path;
+    std::string events_screenshots_path{"/opt/falprs/static/lprs/"};
+    std::string events_screenshots_url_prefix{"http://localhost:9051/lprs/"};
+    std::string failed_path{"/opt/falprs/static/lprs/failed/"};
     std::chrono::milliseconds failed_ttl{std::chrono::days{60}};
   };
 

@@ -184,20 +184,20 @@ namespace Lprs
       pg_cluster_(context.FindComponent<userver::components::Postgres>(kDatabase).GetCluster()),
       logger_(context.FindComponent<userver::components::Logging>().GetLogger(std::string(kLogger)))
   {
-    local_config_.allow_group_id_without_auth = config[ConfigParams::SECTION_NAME][ConfigParams::ALLOW_GROUP_ID_WITHOUT_AUTH].As<decltype(local_config_.allow_group_id_without_auth)>();
-    local_config_.ban_maintenance_interval = config[ConfigParams::SECTION_NAME][ConfigParams::BAN_MAINTENANCE_INTERVAL].As<decltype(local_config_.ban_maintenance_interval)>();
-    local_config_.events_log_maintenance_interval = config[ConfigParams::SECTION_NAME][ConfigParams::EVENTS_LOG_MAINTENANCE_INTERVAL].As<decltype(local_config_.events_log_maintenance_interval)>();
-    local_config_.events_log_ttl = config[ConfigParams::SECTION_NAME][ConfigParams::EVENTS_LOG_TTL].As<decltype(local_config_.events_log_ttl)>();
-    local_config_.events_screenshots_path = config[ConfigParams::SECTION_NAME][ConfigParams::EVENTS_SCREENSHOTS_PATH].As<decltype(local_config_.events_screenshots_path)>();
+    local_config_.allow_group_id_without_auth = config[ConfigParams::SECTION_NAME][ConfigParams::ALLOW_GROUP_ID_WITHOUT_AUTH].As<decltype(local_config_.allow_group_id_without_auth)>(local_config_.allow_group_id_without_auth);
+    local_config_.ban_maintenance_interval = config[ConfigParams::SECTION_NAME][ConfigParams::BAN_MAINTENANCE_INTERVAL].As<decltype(local_config_.ban_maintenance_interval)>(local_config_.ban_maintenance_interval);
+    local_config_.events_log_maintenance_interval = config[ConfigParams::SECTION_NAME][ConfigParams::EVENTS_LOG_MAINTENANCE_INTERVAL].As<decltype(local_config_.events_log_maintenance_interval)>(local_config_.events_log_maintenance_interval);
+    local_config_.events_log_ttl = config[ConfigParams::SECTION_NAME][ConfigParams::EVENTS_LOG_TTL].As<decltype(local_config_.events_log_ttl)>(local_config_.events_log_ttl);
+    local_config_.events_screenshots_path = config[ConfigParams::SECTION_NAME][ConfigParams::EVENTS_SCREENSHOTS_PATH].As<decltype(local_config_.events_screenshots_path)>(local_config_.events_screenshots_path);
     if (!local_config_.events_screenshots_path.empty() && !local_config_.events_screenshots_path.ends_with("/"))
       local_config_.events_screenshots_path += "/";
-    local_config_.events_screenshots_url_prefix = config[ConfigParams::SECTION_NAME][ConfigParams::EVENTS_SCREENSHOTS_URL_PREFIX].As<decltype(local_config_.events_screenshots_url_prefix)>();
+    local_config_.events_screenshots_url_prefix = config[ConfigParams::SECTION_NAME][ConfigParams::EVENTS_SCREENSHOTS_URL_PREFIX].As<decltype(local_config_.events_screenshots_url_prefix)>(local_config_.events_screenshots_url_prefix);
     if (!local_config_.events_screenshots_url_prefix.empty() && !local_config_.events_screenshots_url_prefix.ends_with("/"))
       local_config_.events_screenshots_url_prefix += "/";
-    local_config_.failed_path = config[ConfigParams::SECTION_NAME][ConfigParams::FAILED_PATH].As<decltype(local_config_.failed_path)>();
+    local_config_.failed_path = config[ConfigParams::SECTION_NAME][ConfigParams::FAILED_PATH].As<decltype(local_config_.failed_path)>(local_config_.failed_path);
     if (!local_config_.failed_path.empty() && !local_config_.failed_path.ends_with("/"))
       local_config_.failed_path += "/";
-    local_config_.failed_ttl = config[ConfigParams::SECTION_NAME][ConfigParams::FAILED_TTL].As<decltype(local_config_.failed_ttl)>();
+    local_config_.failed_ttl = config[ConfigParams::SECTION_NAME][ConfigParams::FAILED_TTL].As<decltype(local_config_.failed_ttl)>(local_config_.failed_ttl);
 
     if (local_config_.ban_maintenance_interval.count() > 0)
       ban_maintenance_task_.Start(kBanMaintenanceName,

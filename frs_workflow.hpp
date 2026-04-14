@@ -31,12 +31,14 @@ namespace Frs
     inline static constexpr auto EXT_EVENT_UUID = "ext_event_uuid";
     inline static constexpr auto URL = "url";
     inline static constexpr auto CALLBACK_URL = "callback_url";
+    inline static constexpr auto CALLBACK_URL_BARCODES = "callback_url_barcodes";
     inline static constexpr auto ID_SPECIAL_GROUP = "id_special_group";
     inline static constexpr auto LOG_UUID = "log_uuid";
     inline static constexpr auto CONFIG = "config";
     inline static constexpr auto SG_API_TOKEN = "sg_api_token";
     inline static constexpr auto SG_NAME = "group_name";
     inline static constexpr auto SG_MAX_DESCRIPTOR_COUNT = "max_descriptor_count";
+    inline static constexpr auto INFO = "info";
   }
 
   enum CopyEventData
@@ -49,9 +51,9 @@ namespace Frs
   struct LocalConfig
   {
     int32_t allow_group_id_without_auth{1};
-    std::string events_path;
-    std::string screenshots_path;
-    std::string screenshots_url_prefix;
+    std::string events_path{"/opt/falprs/static/frs/events/"};
+    std::string screenshots_path{"/opt/falprs/static/frs/screenshots/"};
+    std::string screenshots_url_prefix{"http://localhost:9051/frs/screenshots/"};
     std::chrono::milliseconds clear_old_log_faces{std::chrono::hours{1}};
     std::chrono::milliseconds flag_deleted_maintenance_interval{std::chrono::seconds{10}};
     std::chrono::milliseconds flag_deleted_ttl{std::chrono::minutes{5}};
@@ -59,6 +61,10 @@ namespace Frs
     std::chrono::milliseconds clear_old_events{std::chrono::days{1}};
     std::chrono::milliseconds log_faces_ttl{std::chrono::hours{4}};
     std::chrono::milliseconds events_ttl{std::chrono::days{30}};
+    std::string barcodes_path{"/opt/falprs/static/frs/barcodes/"};
+    std::string barcodes_url_prefix{"http://localhost:9051/frs/barcodes/"};
+    std::chrono::milliseconds clear_old_log_barcodes{std::chrono::hours{1}};
+    std::chrono::milliseconds log_barcodes_ttl{std::chrono::hours{4}};
   };
 
   enum TaskType
@@ -164,10 +170,11 @@ namespace Frs
     static constexpr std::string_view kName = "frs-workflow";
     static constexpr std::string_view kDatabase = "frs-postgresql-database";
     static constexpr std::string_view kLogger = "frs";
-    std::string kOldLogsMaintenance = "old_logs_maintenance";
+    std::string kOldLogFacesMaintenance = "old_log_faces_maintenance";
     std::string kFlagDeletedMaintenance = "flag_deleted_maintenance";
     std::string kCopyEventsMaintenance = "copy_events_maintenance";
     std::string kOldEventsMaintenance = "old_events_maintenance";
+    std::string kOldLogBarcodesMaintenance = "old_log_barcodes_maintenance";
 
     static constexpr std::string_view MIME_IMAGE = "image/jpeg";
     static constexpr std::string_view DATE_FORMAT = "%Y-%m-%d";
@@ -257,6 +264,17 @@ namespace Frs
 
     static constexpr auto SQL_UPDATE_LOG_COPY_DATA = "update log_faces set copy_data = 2 where id_log = $1";
 
+    static constexpr auto SQL_ADD_LOG_BARCODE = R"__SQL__(
+      insert into log_barcodes(id_vstream, log_date, info) values($1, $2, $3) returning id_log;
+    )__SQL__";
+
+    static constexpr auto SQL_REMOVE_OLD_LOG_BARCODES = R"_SQL_(
+      delete from
+        log_barcodes
+      where
+        log_date < $1
+    )_SQL_";
+
     Workflow(const userver::components::ComponentConfig& config,
       const userver::components::ComponentContext& context);
     ~Workflow() override;
@@ -282,10 +300,11 @@ namespace Frs
     const VStreamDescriptorsCache& vstream_descriptors_cache_;
     const SGConfigCache& sg_config_cache_;
     const SGDescriptorsCache& sg_descriptors_cache_;
-    userver::utils::PeriodicTask old_logs_maintenance_task_;
+    userver::utils::PeriodicTask old_log_faces_maintenance_task_;
     userver::utils::PeriodicTask flag_deleted_maintenance_task_;
     userver::utils::PeriodicTask copy_events_maintenance_task_;
     userver::utils::PeriodicTask old_events_maintenance_task_;
+    userver::utils::PeriodicTask old_log_barcodes_maintenance_task_;
 
     LocalConfig local_config_;
 
@@ -295,10 +314,11 @@ namespace Frs
     userver::concurrent::Variable<HashMap<int32_t, std::vector<UnknownDescriptorData>>> unknown_descriptors;
 
     // Maintenance member functions
-    void doOldLogMaintenance() const;
+    void doOldLogFacesMaintenance() const;
     void doFlagDeletedMaintenance() const;
     void doCopyEventsMaintenance() const;
     void doOldEventsMaintenance() const;
+    void doOldLogBarcodesMaintenance() const;
 
     void nextPipeline(TaskData&& task_data, std::chrono::milliseconds delay);
 
@@ -314,5 +334,6 @@ namespace Frs
       int32_t id_descriptor, double quality, const cv::Rect& face_rect, const std::string& screenshot_url, const boost::uuids::uuid& uuid, CopyEventData copy_event_data = NONE) const;
     int32_t addFaceDescriptor(int32_t id_group, int32_t id_vstream, const FaceDescriptor& fd, const cv::Mat& f_img, int32_t id_parent = 0);
     int32_t addSGroupFaceDescriptor(int32_t id_sgroup, const FaceDescriptor& fd, const cv::Mat& f_img);
+    int64_t addLogBarcode(int32_t id_vstream, const userver::storages::postgres::TimePointTz& log_date, const userver::formats::json::Value& info) const;
   };
 }  // namespace Frs

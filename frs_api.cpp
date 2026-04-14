@@ -352,6 +352,7 @@ namespace Frs
     const auto vstream_ext = convertToString(json[P_STREAM_ID]);
     auto url = json[P_URL].As<std::optional<std::string>>(std::nullopt);
     auto callback_url = json[P_CALLBACK_URL].As<std::optional<std::string>>(std::nullopt);
+    auto callback_url_barcodes = json[P_CALLBACK_URL_BARCODES].As<std::optional<std::string>>(std::nullopt);
 
     std::vector<int32_t> faces;
     if (json.HasMember(P_FACE_IDS))
@@ -402,7 +403,9 @@ namespace Frs
           ConfigParams::UNKNOWN_DESCRIPTOR_TTL};
 
         HashSet<std::string> bool_params = {
-          ConfigParams::FLAG_SPAWNED_DESCRIPTORS};
+          ConfigParams::FLAG_SPAWNED_DESCRIPTORS,
+          ConfigParams::FLAG_PROCESS_FACES,
+          ConfigParams::FLAG_PROCESS_BARCODES};
 
         // build video stream config
         userver::formats::json::ValueBuilder config_builder;
@@ -467,7 +470,7 @@ namespace Frs
       int32_t id_vstream;
       if (const auto res = trx.Execute(SQL_GET_STREAM, id_group, vstream_ext); res.IsEmpty())
       {
-        const auto r = trx.Execute(SQL_ADD_STREAM, id_group, vstream_ext, url, callback_url, config);
+        const auto r = trx.Execute(SQL_ADD_STREAM, id_group, vstream_ext, url, callback_url, callback_url_barcodes, config);
         id_vstream = r.AsSingleRow<int32_t>();
       } else
       {
@@ -476,7 +479,9 @@ namespace Frs
           url = res[0][DatabaseFields::URL].As<std::optional<std::string>>();
         if (!callback_url)
           callback_url = res[0][DatabaseFields::CALLBACK_URL].As<std::optional<std::string>>();
-        trx.Execute(SQL_UPDATE_STREAM, id_group, url, callback_url, config, id_vstream);
+        if (!callback_url_barcodes)
+          callback_url_barcodes = res[0][DatabaseFields::CALLBACK_URL_BARCODES].As<std::optional<std::string>>();
+        trx.Execute(SQL_UPDATE_STREAM, id_group, url, callback_url, callback_url_barcodes, config, id_vstream);
       }
 
       if (!faces.empty())
@@ -501,6 +506,7 @@ namespace Frs
     {
       std::optional<std::string> url;
       std::optional<std::string> callback_url;
+      std::optional<std::string> callback_url_barcodes;
       std::optional<userver::formats::json::Value> config;
       std::vector<int32_t> faces;
     };
@@ -514,6 +520,7 @@ namespace Frs
         vstreams_data[vstream_ext] = {
           row[DatabaseFields::URL].As<std::optional<std::string>>(),
           row[DatabaseFields::CALLBACK_URL].As<std::optional<std::string>>(),
+          row[DatabaseFields::CALLBACK_URL_BARCODES].As<std::optional<std::string>>(),
           row[DatabaseFields::CONFIG].As<std::optional<userver::formats::json::Value>>(),
           {}};
       }
@@ -540,6 +547,8 @@ namespace Frs
         v[P_URL] = snd.url.value();
       if (snd.callback_url)
         v[P_CALLBACK_URL] = snd.callback_url.value();
+      if (snd.callback_url_barcodes)
+        v[P_CALLBACK_URL_BARCODES] = snd.callback_url_barcodes.value();
       if (snd.config)
         v[P_CONFIG] = snd.config.value();
       if (!snd.faces.empty())
@@ -1429,5 +1438,75 @@ namespace Frs
       json_data.PushBack(std::move(v));
     }
     return json_data.ExtractValue();
+  }
+
+  userver::formats::json::Value Api::getBarcodeEvent(int32_t id_group, const userver::formats::json::Value& json) const
+  {
+    try
+    {
+      if (json.HasMember(P_LOG_EVENT_ID))
+      {
+        const userver::storages::postgres::Query query{SQL_GET_LOG_BARCODE_BY_ID};
+        const auto result = pg_cluster_->Execute(userver::storages::postgres::ClusterHostType::kMaster,
+          query, json[P_LOG_EVENT_ID].As<int64_t>());
+        if (!result.IsEmpty())
+        {
+          // check if access permitted to this event
+          const auto id_vstream = result[0][DatabaseFields::ID_VSTREAM].As<int32_t>();
+          const auto vstream_key = absl::Substitute("$0_$1", id_group, id_vstream);
+          // scope for accessing cache
+          {
+            const auto cache = vstreams_config_cache_.Get();
+            if (!cache->getData().contains(vstream_key))
+              return {};
+          }
+          userver::formats::json::ValueBuilder event_data = result[0][DatabaseFields::INFO].As<userver::formats::json::Value>();
+          event_data[P_DATE] = result[0][DatabaseFields::LOG_DATE].As<userver::storages::postgres::TimePointTz>();
+          return event_data.ExtractValue();
+        }
+      } else
+      {
+        if (!json.HasMember(P_STREAM_ID) && !json.HasMember(P_DATE))
+          throw userver::server::handlers::ClientError(
+            ExternalBody{absl::Substitute("Member `$0` or both `$1` and `$2` must exist in the request.", P_LOG_EVENT_ID, P_STREAM_ID, P_DATE)});
+        requireMemberThrow(json, P_STREAM_ID);
+        requireMemberThrow(json, P_DATE);
+
+        int32_t id_vstream = -1;
+        std::chrono::milliseconds interval_before{};
+        std::chrono::milliseconds interval_after{};
+        const auto vstream_key = absl::Substitute("$0_$1", id_group, convertToString(json[P_STREAM_ID]));
+        // scope for accessing cache
+        {
+          const auto cache = vstreams_config_cache_.Get();
+          if (!cache->getData().contains(vstream_key))
+            return {};
+
+          id_vstream = getVStreamId(id_group, convertToString(json[P_STREAM_ID]));
+          interval_before = cache->getData().at(vstream_key).best_quality_interval_before;
+          interval_after = cache->getData().at(vstream_key).best_quality_interval_after;
+        }
+        const auto result = pg_cluster_->Execute(userver::storages::postgres::ClusterHostType::kMaster,
+          SQL_GET_NEAREST_EVENT,
+            id_vstream,
+            json[PARAM_EVENT_DATE].As<std::string>(),
+            event_log_before.count(),
+            event_log_after.count());
+        if (!result.IsEmpty())
+        {
+          userver::formats::json::ValueBuilder event_data = result[0][DatabaseFields::INFO].As<userver::formats::json::Value>();
+          event_data[PARAM_EVENT_DATE] = result[0][DatabaseFields::LOG_DATE].As<userver::storages::postgres::TimePointTz>();
+          return event_data.ExtractValue();
+        }
+      }
+    } catch (userver::server::handlers::ClientError&)
+    {
+      throw;
+    } catch (...)
+    {
+      throw userver::server::handlers::ClientError(HandlerErrorCode::kServerSideError);
+    }
+
+    return {};
   }
 }  // namespace Frs

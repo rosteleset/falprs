@@ -72,6 +72,11 @@ paths:
                   type: string
                   format: url
                   example: https://my.host/callback?streamId=1
+                callbackBarcodes:
+                  description: URL for sending barcode recognition events
+                  type: string
+                  format: url
+                  example: https://my.host/callback_barcodes?streamId=1
                 faces:
                   description: List of registered face descriptors
                   type: array
@@ -126,6 +131,10 @@ paths:
                       format: url
                     callback:
                       description: URL for sending facial recognition events
+                      type: string
+                      format: url
+                    callbackBarcodes:
+                      description: URL for sending barcode recognition events
                       type: string
                       format: url
                     faces:
@@ -429,9 +438,9 @@ paths:
         - Host --> FRS
       summary: Motion detection notification
       description: |
-        Starts or ends the cycled processing pipeline for video stream. Pipeline consists of searching faces by means of face detection neural network.
+        Starts or ends the cycled processing pipeline for video stream. Pipeline consists of searching barcodes or faces by means of face detection neural network.
         Then after filtering each founded face is recognized by another neural network.
-        Successful results, if any, are send as event data using `callback` parameter of the video stream.
+        Successful results, if any, are send as event data using `callback` or `callbackBarcodes` parameter of the video stream.
         After delay (configuration parameter `delay-between-frames`) the pipeline starts again.
       operationId: frs_motionDetection
       parameters:
@@ -2065,6 +2074,14 @@ components:
           pattern: ^\d+(ms|[smhd])$
           default: 5s
           example: 10s
+        flag-process-faces:
+          description: Face processing flag
+          type: boolean
+          default: true
+        flag-process-barcodes:
+          description: Barcode processing flag
+          type: boolean
+          default: false
 
     LPRSInternalVStreamConfig:
       description: Configuration of the video stream

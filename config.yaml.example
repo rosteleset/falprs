@@ -199,8 +199,8 @@ components_manager:
             fs-task-processor: fs-task-processor
             config:
                 allow-group-id-without-auth: 1                                           # Allow use of a group with a specified identifier without authorization
-                screenshots-path: '/opt/falprs/static/frs/screenshots/'                  # Local path for saving screenshots of faces
-                screenshots-url-prefix: 'http://localhost:9051/frs/screenshots/'         # Web URL prefix for screenshots of faces. Replace localhost with IP address if you need access to screenshots from outside
+                screenshots-path: '/opt/falprs/static/frs/screenshots/'                  # Local path for saving face screenshots
+                screenshots-url-prefix: 'http://localhost:9051/frs/screenshots/'         # Web URL prefix for face screenshots. Replace localhost with IP address if you need access to face screenshots from outside
                 events-path: '/opt/falprs/static/frs/events/'                            # Local path for saving events' screenshots
                 clear-old-log-faces: 1h                                                  # Period for launching cleaning of outdated logs from the log_faces table
                 log-faces-ttl: 4h                                                        # TTL of logs from the log_faces table
@@ -209,3 +209,7 @@ components_manager:
                 copy-events-maintenance-interval: 30s                                    # Event data copy maintenance period
                 clear-old-events: 1d                                                     # Period for launching cleaning of outdated events
                 events-ttl: 30d                                                          # TTL of the copied events
+                barcodes-path: '/opt/falprs/static/frs/barcodes/'                        # Local path for saving barcode screenshots
+                barcodes-url-prefix: 'http://localhost:9051/frs/barcodes/'               # Web URL prefix for barcode screenshots. Replace localhost with IP address if you need access to barcode screenshots from outside
+                clear-old-log-barcodes: 1h                                               # Period for launching cleaning of outdated logs from the log_barcodes table
+                log-barcodes-ttl: 4h                                                     # TTL of logs from the log_barcodes table

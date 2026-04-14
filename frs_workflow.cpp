@@ -12,9 +12,12 @@
 #include <userver/http/common_headers.hpp>
 #include <userver/http/content_type.hpp>
 #include <userver/yaml_config/merge_schemas.hpp>
+#include <Barcode.h>
 
 #include "frs_api.hpp"
 #include "frs_workflow.hpp"
+
+#include "ReadBarcode.h"
 
 namespace tc = triton::client;
 
@@ -218,6 +221,41 @@ namespace Frs
       });
   }
 
+  std::string drawOSD(const VStreamConfig& config, const cv::Mat& frame)
+  {
+    std::string result{};
+    // draw, if necessary, OSD
+    if (!config.title.empty())
+    {
+      constexpr int font_face = cv::FONT_HERSHEY_COMPLEX;
+      constexpr int thickness = 2;
+
+      auto osd_date = absl::Now();
+      auto datetime_text = FormatTime(config.osd_dt_format, osd_date, absl::LocalTimeZone());
+      cv::Size text_size = cv::getTextSize(datetime_text, font_face, 1.0, thickness, nullptr);
+
+      // recalculate font_scale and text_size
+      const double font_scale = config.title_height_ratio * static_cast<float>(frame.rows) / static_cast<float>(text_size.height);
+      text_size = cv::getTextSize(datetime_text, font_face, font_scale, thickness, nullptr);
+
+      // draw date and time in the upper left corner
+      // to draw text with a contour, draw it twice with different thicknesses
+      putText(frame, datetime_text, {10, 10 + text_size.height}, font_face, font_scale, cv::Scalar::all(0), thickness + 2, cv::LINE_AA);
+      putText(frame, datetime_text, {10, 10 + text_size.height}, font_face, font_scale, cv::Scalar::all(255), thickness, cv::LINE_AA);
+
+      // draw the title in the lower left corner
+      // to draw text with a contour, draw it twice with different thicknesses
+      putText(frame, config.title, {10, frame.rows - 10}, font_face, font_scale, cv::Scalar::all(0), thickness + 2, cv::LINE_AA);
+      putText(frame, config.title, {10, frame.rows - 10}, font_face, font_scale, cv::Scalar::all(255), thickness, cv::LINE_AA);
+
+      std::vector<uchar> new_frame;
+      imencode(".jpg", frame, new_frame);
+      result = std::string(new_frame.begin(), new_frame.end());
+    }
+
+    return result;
+  }
+
   Workflow::Workflow(const userver::components::ComponentConfig& config, const userver::components::ComponentContext& context)
     : LoggableComponentBase(config, context),
       task_processor_(context.GetTaskProcessor(config["task_processor"].As<std::string>())),
@@ -232,40 +270,53 @@ namespace Frs
       sg_config_cache_(context.FindComponent<SGConfigCache>()),
       sg_descriptors_cache_(context.FindComponent<SGDescriptorsCache>())
   {
-    local_config_.allow_group_id_without_auth = config[ConfigParams::SECTION_NAME][ConfigParams::ALLOW_GROUP_ID_WITHOUT_AUTH].As<decltype(local_config_.allow_group_id_without_auth)>();
+    local_config_.allow_group_id_without_auth = config[ConfigParams::SECTION_NAME][ConfigParams::ALLOW_GROUP_ID_WITHOUT_AUTH].As<decltype(local_config_.allow_group_id_without_auth)>(local_config_.allow_group_id_without_auth);
 
-    local_config_.screenshots_path = config[ConfigParams::SECTION_NAME][ConfigParams::SCREENSHOTS_PATH].As<decltype(local_config_.screenshots_path)>();
+    local_config_.screenshots_path = config[ConfigParams::SECTION_NAME][ConfigParams::SCREENSHOTS_PATH].As<decltype(local_config_.screenshots_path)>(local_config_.screenshots_path);
     // make sure the path ends with /
     if (!local_config_.screenshots_path.empty() && !local_config_.screenshots_path.ends_with('/'))
       local_config_.screenshots_path = local_config_.screenshots_path + '/';
 
-    local_config_.screenshots_url_prefix = config[ConfigParams::SECTION_NAME][ConfigParams::SCREENSHOTS_URL_PREFIX].As<decltype(local_config_.screenshots_url_prefix)>();
+    local_config_.screenshots_url_prefix = config[ConfigParams::SECTION_NAME][ConfigParams::SCREENSHOTS_URL_PREFIX].As<decltype(local_config_.screenshots_url_prefix)>(local_config_.screenshots_url_prefix);
     // make sure the path ends with /
     if (!local_config_.screenshots_url_prefix.empty() && !local_config_.screenshots_url_prefix.ends_with("/"))
       local_config_.screenshots_url_prefix += "/";
 
-    local_config_.events_path = config[ConfigParams::SECTION_NAME][ConfigParams::EVENTS_PATH].As<decltype(local_config_.events_path)>();
+    local_config_.events_path = config[ConfigParams::SECTION_NAME][ConfigParams::EVENTS_PATH].As<decltype(local_config_.events_path)>(local_config_.events_path);
     // make sure the path ends with /
     if (!local_config_.events_path.empty() && !local_config_.events_path.ends_with('/'))
       local_config_.events_path = local_config_.events_path + '/';
 
-    local_config_.clear_old_log_faces = config[ConfigParams::SECTION_NAME][ConfigParams::CLEAR_OLD_LOG_FACES].As<decltype(local_config_.clear_old_log_faces)>();
-    local_config_.log_faces_ttl = config[ConfigParams::SECTION_NAME][ConfigParams::LOG_FACES_TTL].As<decltype(local_config_.log_faces_ttl)>();
-    local_config_.flag_deleted_maintenance_interval = config[ConfigParams::SECTION_NAME][ConfigParams::FLAG_DELETED_MAINTENANCE_INTERVAL].As<decltype(local_config_.flag_deleted_maintenance_interval)>();
-    local_config_.flag_deleted_ttl = config[ConfigParams::SECTION_NAME][ConfigParams::FLAG_DELETED_TTL].As<decltype(local_config_.flag_deleted_ttl)>();
-    local_config_.copy_events_maintenance_interval = config[ConfigParams::SECTION_NAME][ConfigParams::COPY_EVENTS_MAINTENANCE_INTERVAL].As<decltype(local_config_.copy_events_maintenance_interval)>();
-    local_config_.clear_old_events = config[ConfigParams::SECTION_NAME][ConfigParams::CLEAR_OLD_EVENTS].As<decltype(local_config_.clear_old_events)>();
-    local_config_.events_ttl = config[ConfigParams::SECTION_NAME][ConfigParams::EVENTS_TTL].As<decltype(local_config_.events_ttl)>();
+    local_config_.clear_old_log_faces = config[ConfigParams::SECTION_NAME][ConfigParams::CLEAR_OLD_LOG_FACES].As<decltype(local_config_.clear_old_log_faces)>(local_config_.clear_old_log_faces);
+    local_config_.log_faces_ttl = config[ConfigParams::SECTION_NAME][ConfigParams::LOG_FACES_TTL].As<decltype(local_config_.log_faces_ttl)>(local_config_.log_faces_ttl);
+    local_config_.flag_deleted_maintenance_interval = config[ConfigParams::SECTION_NAME][ConfigParams::FLAG_DELETED_MAINTENANCE_INTERVAL].As<decltype(local_config_.flag_deleted_maintenance_interval)>(local_config_.flag_deleted_maintenance_interval);
+    local_config_.flag_deleted_ttl = config[ConfigParams::SECTION_NAME][ConfigParams::FLAG_DELETED_TTL].As<decltype(local_config_.flag_deleted_ttl)>(local_config_.flag_deleted_ttl);
+    local_config_.copy_events_maintenance_interval = config[ConfigParams::SECTION_NAME][ConfigParams::COPY_EVENTS_MAINTENANCE_INTERVAL].As<decltype(local_config_.copy_events_maintenance_interval)>(local_config_.copy_events_maintenance_interval);
+    local_config_.clear_old_events = config[ConfigParams::SECTION_NAME][ConfigParams::CLEAR_OLD_EVENTS].As<decltype(local_config_.clear_old_events)>(local_config_.clear_old_events);
+    local_config_.events_ttl = config[ConfigParams::SECTION_NAME][ConfigParams::EVENTS_TTL].As<decltype(local_config_.events_ttl)>(local_config_.events_ttl);
+
+    local_config_.barcodes_path = config[ConfigParams::SECTION_NAME][ConfigParams::BARCODES_PATH].As<decltype(local_config_.barcodes_path)>(local_config_.barcodes_path);
+    // make sure the path ends with /
+    if (!local_config_.barcodes_path.empty() && !local_config_.barcodes_path.ends_with('/'))
+      local_config_.barcodes_path = local_config_.barcodes_path + '/';
+
+    local_config_.barcodes_url_prefix = config[ConfigParams::SECTION_NAME][ConfigParams::BARCODES_URL_PREFIX].As<decltype(local_config_.barcodes_url_prefix)>(local_config_.barcodes_url_prefix);
+    // make sure the path ends with /
+    if (!local_config_.barcodes_url_prefix.empty() && !local_config_.barcodes_url_prefix.ends_with("/"))
+      local_config_.barcodes_url_prefix += "/";
+
+    local_config_.clear_old_log_barcodes = config[ConfigParams::SECTION_NAME][ConfigParams::CLEAR_OLD_LOG_BARCODES].As<decltype(local_config_.clear_old_log_barcodes)>(local_config_.clear_old_log_barcodes);
+    local_config_.log_barcodes_ttl = config[ConfigParams::SECTION_NAME][ConfigParams::LOG_BARCODES_TTL].As<decltype(local_config_.log_barcodes_ttl)>(local_config_.log_barcodes_ttl);
 
     loadDNNStatsData();
 
     // Periodic maintenance
     if (local_config_.clear_old_log_faces.count() > 0)
-      old_logs_maintenance_task_.Start(kOldLogsMaintenance,
+      old_log_faces_maintenance_task_.Start(kOldLogFacesMaintenance,
         {local_config_.clear_old_log_faces, {userver::utils::PeriodicTask::Flags::kStrong}},
         [this]
         {
-          doOldLogMaintenance();
+          doOldLogFacesMaintenance();
         });
 
     if (local_config_.flag_deleted_maintenance_interval.count() > 0)
@@ -285,11 +336,19 @@ namespace Frs
         });
 
     if (local_config_.clear_old_events.count() > 0)
-      old_events_maintenance_task_.Start(kOldLogsMaintenance,
+      old_events_maintenance_task_.Start(kOldEventsMaintenance,
         {local_config_.clear_old_events, {userver::utils::PeriodicTask::Flags::kStrong}},
         [this]
         {
           doOldEventsMaintenance();
+        });
+
+    if (local_config_.clear_old_log_barcodes.count() > 0)
+      old_log_barcodes_maintenance_task_.Start(kOldLogBarcodesMaintenance,
+        {local_config_.clear_old_log_barcodes, {userver::utils::PeriodicTask::Flags::kStrong}},
+        [this]
+        {
+          doOldLogBarcodesMaintenance();
         });
   }
 
@@ -323,7 +382,7 @@ properties:
                 defaultDescription: 1
             screenshots-path:
                 type: string
-                description: Local path for saving faces screenshots
+                description: Local path for saving face screenshots
                 defaultDescription: '/opt/falprs/static/frs/screenshots/'
             screenshots-url-prefix:
                 type: string
@@ -361,6 +420,22 @@ properties:
                 type: string
                 description: TTL of the copied events
                 defaultDescription: 30d
+            barcodes-path:
+                type: string
+                description: Local path for saving barcode screenshots
+                defaultDescription: '/opt/falprs/static/frs/barcodes/'
+            barcode-url-prefix:
+                type: string
+                description: Web URL prefix for barcode screenshots
+                defaultDescription: 'http://localhost:9051/frs/barcodes/'
+            clear-old-log-barcodes:
+                type: string
+                description: Period for launching cleaning of outdated logs from the log_barcodes table
+                defaultDescription: 4h
+            log-barcodes-ttl:
+                type: string
+                description: TTL of logs from the log_barcodes table
+                defaultDescription: 4h
   )~");
   }
 
@@ -576,675 +651,788 @@ properties:
         work_area.height = static_cast<int>(config.work_area[3] * frame.rows / 100.0f);
       }
 
-      if (task_data.task_type == TASK_REGISTER_DESCRIPTOR)
+      if (config.flag_process_barcodes)
       {
-        // if the face search area is not specified, then we search throughout the entire image
-        if (task_data.face_width == 0)
-          task_data.face_width = frame.cols;
-        if (task_data.face_height == 0)
-          task_data.face_height = frame.rows;
-      }
-
-      // looking for faces
-      if (std::vector<FaceDetection> detected_faces; detectFaces(task_data, frame, config, detected_faces))
-      {
-        DNNStatsData stats_data;
-        ++stats_data.fd_count;
-        std::vector<FaceData> face_data;
-        int recognized_face_count = 0;
-        double best_quality = 0.0;
-        int best_face_index = -1;
-        double best_register_quality = 0.0;
-        double best_register_ioa = 0.0;
-        int best_register_index = -1;
-        bool has_sgroup_events = false;
-
+        if (frame.channels() > 4)
+        {
+          if (config.logs_level <= userver::logging::Level::kError || task_data.task_type == TASK_TEST)
+            USERVER_IMPL_LOG_TO(logger_, userver::logging::Level::kError,
+              "vstream_key = {};  unsupported number of channels: {}",
+              task_data.vstream_key, frame.channels());
+          return {
+            .comments = absl::Substitute("Unsupported number of channels: $0", frame.channels()),
+            .face_image = {},
+            .id_descriptors = {}};
+        }
         if (config.logs_level <= userver::logging::Level::kTrace || task_data.task_type == TASK_TEST)
+        {
           USERVER_IMPL_LOG_TO(logger_, userver::logging::Level::kTrace,
-            "vstream_key = {};  process the found faces, quantity: {}",
-            task_data.vstream_key, detected_faces.size());
-        for (auto& [bbox, face_confidence, landmark] : detected_faces)
+            "vstream_key = {};  before decoding barcodes",
+            task_data.vstream_key);
+        }
+        auto image_format_from_channels = std::array{ZXing::ImageFormat::None, ZXing::ImageFormat::Lum, ZXing::ImageFormat::LumA, ZXing::ImageFormat::RGB, ZXing::ImageFormat::RGBA};
+        auto image = ZXing::ImageView(frame.data, frame.cols, frame.rows, image_format_from_channels.at(frame.channels()));
+        auto options = ZXing::ReaderOptions()
+                         .setFormats(ZXing::BarcodeFormat::All)
+                         .setTryHarder(true)
+                         .setTryRotate(true);
+        auto barcodes = ZXing::ReadBarcodes(image, options);
+        if (config.logs_level <= userver::logging::Level::kTrace || task_data.task_type == TASK_TEST)
+        {
+          USERVER_IMPL_LOG_TO(logger_, userver::logging::Level::kTrace,
+            "vstream_key = {};  after decoding barcodes",
+            task_data.vstream_key);
+        }
+        if (!barcodes.empty())
         {
           if (config.logs_level <= userver::logging::Level::kTrace || task_data.task_type == TASK_TEST)
+          {
             USERVER_IMPL_LOG_TO(logger_, userver::logging::Level::kTrace,
-              "vstream_key = {};  face probability: {:.3f}",
-              task_data.vstream_key, face_confidence);
-          auto work_region = cv::Rect(
-            static_cast<int>(config.margin / 100.0 * frame.cols),
-            static_cast<int>(config.margin / 100.0 * frame.rows),
-            static_cast<int>(frame.cols - 2.0 * frame.cols * config.margin / 100.0),
-            static_cast<int>(frame.rows - 2.0 * frame.rows * config.margin / 100.0));
-          if (!work_area.empty())
-            work_region = work_region & work_area;
-          auto face_rect = cv::Rect(
-            static_cast<int>(bbox[0]),
-            static_cast<int>(bbox[1]),
-            static_cast<int>(bbox[2] - bbox[0] + 1),
-            static_cast<int>(bbox[3] - bbox[1] + 1));
-
-          face_data.emplace_back();
-          face_data.back().face_rect = face_rect;
-
-          // check that the face is completely in the work area
-          if ((work_region & face_rect) != face_rect)
-          {
-            if (config.logs_level <= userver::logging::Level::kTrace || task_data.task_type == TASK_TEST)
-              USERVER_IMPL_LOG_TO(logger_, userver::logging::Level::kTrace,
-                "vstream_key = {};  the person is not in the work area",
-                task_data.vstream_key);
-            continue;
+              "vstream_key = {};  found barcodes: {}",
+              task_data.vstream_key, barcodes.size());
           }
-
-          face_data.back().is_work_area = true;
-          if (config.logs_level <= userver::logging::Level::kTrace || task_data.task_type == TASK_TEST)
-            USERVER_IMPL_LOG_TO(logger_, userver::logging::Level::kTrace,
-              "vstream_key = {};  the person is in the work area",
-              task_data.vstream_key);
-
-          auto landmarks5 = cv::Mat(5, 2, CV_32F, landmark);
-          face_data.back().landmarks5 = landmarks5.clone();
-
-          // checking the frontality of the face using markers
-          if (!isFrontalFace(landmarks5))
-          {
-            if (config.logs_level <= userver::logging::Level::kTrace || task_data.task_type == TASK_TEST)
-              USERVER_IMPL_LOG_TO(logger_, userver::logging::Level::kTrace,
-                "vstream_key = {};  face is not frontal according to markers",
-                task_data.vstream_key);
-            continue;
-          }
-
-          // face "alignment" for face recognition inference
-          cv::Mat aligned_face = alignFaceAffineTransform(frame, landmarks5, common_config.dnn_fr_input_width, common_config.dnn_fr_input_height);
-          if (aligned_face.cols != common_config.dnn_fr_input_width || aligned_face.rows != common_config.dnn_fr_input_height)
-          {
-            if (config.logs_level <= userver::logging::Level::kTrace || task_data.task_type == TASK_TEST)
-              USERVER_IMPL_LOG_TO(logger_, userver::logging::Level::kTrace,
-                "vstream_key = {};  failed to do face alignment to get descriptor",
-                task_data.vstream_key);
-            continue;
-          }
-
-          if (task_data.task_type == TASK_TEST)
-            AsyncNoSpan(fs_task_processor_,
-              [&]
-              {
-                cv::imwrite(absl::Substitute("$0/aligned_face_$1.jpg", std::filesystem::current_path().string(), face_data.size()), aligned_face);
-              }).Get();
-
-          face_data.back().is_frontal = true;
-
-          // check for blur
-          auto laplacian = varianceOfLaplacian(aligned_face);
-          face_data.back().laplacian = laplacian;
-          if (config.logs_level <= userver::logging::Level::kTrace || task_data.task_type == TASK_TEST)
-            USERVER_IMPL_LOG_TO(logger_, userver::logging::Level::kTrace,
-              "vstream_key = {};  laplacian = {:.2f}",
-              task_data.vstream_key, laplacian);
-          if (laplacian < config.blur || laplacian > config.blur_max)
-          {
-            if (config.logs_level <= userver::logging::Level::kTrace || task_data.task_type == TASK_TEST)
-              USERVER_IMPL_LOG_TO(logger_, userver::logging::Level::kTrace,
-                "vstream_key = {};  the face is blurry or too clear",
-                task_data.vstream_key);
-
-            continue;
-          }
-          face_data.back().is_non_blurry = true;
-          if (config.logs_level <= userver::logging::Level::kTrace || task_data.task_type == TASK_TEST)
-            USERVER_IMPL_LOG_TO(logger_, userver::logging::Level::kTrace,
-              "vstream_key = {};  the face is not blurry",
-              task_data.vstream_key);
-
-          // face "alignment" for face class inference
-          auto aligned_face_class = alignFaceAffineTransform(frame, landmarks5, common_config.dnn_fc_input_width, common_config.dnn_fc_input_height);
-          if (aligned_face_class.cols != common_config.dnn_fc_input_width || aligned_face_class.rows != common_config.dnn_fc_input_height)
-          {
-            if (config.logs_level <= userver::logging::Level::kTrace || task_data.task_type == TASK_TEST)
-              USERVER_IMPL_LOG_TO(logger_, userver::logging::Level::kTrace,
-                "vstream_key = {};  failed to do face alignment for inference class",
-                task_data.vstream_key);
-
-            continue;
-          }
-          if (task_data.task_type == TASK_TEST)
-            AsyncNoSpan(fs_task_processor_,
-              [&]
-              {
-                cv::imwrite(absl::Substitute("$0/aligned_face_class_$1.jpg", std::filesystem::current_path().string(), face_data.size()), aligned_face_class);
-              }).Get();
-
-          // checking the class of the face (normal, wearing a mask, wearing sunglasses)
-          if (std::vector<FaceClass> face_classes; inferFaceClass(task_data, aligned_face_class, config, face_classes))
-          {
-            ++stats_data.fc_count;
-            face_data.back().face_class_index = static_cast<FaceClassIndexes>(face_classes[0].class_index);
-            face_data.back().face_class_confidence = face_classes[0].score;
-            if (config.logs_level <= userver::logging::Level::kTrace || task_data.task_type == TASK_TEST)
-              USERVER_IMPL_LOG_TO(logger_, userver::logging::Level::kTrace,
-                "vstream_key = {};  face class: {};  probability: {:.3f}",
-                task_data.vstream_key, face_classes[0].class_index, face_classes[0].score);
-          }
-          if (face_data.back().face_class_index == FACE_NONE
-              || (face_data.back().face_class_index != FACE_NORMAL
-                  && face_data.back().face_class_confidence > config.face_class_confidence))
-            continue;
-
-          face_data.back().face_class_index = FACE_NORMAL;
-
-          if (task_data.task_type == TASK_REGISTER_DESCRIPTOR)
-          {
-            cv::Rect r(task_data.face_left, task_data.face_top, task_data.face_width, task_data.face_height);
-            auto f_intersection = (r & face_data.back().face_rect).area();
-            if (auto f_area = face_data.back().face_rect.area(); f_area > 0)
-              face_data.back().ioa = static_cast<double>(f_intersection) / static_cast<double>(f_area);
-          }
-
-          // get a facial descriptor (biometric template)
-          if (bool infer_face_descriptor_result = extractFaceDescriptor(task_data, aligned_face, config, face_data.back().fd); !infer_face_descriptor_result)
-            continue;
-          ++stats_data.fr_count;
-          auto face_descriptor = face_data.back().fd.clone();
-          double norm_l2 = cv::norm(face_descriptor, cv::NORM_L2);
-          if (norm_l2 <= 0.0)
-            norm_l2 = 1.0;
-          face_descriptor = face_descriptor / norm_l2;
-
-          // recognize the face
-          if (config.logs_level <= userver::logging::Level::kTrace || task_data.task_type == TASK_TEST)
-            USERVER_IMPL_LOG_TO(logger_, userver::logging::Level::kTrace,
-              "vstream_key = {};  before recognition",
-              task_data.vstream_key);
-          double max_cos_distance = -2.0;
-          int id_descriptor{};
-
-          // scope for accessing cache
-          {
-            auto vd_cache = vstream_descriptors_cache_.Get();
-            auto fd_cache = face_descriptor_cache_.Get();
-            auto sgc_cache = sg_config_cache_.Get();
-            auto sgd_cache = sg_descriptors_cache_.Get();
-
-            if (config.id_vstream > 0 && vd_cache->getData().contains(config.id_vstream))
-              for (const auto& item : vd_cache->getData().at(config.id_vstream))
-                if (fd_cache->getData().contains(item))
-                {
-                  if (double cos_distance = cosineDistance(face_descriptor, fd_cache->getData().at(item)); cos_distance > max_cos_distance)
-                  {
-                    max_cos_distance = cos_distance;
-                    id_descriptor = item;
-                  }
-                }
-            if (fd_cache->getSpawned().contains(id_descriptor))
+          userver::formats::json::ValueBuilder json_barcodes;
+          for (auto&& barcode : barcodes)
+            if (barcode.format() != ZXing::BarcodeFormat::None)
             {
-              auto id_parent = fd_cache->getSpawned().at(id_descriptor);
+              userver::formats::json::ValueBuilder barcode_data;
+              barcode_data[Api::P_TEXT] = barcode.text();
+              barcode_data[Api::P_FORMAT] = ZXing::ToString(barcode.format());
+              barcode_data[Api::P_POSITION] = userver::formats::json::MakeArray(
+                barcode.position()[0].x,
+                barcode.position()[0].y,
+                barcode.position()[1].x,
+                barcode.position()[1].y,
+                barcode.position()[2].x,
+                barcode.position()[2].y,
+                barcode.position()[3].x,
+                barcode.position()[3].y);
+              json_barcodes.PushBack(std::move(barcode_data));
+            }
+          if (!json_barcodes.IsEmpty())
+          {
+            auto t_now = std::chrono::system_clock::now();
+            auto log_date = userver::storages::postgres::TimePointTz{t_now};
+            auto uuid = boost::uuids::to_string(boost::uuids::random_generator()());
+            auto path_suffix = absl::Substitute("$0/$1/$2/$3/", uuid[0], uuid[1], uuid[2], uuid[3]);
+            auto screenshot_extension = ".jpg";
+
+            userver::formats::json::ValueBuilder json_data;
+            json_data[Api::P_SCREENSHOT_URL] = absl::StrCat(local_config_.barcodes_url_prefix, path_suffix,
+              uuid, screenshot_extension);
+            json_data[Api::P_DATE] = log_date;
+            json_data[Api::P_BARCODES] = json_barcodes;
+            auto id_log = addLogBarcode(config.id_vstream, log_date, json_data.ExtractValue());
+
+            // write a screenshot to a file
+            auto path_prefix = absl::StrCat(local_config_.barcodes_path, path_suffix);
+            userver::fs::CreateDirectories(fs_task_processor_, path_prefix);
+            auto path = absl::StrCat(path_prefix, uuid, screenshot_extension);
+            std::string frame_with_osd = drawOSD(config, frame);
+            userver::fs::RewriteFileContents(fs_task_processor_, path, frame_with_osd.empty() ? image_data : frame_with_osd);
+            userver::fs::Chmod(fs_task_processor_, path,
+              boost::filesystem::perms::owner_read | boost::filesystem::perms::owner_write | boost::filesystem::perms::others_read | boost::filesystem::perms::others_write);
+
+            if (id_log > 0 && !config.callback_url_barcodes.empty())
+            {
+              // send an event about barcode recognition
+              userver::formats::json::ValueBuilder json_callback;
+              json_callback[Api::P_STREAM_ID] = config.vstream_ext;
+              json_callback[Api::P_DATE] = log_date;
+              json_callback[Api::P_LOG_EVENT_ID] = id_log;
+              json_callback[Api::P_BARCODES] = json_barcodes;
+              DeliveryEventResult delivery_result = ERROR;
+              try
+              {
+                // clang-format off
+                auto delivery_response = http_client_.CreateRequest()
+                  .post(config.callback_url_barcodes)
+                  .headers({{userver::http::headers::kContentType, userver::http::content_type::kApplicationJson.ToString()}})
+                  .data(userver::formats::json::ToString(json_callback.ExtractValue()))
+                  .timeout(common_config.callback_timeout)
+                  .perform();
+                // clang-format on
+                delivery_result = delivery_response->status_code() == userver::clients::http::Status::OK
+                                      || delivery_response->status_code() == userver::clients::http::Status::NoContent
+                                    ? SUCCESSFUL
+                                    : ERROR;
+              } catch (std::exception& e)
+              {
+                delivery_result = ERROR;
+                LOG_ERROR_TO(logger_) << e.what();
+              }
+
+              if (delivery_result == SUCCESSFUL)
+              {
+                if (config.logs_level <= userver::logging::Level::kInfo)
+                  USERVER_IMPL_LOG_TO(logger_, userver::logging::Level::kInfo,
+                    "vstream_key = {};  barcode recognition event sent: id_vstream = {};",
+                    task_data.vstream_key, config.id_vstream);
+              } else
+              {
+                if (config.logs_level <= userver::logging::Level::kWarning)
+                  USERVER_IMPL_LOG_TO(logger_, userver::logging::Level::kWarning,
+                    "vstream_key = {};  error sending data to callback {}",
+                    task_data.vstream_key, config.callback_url_barcodes);
+              }
+            }
+          }
+        }
+      }
+
+      if (config.flag_process_faces)
+      {
+        if (task_data.task_type == TASK_REGISTER_DESCRIPTOR)
+        {
+          // if the search area is not specified, then we search throughout the entire image
+          if (task_data.face_width == 0)
+            task_data.face_width = frame.cols;
+          if (task_data.face_height == 0)
+            task_data.face_height = frame.rows;
+        }
+
+        // looking for faces
+        if (std::vector<FaceDetection> detected_faces; detectFaces(task_data, frame, config, detected_faces))
+        {
+          DNNStatsData stats_data;
+          ++stats_data.fd_count;
+          std::vector<FaceData> face_data;
+          int recognized_face_count = 0;
+          double best_quality = 0.0;
+          int best_face_index = -1;
+          double best_register_quality = 0.0;
+          double best_register_ioa = 0.0;
+          int best_register_index = -1;
+          bool has_sgroup_events = false;
+
+          if (config.logs_level <= userver::logging::Level::kTrace || task_data.task_type == TASK_TEST)
+            USERVER_IMPL_LOG_TO(logger_, userver::logging::Level::kTrace,
+              "vstream_key = {};  process the found faces, quantity: {}",
+              task_data.vstream_key, detected_faces.size());
+          for (auto& [bbox, face_confidence, landmark] : detected_faces)
+          {
+            if (config.logs_level <= userver::logging::Level::kTrace || task_data.task_type == TASK_TEST)
+              USERVER_IMPL_LOG_TO(logger_, userver::logging::Level::kTrace,
+                "vstream_key = {};  face probability: {:.3f}",
+                task_data.vstream_key, face_confidence);
+            auto work_region = cv::Rect(
+              static_cast<int>(config.margin / 100.0 * frame.cols),
+              static_cast<int>(config.margin / 100.0 * frame.rows),
+              static_cast<int>(frame.cols - 2.0 * frame.cols * config.margin / 100.0),
+              static_cast<int>(frame.rows - 2.0 * frame.rows * config.margin / 100.0));
+            if (!work_area.empty())
+              work_region = work_region & work_area;
+            auto face_rect = cv::Rect(
+              static_cast<int>(bbox[0]),
+              static_cast<int>(bbox[1]),
+              static_cast<int>(bbox[2] - bbox[0] + 1),
+              static_cast<int>(bbox[3] - bbox[1] + 1));
+
+            face_data.emplace_back();
+            face_data.back().face_rect = face_rect;
+
+            // check that the face is completely in the work area
+            if ((work_region & face_rect) != face_rect)
+            {
               if (config.logs_level <= userver::logging::Level::kTrace || task_data.task_type == TASK_TEST)
                 USERVER_IMPL_LOG_TO(logger_, userver::logging::Level::kTrace,
-                  "vstream_key = {};  spawned id_descriptor = {};  parent id_descriptor = {}",
-                  task_data.vstream_key, id_descriptor, id_parent);
-              id_descriptor = id_parent;
+                  "vstream_key = {};  the person is not in the work area",
+                  task_data.vstream_key);
+              continue;
             }
 
-            // recognition in special groups
-            if (task_data.id_sgroup > 0)
+            face_data.back().is_work_area = true;
+            if (config.logs_level <= userver::logging::Level::kTrace || task_data.task_type == TASK_TEST)
+              USERVER_IMPL_LOG_TO(logger_, userver::logging::Level::kTrace,
+                "vstream_key = {};  the person is in the work area",
+                task_data.vstream_key);
+
+            auto landmarks5 = cv::Mat(5, 2, CV_32F, landmark);
+            face_data.back().landmarks5 = landmarks5.clone();
+
+            // checking the frontality of the face using markers
+            if (!isFrontalFace(landmarks5))
             {
-              if (sgd_cache->getData().contains(task_data.id_sgroup))
-                for (const auto& id_sg_descriptor : sgd_cache->getData().at(task_data.id_sgroup))
-                  if (fd_cache->getData().contains(id_sg_descriptor))
-                  {
-                    if (double cos_distance = cosineDistance(face_descriptor, fd_cache->getData().at(id_sg_descriptor)); cos_distance > max_cos_distance)
-                    {
-                      max_cos_distance = cos_distance;
-                      id_descriptor = id_sg_descriptor;
-                    }
-                  }
-            } else
-            {
-              if (sgc_cache->getMappedSG().contains(config.id_group))
-                for (const auto& id_sgroup : sgc_cache->getMappedSG().at(config.id_group))
-                  if (sgd_cache->getData().contains(id_sgroup))
-                  {
-                    double sg_max_cos_distance = -2.0;
-                    int id_sg_best_descriptor{};
-                    for (const auto& id_sg_descriptor : sgd_cache->getData().at(id_sgroup))
-                      if (fd_cache->getData().contains(id_sg_descriptor))
-                      {
-                        if (double cos_distance = cosineDistance(face_descriptor, fd_cache->getData().at(id_sg_descriptor)); cos_distance > sg_max_cos_distance)
-                        {
-                          sg_max_cos_distance = cos_distance;
-                          id_sg_best_descriptor = id_sg_descriptor;
-                        }
-                      }
-                    if (id_sg_best_descriptor > 0 && sg_max_cos_distance >= config.tolerance)
-                    {
-                      face_data.back().sg_descriptors[id_sgroup] = {sg_max_cos_distance, id_sg_best_descriptor};
-                      has_sgroup_events = true;
-                    }
-                  }
-            }
-          }
-
-          if (config.logs_level <= userver::logging::Level::kTrace || task_data.task_type == TASK_TEST)
-            USERVER_IMPL_LOG_TO(logger_, userver::logging::Level::kTrace,
-              "vstream_key = {};  after recognition",
-              task_data.vstream_key);
-
-          face_data.back().cosine_distance = max_cos_distance;
-
-          if (config.logs_level <= userver::logging::Level::kTrace || task_data.task_type == TASK_TEST)
-            USERVER_IMPL_LOG_TO(logger_, userver::logging::Level::kTrace,
-              "vstream_key = {};  most similar data: cosine_distance = {:.3f};  id_descriptor = {}",
-              task_data.vstream_key, max_cos_distance, id_descriptor);
-
-          if (id_descriptor == 0 || max_cos_distance < config.tolerance)
-          {
-            // face isn't recognized
-            if (face_data.back().laplacian > best_quality && recognized_face_count == 0)
-            {
-              best_quality = face_data.back().laplacian;
-              best_face_index = static_cast<int>(face_data.size()) - 1;
-            }
-
-            if (config.flag_spawned_descriptors && task_data.task_type == TASK_RECOGNIZE)
-            {
-              if (config.logs_level <= userver::logging::Level::kTrace)
+              if (config.logs_level <= userver::logging::Level::kTrace || task_data.task_type == TASK_TEST)
                 USERVER_IMPL_LOG_TO(logger_, userver::logging::Level::kTrace,
-                  "vstream_key = {};  add an unknown descriptor",
+                  "vstream_key = {};  face is not frontal according to markers",
+                  task_data.vstream_key);
+              continue;
+            }
+
+            // face "alignment" for face recognition inference
+            cv::Mat aligned_face = alignFaceAffineTransform(frame, landmarks5, common_config.dnn_fr_input_width, common_config.dnn_fr_input_height);
+            if (aligned_face.cols != common_config.dnn_fr_input_width || aligned_face.rows != common_config.dnn_fr_input_height)
+            {
+              if (config.logs_level <= userver::logging::Level::kTrace || task_data.task_type == TASK_TEST)
+                USERVER_IMPL_LOG_TO(logger_, userver::logging::Level::kTrace,
+                  "vstream_key = {};  failed to do face alignment to get descriptor",
+                  task_data.vstream_key);
+              continue;
+            }
+
+            if (task_data.task_type == TASK_TEST)
+              AsyncNoSpan(fs_task_processor_,
+                [&]
+                {
+                  cv::imwrite(absl::Substitute("$0/aligned_face_$1.jpg", std::filesystem::current_path().string(), face_data.size()), aligned_face);
+                })
+                .Get();
+
+            face_data.back().is_frontal = true;
+
+            // check for blur
+            auto laplacian = varianceOfLaplacian(aligned_face);
+            face_data.back().laplacian = laplacian;
+            if (config.logs_level <= userver::logging::Level::kTrace || task_data.task_type == TASK_TEST)
+              USERVER_IMPL_LOG_TO(logger_, userver::logging::Level::kTrace,
+                "vstream_key = {};  laplacian = {:.2f}",
+                task_data.vstream_key, laplacian);
+            if (laplacian < config.blur || laplacian > config.blur_max)
+            {
+              if (config.logs_level <= userver::logging::Level::kTrace || task_data.task_type == TASK_TEST)
+                USERVER_IMPL_LOG_TO(logger_, userver::logging::Level::kTrace,
+                  "vstream_key = {};  the face is blurry or too clear",
                   task_data.vstream_key);
 
-              auto ud_ptr = unknown_descriptors.Lock();
-              removeExpiredUnknownDescriptors((*ud_ptr)[config.id_vstream]);
-
-              // add an unknown descriptor
-              if (!ud_ptr->contains(config.id_vstream))
-                (*ud_ptr)[config.id_vstream] = {};
-              cv::Rect r = enlargeFaceRect(face_data.back().face_rect, config.face_enlarge_scale);
-              r = r & cv::Rect(0, 0, frame.cols, frame.rows);
-              (*ud_ptr)[config.id_vstream].emplace_back(std::chrono::steady_clock::now() + config.unknown_descriptor_ttl,
-                face_data.back().fd.clone(), frame(r).clone());
+              continue;
             }
-          } else
-          {
-            // face recognized
-            face_data.back().id_descriptor = id_descriptor;
-            ++recognized_face_count;
+            face_data.back().is_non_blurry = true;
+            if (config.logs_level <= userver::logging::Level::kTrace || task_data.task_type == TASK_TEST)
+              USERVER_IMPL_LOG_TO(logger_, userver::logging::Level::kTrace,
+                "vstream_key = {};  the face is not blurry",
+                task_data.vstream_key);
 
-            if (recognized_face_count == 1 || face_data.back().laplacian > best_quality)
+            // face "alignment" for face class inference
+            auto aligned_face_class = alignFaceAffineTransform(frame, landmarks5, common_config.dnn_fc_input_width, common_config.dnn_fc_input_height);
+            if (aligned_face_class.cols != common_config.dnn_fc_input_width || aligned_face_class.rows != common_config.dnn_fc_input_height)
             {
-              best_quality = face_data.back().laplacian;
-              best_face_index = static_cast<int>(face_data.size()) - 1;
+              if (config.logs_level <= userver::logging::Level::kTrace || task_data.task_type == TASK_TEST)
+                USERVER_IMPL_LOG_TO(logger_, userver::logging::Level::kTrace,
+                  "vstream_key = {};  failed to do face alignment for inference class",
+                  task_data.vstream_key);
+
+              continue;
+            }
+            if (task_data.task_type == TASK_TEST)
+              AsyncNoSpan(fs_task_processor_,
+                [&]
+                {
+                  cv::imwrite(absl::Substitute("$0/aligned_face_class_$1.jpg", std::filesystem::current_path().string(), face_data.size()), aligned_face_class);
+                })
+                .Get();
+
+            // checking the class of the face (normal, wearing a mask, wearing sunglasses)
+            if (std::vector<FaceClass> face_classes; inferFaceClass(task_data, aligned_face_class, config, face_classes))
+            {
+              ++stats_data.fc_count;
+              face_data.back().face_class_index = static_cast<FaceClassIndexes>(face_classes[0].class_index);
+              face_data.back().face_class_confidence = face_classes[0].score;
+              if (config.logs_level <= userver::logging::Level::kTrace || task_data.task_type == TASK_TEST)
+                USERVER_IMPL_LOG_TO(logger_, userver::logging::Level::kTrace,
+                  "vstream_key = {};  face class: {};  probability: {:.3f}",
+                  task_data.vstream_key, face_classes[0].class_index, face_classes[0].score);
+            }
+            if (face_data.back().face_class_index == FACE_NONE
+                || (face_data.back().face_class_index != FACE_NORMAL
+                    && face_data.back().face_class_confidence > config.face_class_confidence))
+              continue;
+
+            face_data.back().face_class_index = FACE_NORMAL;
+
+            if (task_data.task_type == TASK_REGISTER_DESCRIPTOR)
+            {
+              cv::Rect r(task_data.face_left, task_data.face_top, task_data.face_width, task_data.face_height);
+              auto f_intersection = (r & face_data.back().face_rect).area();
+              if (auto f_area = face_data.back().face_rect.area(); f_area > 0)
+                face_data.back().ioa = static_cast<double>(f_intersection) / static_cast<double>(f_area);
             }
 
-            if (task_data.task_type == TASK_PROCESS_FRAME)
-              result.id_descriptors.push_back(id_descriptor);
+            // get a facial descriptor (biometric template)
+            if (bool infer_face_descriptor_result = extractFaceDescriptor(task_data, aligned_face, config, face_data.back().fd); !infer_face_descriptor_result)
+              continue;
+            ++stats_data.fr_count;
+            auto face_descriptor = face_data.back().fd.clone();
+            double norm_l2 = cv::norm(face_descriptor, cv::NORM_L2);
+            if (norm_l2 <= 0.0)
+              norm_l2 = 1.0;
+            face_descriptor = face_descriptor / norm_l2;
 
-            if (config.flag_spawned_descriptors && task_data.task_type == TASK_RECOGNIZE)
+            // recognize the face
+            if (config.logs_level <= userver::logging::Level::kTrace || task_data.task_type == TASK_TEST)
+              USERVER_IMPL_LOG_TO(logger_, userver::logging::Level::kTrace,
+                "vstream_key = {};  before recognition",
+                task_data.vstream_key);
+            double max_cos_distance = -2.0;
+            int id_descriptor{};
+
+            // scope for accessing cache
             {
-              FaceDescriptor fd_spawned;
-              cv::Mat face_image_spawned;
+              auto vd_cache = vstream_descriptors_cache_.Get();
+              auto fd_cache = face_descriptor_cache_.Get();
+              auto sgc_cache = sg_config_cache_.Get();
+              auto sgd_cache = sg_descriptors_cache_.Get();
 
-              // scope for accessing concurrent variable
+              if (config.id_vstream > 0 && vd_cache->getData().contains(config.id_vstream))
+                for (const auto& item : vd_cache->getData().at(config.id_vstream))
+                  if (fd_cache->getData().contains(item))
+                  {
+                    if (double cos_distance = cosineDistance(face_descriptor, fd_cache->getData().at(item)); cos_distance > max_cos_distance)
+                    {
+                      max_cos_distance = cos_distance;
+                      id_descriptor = item;
+                    }
+                  }
+              if (fd_cache->getSpawned().contains(id_descriptor))
               {
+                auto id_parent = fd_cache->getSpawned().at(id_descriptor);
+                if (config.logs_level <= userver::logging::Level::kTrace || task_data.task_type == TASK_TEST)
+                  USERVER_IMPL_LOG_TO(logger_, userver::logging::Level::kTrace,
+                    "vstream_key = {};  spawned id_descriptor = {};  parent id_descriptor = {}",
+                    task_data.vstream_key, id_descriptor, id_parent);
+                id_descriptor = id_parent;
+              }
+
+              // recognition in special groups
+              if (task_data.id_sgroup > 0)
+              {
+                if (sgd_cache->getData().contains(task_data.id_sgroup))
+                  for (const auto& id_sg_descriptor : sgd_cache->getData().at(task_data.id_sgroup))
+                    if (fd_cache->getData().contains(id_sg_descriptor))
+                    {
+                      if (double cos_distance = cosineDistance(face_descriptor, fd_cache->getData().at(id_sg_descriptor)); cos_distance > max_cos_distance)
+                      {
+                        max_cos_distance = cos_distance;
+                        id_descriptor = id_sg_descriptor;
+                      }
+                    }
+              } else
+              {
+                if (sgc_cache->getMappedSG().contains(config.id_group))
+                  for (const auto& id_sgroup : sgc_cache->getMappedSG().at(config.id_group))
+                    if (sgd_cache->getData().contains(id_sgroup))
+                    {
+                      double sg_max_cos_distance = -2.0;
+                      int id_sg_best_descriptor{};
+                      for (const auto& id_sg_descriptor : sgd_cache->getData().at(id_sgroup))
+                        if (fd_cache->getData().contains(id_sg_descriptor))
+                        {
+                          if (double cos_distance = cosineDistance(face_descriptor, fd_cache->getData().at(id_sg_descriptor)); cos_distance > sg_max_cos_distance)
+                          {
+                            sg_max_cos_distance = cos_distance;
+                            id_sg_best_descriptor = id_sg_descriptor;
+                          }
+                        }
+                      if (id_sg_best_descriptor > 0 && sg_max_cos_distance >= config.tolerance)
+                      {
+                        face_data.back().sg_descriptors[id_sgroup] = {sg_max_cos_distance, id_sg_best_descriptor};
+                        has_sgroup_events = true;
+                      }
+                    }
+              }
+            }
+
+            if (config.logs_level <= userver::logging::Level::kTrace || task_data.task_type == TASK_TEST)
+              USERVER_IMPL_LOG_TO(logger_, userver::logging::Level::kTrace,
+                "vstream_key = {};  after recognition",
+                task_data.vstream_key);
+
+            face_data.back().cosine_distance = max_cos_distance;
+
+            if (config.logs_level <= userver::logging::Level::kTrace || task_data.task_type == TASK_TEST)
+              USERVER_IMPL_LOG_TO(logger_, userver::logging::Level::kTrace,
+                "vstream_key = {};  most similar data: cosine_distance = {:.3f};  id_descriptor = {}",
+                task_data.vstream_key, max_cos_distance, id_descriptor);
+
+            if (id_descriptor == 0 || max_cos_distance < config.tolerance)
+            {
+              // face isn't recognized
+              if (face_data.back().laplacian > best_quality && recognized_face_count == 0)
+              {
+                best_quality = face_data.back().laplacian;
+                best_face_index = static_cast<int>(face_data.size()) - 1;
+              }
+
+              if (config.flag_spawned_descriptors && task_data.task_type == TASK_RECOGNIZE)
+              {
+                if (config.logs_level <= userver::logging::Level::kTrace)
+                  USERVER_IMPL_LOG_TO(logger_, userver::logging::Level::kTrace,
+                    "vstream_key = {};  add an unknown descriptor",
+                    task_data.vstream_key);
+
                 auto ud_ptr = unknown_descriptors.Lock();
                 removeExpiredUnknownDescriptors((*ud_ptr)[config.id_vstream]);
 
-                // find and create a spawned descriptor among the unknowns if necessary
-                double max_cd = -2.0;
-                auto k = (*ud_ptr)[config.id_vstream].size();
-                for (size_t i = 0; i < (*ud_ptr)[config.id_vstream].size(); ++i)
+                // add an unknown descriptor
+                if (!ud_ptr->contains(config.id_vstream))
+                  (*ud_ptr)[config.id_vstream] = {};
+                cv::Rect r = enlargeFaceRect(face_data.back().face_rect, config.face_enlarge_scale);
+                r = r & cv::Rect(0, 0, frame.cols, frame.rows);
+                (*ud_ptr)[config.id_vstream].emplace_back(std::chrono::steady_clock::now() + config.unknown_descriptor_ttl,
+                  face_data.back().fd.clone(), frame(r).clone());
+              }
+            } else
+            {
+              // face recognized
+              face_data.back().id_descriptor = id_descriptor;
+              ++recognized_face_count;
+
+              if (recognized_face_count == 1 || face_data.back().laplacian > best_quality)
+              {
+                best_quality = face_data.back().laplacian;
+                best_face_index = static_cast<int>(face_data.size()) - 1;
+              }
+
+              if (task_data.task_type == TASK_PROCESS_FRAME)
+                result.id_descriptors.push_back(id_descriptor);
+
+              if (config.flag_spawned_descriptors && task_data.task_type == TASK_RECOGNIZE)
+              {
+                FaceDescriptor fd_spawned;
+                cv::Mat face_image_spawned;
+
+                // scope for accessing concurrent variable
                 {
-                  auto fd = (*ud_ptr)[config.id_vstream][i].fd.clone();
-                  double n_l2 = cv::norm(fd, cv::NORM_L2);
-                  if (n_l2 <= 0.0)
-                    n_l2 = 1.0;
-                  fd = fd / n_l2;
-                  if (double cos_distance = cosineDistance(face_descriptor, fd); cos_distance > max_cd)
+                  auto ud_ptr = unknown_descriptors.Lock();
+                  removeExpiredUnknownDescriptors((*ud_ptr)[config.id_vstream]);
+
+                  // find and create a spawned descriptor among the unknowns if necessary
+                  double max_cd = -2.0;
+                  auto k = (*ud_ptr)[config.id_vstream].size();
+                  for (size_t i = 0; i < (*ud_ptr)[config.id_vstream].size(); ++i)
                   {
-                    max_cd = cos_distance;
-                    k = i;
+                    auto fd = (*ud_ptr)[config.id_vstream][i].fd.clone();
+                    double n_l2 = cv::norm(fd, cv::NORM_L2);
+                    if (n_l2 <= 0.0)
+                      n_l2 = 1.0;
+                    fd = fd / n_l2;
+                    if (double cos_distance = cosineDistance(face_descriptor, fd); cos_distance > max_cd)
+                    {
+                      max_cd = cos_distance;
+                      k = i;
+                    }
+                  }
+
+                  if (k < (*ud_ptr)[config.id_vstream].size() && max_cd > config.tolerance)
+                  {
+                    if (config.logs_level <= userver::logging::Level::kTrace)
+                      USERVER_IMPL_LOG_TO(logger_, userver::logging::Level::kTrace,
+                        "vstream_key = {};  unknown descriptors cosine distance = {:.3f};  index = {};  size = {}",
+                        task_data.vstream_key, max_cd, k, (*ud_ptr)[config.id_vstream].size());
+                    fd_spawned = std::move((*ud_ptr)[config.id_vstream][k].fd);
+                    face_image_spawned = std::move((*ud_ptr)[config.id_vstream][k].face_image);
+                  }
+
+                  // clear the unknown descriptors anyway
+                  (*ud_ptr)[config.id_vstream].clear();
+                }
+
+                if (!fd_spawned.empty())
+                {
+                  auto id_spawned = addFaceDescriptor(config.id_group, config.id_vstream, fd_spawned, face_image_spawned, id_descriptor);
+                  if (config.logs_level <= userver::logging::Level::kTrace)
+                    USERVER_IMPL_LOG_TO(logger_, userver::logging::Level::kTrace,
+                      "vstream_key = {};  created spawned descriptor with id = {};  id_parent = {}",
+                      task_data.vstream_key, id_spawned, id_descriptor);
+                }
+              }
+            }
+
+            if (task_data.task_type == TASK_REGISTER_DESCRIPTOR)
+            {
+              if (face_data.back().ioa > 0.999 && face_data.back().laplacian > best_register_quality)
+              {
+                best_register_quality = face_data.back().laplacian;
+                best_register_index = static_cast<int>(face_data.size()) - 1;
+              }
+              if (fabs(best_register_quality) < 0.001 && face_data.back().ioa > best_register_ioa)
+              {
+                best_register_ioa = face_data.back().ioa;
+                best_register_index = static_cast<int>(face_data.size()) - 1;
+              }
+            }
+          }  // end of the detected faces loop
+
+          // to collect inference statistics
+          {
+            auto dnn_stats_ptr = dnn_stats_data.Lock();
+            (*dnn_stats_ptr)[config.id_vstream].fd_count += stats_data.fd_count;
+            (*dnn_stats_ptr)[config.id_vstream].fc_count += stats_data.fc_count;
+            (*dnn_stats_ptr)[config.id_vstream].fr_count += stats_data.fr_count;
+          }
+
+          std::string frame_with_osd;
+          if (best_face_index >= 0 && task_data.task_type == TASK_RECOGNIZE)
+          {
+            if (config.logs_level <= userver::logging::Level::kInfo)
+              USERVER_IMPL_LOG_TO(logger_, userver::logging::Level::kInfo,
+                "vstream_key = {};  faces detected: id_vstream = {}",
+                task_data.vstream_key, config.id_vstream);
+
+            frame_with_osd = drawOSD(config, frame);
+
+            auto log_uuid = boost::uuids::random_generator()();
+            auto s_uuid = absl::StrReplaceAll(boost::uuids::to_string(log_uuid), {{"-", ""}});
+            auto path_suffix = absl::Substitute("group_$0/$1/$2/$3/$4/", config.id_group, s_uuid[0], s_uuid[1], s_uuid[2], s_uuid[3]);
+            auto screenshot_extension = ".jpg";
+
+            auto log_date = userver::storages::postgres::TimePointTz{std::chrono::system_clock::now()};
+            auto id_log = addLogFace(config.id_vstream, log_date, face_data[best_face_index].id_descriptor,
+              face_data[best_face_index].laplacian, face_data[best_face_index].face_rect,
+              absl::StrCat(local_config_.screenshots_url_prefix, path_suffix, s_uuid, screenshot_extension), log_uuid);
+
+            // write a screenshot to a file
+            auto path_prefix = absl::StrCat(local_config_.screenshots_path, path_suffix);
+            userver::fs::CreateDirectories(fs_task_processor_, path_prefix);
+            auto path = absl::StrCat(path_prefix, s_uuid, screenshot_extension);
+            userver::fs::RewriteFileContents(fs_task_processor_, path, frame_with_osd.empty() ? image_data : frame_with_osd);
+            userver::fs::Chmod(fs_task_processor_, path,
+              boost::filesystem::perms::owner_read | boost::filesystem::perms::owner_write | boost::filesystem::perms::others_read | boost::filesystem::perms::others_write);
+
+            if (id_log > 0 && face_data[best_face_index].id_descriptor > 0 && !config.callback_url.empty())
+            {
+              // send an event about face recognition
+              userver::formats::json::ValueBuilder json_data;
+              json_data[Api::P_FACE_ID] = face_data[best_face_index].id_descriptor;
+              json_data[Api::P_LOG_EVENT_ID] = id_log;
+              DeliveryEventResult delivery_result = ERROR;
+              try
+              {
+                auto delivery_response = http_client_.CreateRequest()
+                                           .post(config.callback_url)
+                                           .headers({{userver::http::headers::kContentType, userver::http::content_type::kApplicationJson.ToString()}})
+                                           .data(ToString(json_data.ExtractValue()))
+                                           .timeout(common_config.callback_timeout)
+                                           .perform();
+                delivery_result = delivery_response->status_code() == userver::clients::http::Status::OK
+                                    || delivery_response->status_code() == userver::clients::http::Status::NoContent
+                                    ? SUCCESSFUL
+                                    : ERROR;
+              } catch (const std::exception& e)
+              {
+                delivery_result = ERROR;
+                LOG_ERROR_TO(logger_) << e.what();
+              }
+              if (delivery_result == SUCCESSFUL)
+              {
+                if (config.logs_level <= userver::logging::Level::kInfo)
+                  USERVER_IMPL_LOG_TO(logger_, userver::logging::Level::kInfo,
+                    "vstream_key = {};  facial recognition event sent: id_vstream = {}; id_descriptor = {}",
+                    task_data.vstream_key, config.id_vstream, face_data[best_face_index].id_descriptor);
+              } else
+                LOG_ERROR_TO(logger_,
+                  "vstream_key = {};  error sending facial recognition event data to callback {}",
+                  task_data.vstream_key, config.callback_url);
+            }
+
+            // write event's data to files
+            AsyncNoSpan(fs_task_processor_,
+              [&]
+              {
+                std::ofstream ff(absl::StrCat(path_prefix, s_uuid, DATA_FILE_SUFFIX), std::ios::binary);
+                userver::formats::json::ValueBuilder json_faces;
+                for (size_t i = 0; i < face_data.size(); ++i)
+                {
+                  std::vector<float> landmarks5;
+                  landmarks5.reserve(10);
+                  if (!face_data[i].landmarks5.empty())
+                    for (int k = 0; k < 5; ++k)
+                    {
+                      landmarks5.push_back(face_data[i].landmarks5.at<float>(k, 0));
+                      landmarks5.push_back(face_data[i].landmarks5.at<float>(k, 1));
+                    }
+                  userver::formats::json::ValueBuilder v;
+                  v["left"] = face_data[i].face_rect.x;
+                  v["top"] = face_data[i].face_rect.y;
+                  v["width"] = face_data[i].face_rect.width;
+                  v["height"] = face_data[i].face_rect.height;
+                  v["laplacian"] = face_data[i].laplacian;
+                  v["landmarks5"] = landmarks5;
+                  v["face_class_index"] = static_cast<int>(face_data[i].face_class_index);
+                  v["id_descriptor"] = face_data[i].id_descriptor;
+                  v["face_class_confidence"] = face_data[i].face_class_confidence;
+                  v["is_frontal"] = face_data[i].is_frontal;
+                  v["is_non_blurry"] = face_data[i].is_non_blurry;
+                  v["is_work_area"] = face_data[i].is_work_area;
+                  json_faces.PushBack(std::move(v));
+                  if (!face_data[i].fd.empty())
+                  {
+                    // write the descriptor data to a binary file
+                    ff.write(s_uuid.data(), static_cast<std::streamsize>(s_uuid.size()));
+                    ff.write(reinterpret_cast<char*>(&i), sizeof(int32_t));
+                    ff.write(reinterpret_cast<const char*>(face_data[i].fd.data), static_cast<std::streamsize>(common_config.dnn_fr_output_size * sizeof(float)));
                   }
                 }
 
-                if (k < (*ud_ptr)[config.id_vstream].size() && max_cd > config.tolerance)
+                // write JSON data of the event
+                userver::formats::json::ValueBuilder json_data;
+                json_data["id_vstream"] = config.id_vstream;
+                json_data["event_date"] = log_date;
+                json_data["best_face_index"] = best_face_index;
+                json_data["faces"] = std::move(json_faces);
+                std::ofstream f_json(absl::StrCat(path_prefix, s_uuid, JSON_SUFFIX));
+                f_json << ToString(json_data.ExtractValue());
+              })
+              .Get();
+          }
+
+          // send events about face recognition from special groups
+          if (has_sgroup_events && task_data.task_type == TASK_RECOGNIZE)
+            for (const auto& [face_rect, is_work_area, is_frontal, is_non_blurry, face_class_index, face_class_confidence, cosine_distance, fd, landmarks5, laplacian, ioa, id_descriptor, sg_descriptors] : face_data)
+              for (const auto& [fst, snd] : sg_descriptors)
+              {
+                auto log_uuid = boost::uuids::random_generator()();
+                auto s_uuid = absl::StrReplaceAll(boost::uuids::to_string(log_uuid), {{"-", ""}});
+                auto path_suffix = absl::Substitute("group_$0/$1/$2/$3/$4/", config.id_group, s_uuid[0], s_uuid[1], s_uuid[2], s_uuid[3]);
+                auto screenshot_extension = ".jpg";
+                auto screenshot_url = absl::StrCat(local_config_.screenshots_url_prefix, path_suffix, s_uuid, screenshot_extension);
+
+                auto log_date = userver::storages::postgres::TimePointTz{std::chrono::system_clock::now()};
+                auto id_log = addLogFace(config.id_vstream, log_date, snd.id_descriptor, laplacian, face_rect, screenshot_url, log_uuid, DISABLED);
+
+                // write a screenshot to a file
+                auto path_prefix = absl::StrCat(local_config_.screenshots_path, path_suffix);
+                userver::fs::CreateDirectories(fs_task_processor_, path_prefix);
+                auto path = absl::StrCat(path_prefix, s_uuid, screenshot_extension);
+                userver::fs::RewriteFileContents(fs_task_processor_, path, frame_with_osd.empty() ? image_data : frame_with_osd);
+                userver::fs::Chmod(fs_task_processor_, path,
+                  boost::filesystem::perms::owner_read | boost::filesystem::perms::owner_write | boost::filesystem::perms::others_read | boost::filesystem::perms::others_write);
+
+                std::string sg_group_callback_url;
+                // scope for accessing cache
                 {
-                  if (config.logs_level <= userver::logging::Level::kTrace)
-                    USERVER_IMPL_LOG_TO(logger_, userver::logging::Level::kTrace,
-                      "vstream_key = {};  unknown descriptors cosine distance = {:.3f};  index = {};  size = {}",
-                      task_data.vstream_key, max_cd, k, (*ud_ptr)[config.id_vstream].size());
-                  fd_spawned = std::move((*ud_ptr)[config.id_vstream][k].fd);
-                  face_image_spawned = std::move((*ud_ptr)[config.id_vstream][k].face_image);
+                  if (auto sg_config = sg_config_cache_.Get(); sg_config->getMap().contains(fst))
+                    sg_group_callback_url = sg_config->getData().at(sg_config->getMap().at(fst)).callback_url;
                 }
 
-                // clear the unknown descriptors anyway
-                (*ud_ptr)[config.id_vstream].clear();
+                if (id_log > 0 && !sg_group_callback_url.empty())
+                {
+                  // send data to callback
+                  userver::formats::json::ValueBuilder json_data;
+                  json_data[Api::P_FACE_ID] = snd.id_descriptor;
+                  json_data[Api::P_SCREENSHOT_URL] = screenshot_url;
+                  json_data[Api::P_DATE] = log_date;
+                  DeliveryEventResult delivery_result = ERROR;
+                  try
+                  {
+                    auto delivery_response = http_client_.CreateRequest()
+                                               .post(sg_group_callback_url)
+                                               .headers({{userver::http::headers::kContentType, userver::http::content_type::kApplicationJson.ToString()}})
+                                               .data(ToString(json_data.ExtractValue()))
+                                               .timeout(common_config.callback_timeout)
+                                               .perform();
+                    delivery_result = (delivery_response->status_code() == userver::clients::http::Status::OK
+                                        || delivery_response->status_code() == userver::clients::http::Status::NoContent)
+                                        ? SUCCESSFUL
+                                        : ERROR;
+                  } catch (const std::exception& e)
+                  {
+                    delivery_result = ERROR;
+                    LOG_ERROR_TO(logger_) << e.what();
+                  }
+                  if (delivery_result == SUCCESSFUL)
+                  {
+                    if (config.logs_level <= userver::logging::Level::kInfo)
+                      USERVER_IMPL_LOG_TO(logger_, userver::logging::Level::kInfo,
+                        "vstream_key = {};  an event was sent about facial recognition in a special group: id_sgroup = {}; id_vstream = {}; id_descriptor = {}",
+                        task_data.vstream_key, fst, config.id_vstream, snd.id_descriptor);
+                  } else
+                    LOG_ERROR_TO(logger_,
+                      "vstream_key = {};  failed to send face recognition event data to special group by callback ",
+                      task_data.vstream_key, sg_group_callback_url);
+                }
               }
-
-              if (!fd_spawned.empty())
-              {
-                auto id_spawned = addFaceDescriptor(config.id_group, config.id_vstream, fd_spawned, face_image_spawned, id_descriptor);
-                if (config.logs_level <= userver::logging::Level::kTrace)
-                  USERVER_IMPL_LOG_TO(logger_, userver::logging::Level::kTrace,
-                    "vstream_key = {};  created spawned descriptor with id = {};  id_parent = {}",
-                    task_data.vstream_key, id_spawned, id_descriptor);
-              }
-            }
-          }
 
           if (task_data.task_type == TASK_REGISTER_DESCRIPTOR)
           {
-            if (face_data.back().ioa > 0.999 && face_data.back().laplacian > best_register_quality)
+            if (best_register_index >= 0)
             {
-              best_register_quality = face_data.back().laplacian;
-              best_register_index = static_cast<int>(face_data.size()) - 1;
-            }
-            if (fabs(best_register_quality) < 0.001 && face_data.back().ioa > best_register_ioa)
-            {
-              best_register_ioa = face_data.back().ioa;
-              best_register_index = static_cast<int>(face_data.size()) - 1;
-            }
-          }
-        }  // end of the detected faces loop
-
-        // to collect inference statistics
-        {
-          auto dnn_stats_ptr = dnn_stats_data.Lock();
-          (*dnn_stats_ptr)[config.id_vstream].fd_count += stats_data.fd_count;
-          (*dnn_stats_ptr)[config.id_vstream].fc_count += stats_data.fc_count;
-          (*dnn_stats_ptr)[config.id_vstream].fr_count += stats_data.fr_count;
-        }
-
-        std::string frame_with_osd;
-        if (best_face_index >= 0 && task_data.task_type == TASK_RECOGNIZE)
-        {
-          if (config.logs_level <= userver::logging::Level::kInfo)
-            USERVER_IMPL_LOG_TO(logger_, userver::logging::Level::kInfo,
-              "vstream_key = {};  faces detected: id_vstream = {}",
-              task_data.vstream_key, config.id_vstream);
-
-          // draw, if necessary, OSD
-          if (!config.title.empty())
-          {
-            constexpr int font_face = cv::FONT_HERSHEY_COMPLEX;
-            constexpr int thickness = 2;
-
-            auto osd_date = absl::Now();
-            auto datetime_text = FormatTime(config.osd_dt_format, osd_date, absl::LocalTimeZone());
-            cv::Size text_size = cv::getTextSize(datetime_text, font_face, 1.0, thickness, nullptr);
-
-            // recalculate font_scale and text_size
-            const double font_scale = config.title_height_ratio * static_cast<float>(frame.rows) / static_cast<float>(text_size.height);
-            text_size = cv::getTextSize(datetime_text, font_face, font_scale, thickness, nullptr);
-
-            // draw date and time in the upper left corner
-            // to draw text with a contour, draw it twice with different thicknesses
-            putText(frame, datetime_text, {10, 10 + text_size.height}, font_face, font_scale, cv::Scalar::all(0), thickness + 2, cv::LINE_AA);
-            putText(frame, datetime_text, {10, 10 + text_size.height}, font_face, font_scale, cv::Scalar::all(255), thickness, cv::LINE_AA);
-
-            // draw the title in the lower left corner
-            // to draw text with a contour, draw it twice with different thicknesses
-            putText(frame, config.title, {10, frame.rows - 10}, font_face, font_scale, cv::Scalar::all(0), thickness + 2, cv::LINE_AA);
-            putText(frame, config.title, {10, frame.rows - 10}, font_face, font_scale, cv::Scalar::all(255), thickness, cv::LINE_AA);
-
-            std::vector<uchar> new_frame;
-            imencode(".jpg", frame, new_frame);
-            frame_with_osd = std::string(new_frame.begin(), new_frame.end());
-          }
-
-          auto log_uuid = boost::uuids::random_generator()();
-          auto s_uuid = absl::StrReplaceAll(boost::uuids::to_string(log_uuid), {{"-", ""}});
-          auto path_suffix = absl::Substitute("group_$0/$1/$2/$3/$4/", config.id_group, s_uuid[0], s_uuid[1], s_uuid[2], s_uuid[3]);
-          auto screenshot_extension = ".jpg";
-
-          auto log_date = userver::storages::postgres::TimePointTz{std::chrono::system_clock::now()};
-          auto id_log = addLogFace(config.id_vstream, log_date, face_data[best_face_index].id_descriptor,
-            face_data[best_face_index].laplacian, face_data[best_face_index].face_rect,
-            absl::StrCat(local_config_.screenshots_url_prefix, path_suffix, s_uuid, screenshot_extension), log_uuid);
-
-          // write a screenshot to a file
-          auto path_prefix = absl::StrCat(local_config_.screenshots_path, path_suffix);
-          userver::fs::CreateDirectories(fs_task_processor_, path_prefix);
-          auto path = absl::StrCat(path_prefix, s_uuid, screenshot_extension);
-          userver::fs::RewriteFileContents(fs_task_processor_, path, frame_with_osd.empty() ? image_data : frame_with_osd);
-          userver::fs::Chmod(fs_task_processor_, path,
-            boost::filesystem::perms::owner_read | boost::filesystem::perms::owner_write | boost::filesystem::perms::others_read | boost::filesystem::perms::others_write);
-
-          if (id_log > 0 && face_data[best_face_index].id_descriptor > 0 && !config.callback_url.empty())
-          {
-            // send an event about face recognition
-            userver::formats::json::ValueBuilder json_data;
-            json_data[Api::P_FACE_ID] = face_data[best_face_index].id_descriptor;
-            json_data[Api::P_LOG_EVENT_ID] = id_log;
-            DeliveryEventResult delivery_result = ERROR;
-            try
-            {
-              auto delivery_response = http_client_.CreateRequest()
-               .post(config.callback_url)
-               .headers({{userver::http::headers::kContentType, userver::http::content_type::kApplicationJson.ToString()}})
-               .data(ToString(json_data.ExtractValue()))
-               .timeout(common_config.callback_timeout)
-               .perform();
-              delivery_result = (delivery_response->status_code() == userver::clients::http::Status::OK
-                || delivery_response->status_code() == userver::clients::http::Status::NoContent) ? SUCCESSFUL : ERROR;
-            } catch (const std::exception& e)
-            {
-              delivery_result = ERROR;
-              LOG_ERROR_TO(logger_) << e.what();
-            }
-            if (delivery_result == SUCCESSFUL)
-            {
-              if (config.logs_level <= userver::logging::Level::kInfo)
-                USERVER_IMPL_LOG_TO(logger_, userver::logging::Level::kInfo,
-                  "vstream_key = {};  facial recognition event sent: id_vstream = {}; id_descriptor = {}",
-                  task_data.vstream_key, config.id_vstream, face_data[best_face_index].id_descriptor);
-            } else
-              LOG_ERROR_TO(logger_,
-                "vstream_key = {};  error sending facial recognition event data to callback {}",
-                task_data.vstream_key, config.callback_url);
-          }
-
-          // write event's data to files
-          AsyncNoSpan(fs_task_processor_,
-            [&]
-            {
-              std::ofstream ff(absl::StrCat(path_prefix, s_uuid, DATA_FILE_SUFFIX), std::ios::binary);
-              userver::formats::json::ValueBuilder json_faces;
-              for (size_t i = 0; i < face_data.size(); ++i)
+              // everything is ok, register the descriptor
+              cv::Rect r = enlargeFaceRect(face_data[best_register_index].face_rect, config.face_enlarge_scale);
+              r = r & cv::Rect(0, 0, frame.cols, frame.rows);
+              if (face_data[best_register_index].cosine_distance > 0.999)
+                result.id_descriptor = face_data[best_register_index].id_descriptor;
+              else
               {
-                std::vector<float> landmarks5;
-                landmarks5.reserve(10);
-                if (!face_data[i].landmarks5.empty())
-                  for (int k = 0; k < 5; ++k)
-                  {
-                    landmarks5.push_back(face_data[i].landmarks5.at<float>(k, 0));
-                    landmarks5.push_back(face_data[i].landmarks5.at<float>(k, 1));
-                  }
-                userver::formats::json::ValueBuilder v;
-                v["left"] = face_data[i].face_rect.x;
-                v["top"] = face_data[i].face_rect.y;
-                v["width"] = face_data[i].face_rect.width;
-                v["height"] = face_data[i].face_rect.height;
-                v["laplacian"] = face_data[i].laplacian;
-                v["landmarks5"] = landmarks5;
-                v["face_class_index"] = static_cast<int>(face_data[i].face_class_index);
-                v["id_descriptor"] = face_data[i].id_descriptor;
-                v["face_class_confidence"] = face_data[i].face_class_confidence;
-                v["is_frontal"] = face_data[i].is_frontal;
-                v["is_non_blurry"] = face_data[i].is_non_blurry;
-                v["is_work_area"] = face_data[i].is_work_area;
-                json_faces.PushBack(std::move(v));
-                if (!face_data[i].fd.empty())
-                {
-                  // write the descriptor data to a binary file
-                  ff.write(s_uuid.data(), static_cast<std::streamsize>(s_uuid.size()));
-                  ff.write(reinterpret_cast<char*>(&i), sizeof(int32_t));
-                  ff.write(reinterpret_cast<const char*>(face_data[i].fd.data), static_cast<std::streamsize>(common_config.dnn_fr_output_size * sizeof(float)));
-                }
+                if (task_data.id_sgroup > 0)
+                  result.id_descriptor = addSGroupFaceDescriptor(task_data.id_sgroup, face_data[best_register_index].fd, frame(r));
+                else
+                  result.id_descriptor = addFaceDescriptor(config.id_group, config.id_vstream, face_data[best_register_index].fd, frame(r));
               }
 
-              // write JSON data of the event
-              userver::formats::json::ValueBuilder json_data;
-              json_data["id_vstream"] = config.id_vstream;
-              json_data["event_date"] = log_date;
-              json_data["best_face_index"] = best_face_index;
-              json_data["faces"] = std::move(json_faces);
-              std::ofstream f_json(absl::StrCat(path_prefix, s_uuid, JSON_SUFFIX));
-              f_json << ToString(json_data.ExtractValue());
-            }).Get();
-        }
-
-        // send events about face recognition from special groups
-        if (has_sgroup_events && task_data.task_type == TASK_RECOGNIZE)
-          for (const auto& [face_rect, is_work_area, is_frontal, is_non_blurry, face_class_index, face_class_confidence, cosine_distance, fd, landmarks5, laplacian, ioa, id_descriptor, sg_descriptors] : face_data)
-            for (const auto& [fst, snd] : sg_descriptors)
-            {
-              auto log_uuid = boost::uuids::random_generator()();
-              auto s_uuid = absl::StrReplaceAll(boost::uuids::to_string(log_uuid), {{"-", ""}});
-              auto path_suffix = absl::Substitute("group_$0/$1/$2/$3/$4/", config.id_group, s_uuid[0], s_uuid[1], s_uuid[2], s_uuid[3]);
-              auto screenshot_extension = ".jpg";
-              auto screenshot_url = absl::StrCat(local_config_.screenshots_url_prefix, path_suffix, s_uuid, screenshot_extension);
-
-              auto log_date = userver::storages::postgres::TimePointTz{std::chrono::system_clock::now()};
-              auto id_log = addLogFace(config.id_vstream, log_date, snd.id_descriptor, laplacian, face_rect, screenshot_url, log_uuid, DISABLED);
-
-              // write a screenshot to a file
-              auto path_prefix = absl::StrCat(local_config_.screenshots_path, path_suffix);
-              userver::fs::CreateDirectories(fs_task_processor_, path_prefix);
-              auto path = absl::StrCat(path_prefix, s_uuid, screenshot_extension);
-              userver::fs::RewriteFileContents(fs_task_processor_, path, frame_with_osd.empty() ? image_data : frame_with_osd);
-              userver::fs::Chmod(fs_task_processor_, path,
-                boost::filesystem::perms::owner_read | boost::filesystem::perms::owner_write | boost::filesystem::perms::others_read | boost::filesystem::perms::others_write);
-
-              std::string sg_group_callback_url;
-              // scope for accessing cache
+              if (result.id_descriptor > 0)
               {
-                if (auto sg_config = sg_config_cache_.Get(); sg_config->getMap().contains(fst))
-                  sg_group_callback_url = sg_config->getData().at(sg_config->getMap().at(fst)).callback_url;
-              }
-
-              if (id_log > 0 && !sg_group_callback_url.empty())
-              {
-                // send data to callback
-                userver::formats::json::ValueBuilder json_data;
-                json_data[Api::P_FACE_ID] = snd.id_descriptor;
-                json_data[Api::P_SCREENSHOT_URL] = screenshot_url;
-                json_data[Api::P_DATE] = log_date;
-                DeliveryEventResult delivery_result = ERROR;
-                try
+                if (face_data[best_register_index].id_descriptor != result.id_descriptor)
                 {
-                  auto delivery_response = http_client_.CreateRequest()
-                   .post(sg_group_callback_url)
-                   .headers({{userver::http::headers::kContentType, userver::http::content_type::kApplicationJson.ToString()}})
-                   .data(ToString(json_data.ExtractValue()))
-                   .timeout(common_config.callback_timeout)
-                   .perform();
-                  delivery_result = (delivery_response->status_code() == userver::clients::http::Status::OK
-                    || delivery_response->status_code() == userver::clients::http::Status::NoContent) ? SUCCESSFUL : ERROR;
-                } catch (const std::exception& e)
-                {
-                  delivery_result = ERROR;
-                  LOG_ERROR_TO(logger_) << e.what();
-                }
-                if (delivery_result == SUCCESSFUL)
-                {
+                  result.comments = common_config.comments_new_descriptor;
                   if (config.logs_level <= userver::logging::Level::kInfo)
                     USERVER_IMPL_LOG_TO(logger_, userver::logging::Level::kInfo,
-                      "vstream_key = {};  an event was sent about facial recognition in a special group: id_sgroup = {}; id_vstream = {}; id_descriptor = {}",
-                      task_data.vstream_key, fst, config.id_vstream, snd.id_descriptor);
+                      "vstream_key = {};  descriptor created: id = {}",
+                      task_data.vstream_key, result.id_descriptor);
                 } else
-                  LOG_ERROR_TO(logger_,
-                    "vstream_key = {};  failed to send face recognition event data to special group by callback ",
-                    task_data.vstream_key, sg_group_callback_url);
-              }
-            }
-
-        if (task_data.task_type == TASK_REGISTER_DESCRIPTOR)
-        {
-          if (best_register_index >= 0)
-          {
-            // everything is ok, register the descriptor
-            cv::Rect r = enlargeFaceRect(face_data[best_register_index].face_rect, config.face_enlarge_scale);
-            r = r & cv::Rect(0, 0, frame.cols, frame.rows);
-            if (face_data[best_register_index].cosine_distance > 0.999)
-              result.id_descriptor = face_data[best_register_index].id_descriptor;
-            else
-            {
-              if (task_data.id_sgroup > 0)
-                result.id_descriptor = addSGroupFaceDescriptor(task_data.id_sgroup, face_data[best_register_index].fd, frame(r));
-              else
-                result.id_descriptor = addFaceDescriptor(config.id_group, config.id_vstream, face_data[best_register_index].fd, frame(r));
-            }
-
-            if (result.id_descriptor > 0)
-            {
-              if (face_data[best_register_index].id_descriptor != result.id_descriptor)
-              {
-                result.comments = common_config.comments_new_descriptor;
-                if (config.logs_level <= userver::logging::Level::kInfo)
-                  USERVER_IMPL_LOG_TO(logger_, userver::logging::Level::kInfo,
-                    "vstream_key = {};  descriptor created: id = {}",
-                    task_data.vstream_key, result.id_descriptor);
+                {
+                  result.comments = common_config.comments_descriptor_exists;
+                  if (config.logs_level <= userver::logging::Level::kInfo)
+                    USERVER_IMPL_LOG_TO(logger_, userver::logging::Level::kInfo,
+                      "vstream_key = {};  descriptor already exists: id = {}",
+                      task_data.vstream_key, result.id_descriptor);
+                }
+                result.face_image = frame(r).clone();
+                result.face_left = face_data[best_register_index].face_rect.x;
+                result.face_top = face_data[best_register_index].face_rect.y;
+                result.face_width = face_data[best_register_index].face_rect.width;
+                result.face_height = face_data[best_register_index].face_rect.height;
               } else
+                result.comments = common_config.comments_descriptor_creation_error;
+            } else
+            {
+              if (!face_data.empty())
               {
-                result.comments = common_config.comments_descriptor_exists;
-                if (config.logs_level <= userver::logging::Level::kInfo)
-                  USERVER_IMPL_LOG_TO(logger_, userver::logging::Level::kInfo,
-                    "vstream_key = {};  descriptor already exists: id = {}",
-                    task_data.vstream_key, result.id_descriptor);
-              }
-              result.face_image = frame(r).clone();
-              result.face_left = face_data[best_register_index].face_rect.x;
-              result.face_top = face_data[best_register_index].face_rect.y;
-              result.face_width = face_data[best_register_index].face_rect.width;
-              result.face_height = face_data[best_register_index].face_rect.height;
-            } else
-              result.comments = common_config.comments_descriptor_creation_error;
-          } else
-          {
-            if (!face_data.empty())
-            {
-              if (auto check_index = 0; !face_data[check_index].is_work_area)
-                result.comments = common_config.comments_partial_face;
-              else if (!face_data[check_index].is_frontal)
-                result.comments = common_config.comments_non_frontal_face;
-              else if (!face_data[check_index].is_non_blurry)
-                result.comments = common_config.comments_blurry_face;
-              else if (face_data[check_index].face_class_index != FACE_NORMAL)
-                result.comments = common_config.comments_non_normal_face_class;
-              else
-                result.comments = common_config.comments_inference_error;
-            } else
-              result.comments = common_config.comments_no_faces;
-          }
-        }
-
-        // drawing a frame and markers, saving a frame
-        if (task_data.task_type == TASK_TEST)
-        {
-          for (auto& [face_rect, is_work_area, is_frontal, is_non_blurry, face_class_index, face_class_confidence, cosine_distance, fd, landmarks5, laplacian, ioa, id_descriptor, sg_descriptors] : face_data)
-          {
-            if (!landmarks5.empty())
-              for (int k = 0; k < 5; ++k)
-                cv::circle(frame, cv::Point(static_cast<int>(landmarks5.at<float>(k, 0)), static_cast<int>(landmarks5.at<float>(k, 1))), 1,
-                  cv::Scalar(255 * (k * 2 > 2), 255 * (k * 2 > 0 && k * 2 < 8), 255 * (k * 2 < 6)), 4);
-            cv::rectangle(frame, face_rect, cv::Scalar(0, 200, 0));
+                if (auto check_index = 0; !face_data[check_index].is_work_area)
+                  result.comments = common_config.comments_partial_face;
+                else if (!face_data[check_index].is_frontal)
+                  result.comments = common_config.comments_non_frontal_face;
+                else if (!face_data[check_index].is_non_blurry)
+                  result.comments = common_config.comments_blurry_face;
+                else if (face_data[check_index].face_class_index != FACE_NORMAL)
+                  result.comments = common_config.comments_non_normal_face_class;
+                else
+                  result.comments = common_config.comments_inference_error;
+              } else
+                result.comments = common_config.comments_no_faces;
+            }
           }
 
-          auto frame_indx = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now().time_since_epoch()).count();
-          AsyncNoSpan(fs_task_processor_,
-            [&]
+          // drawing a frame and markers, saving a frame
+          if (task_data.task_type == TASK_TEST)
+          {
+            for (auto& [face_rect, is_work_area, is_frontal, is_non_blurry, face_class_index, face_class_confidence, cosine_distance, fd, landmarks5, laplacian, ioa, id_descriptor, sg_descriptors] : face_data)
             {
-              cv::imwrite(absl::Substitute("$0/frame_$1.jpg", std::filesystem::current_path().string(), frame_indx), frame);
-            }).Get();
-          USERVER_IMPL_LOG_TO(logger_, userver::logging::Level::kInfo,
-            "vstream_key = {};  task_type = {};  frame index: {}",
-            task_data.vstream_key, static_cast<int>(task_data.task_type), frame_indx);
-        }
-      } else
-      {
-        if (task_data.task_type == TASK_REGISTER_DESCRIPTOR)
+              if (!landmarks5.empty())
+                for (int k = 0; k < 5; ++k)
+                  cv::circle(frame, cv::Point(static_cast<int>(landmarks5.at<float>(k, 0)), static_cast<int>(landmarks5.at<float>(k, 1))), 1,
+                    cv::Scalar(255 * (k * 2 > 2), 255 * (k * 2 > 0 && k * 2 < 8), 255 * (k * 2 < 6)), 4);
+              cv::rectangle(frame, face_rect, cv::Scalar(0, 200, 0));
+            }
+
+            auto frame_indx = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now().time_since_epoch()).count();
+            AsyncNoSpan(fs_task_processor_,
+              [&]
+              {
+                cv::imwrite(absl::Substitute("$0/frame_$1.jpg", std::filesystem::current_path().string(), frame_indx), frame);
+              })
+              .Get();
+            USERVER_IMPL_LOG_TO(logger_, userver::logging::Level::kInfo,
+              "vstream_key = {};  task_type = {};  frame index: {}",
+              task_data.vstream_key, static_cast<int>(task_data.task_type), frame_indx);
+          }
+        } else
         {
-          result.id_descriptor = 0;
-          result.comments = common_config.comments_inference_error;
+          if (task_data.task_type == TASK_REGISTER_DESCRIPTOR)
+          {
+            result.id_descriptor = 0;
+            result.comments = common_config.comments_inference_error;
+          }
         }
       }
     } catch (const std::exception& e)
@@ -1340,7 +1528,7 @@ properties:
     }
   }
 
-  void Workflow::doOldLogMaintenance() const
+  void Workflow::doOldLogFacesMaintenance() const
   {
     LOG_INFO_TO(logger_, "Removing obsolete entries from the log_faces table");
 
@@ -1355,7 +1543,7 @@ properties:
       return;
     }
 
-    LOG_INFO_TO(logger_, "Removing outdated screenshots");
+    LOG_INFO_TO(logger_, "Removing outdated face screenshots and data");
     const HashSet<std::string> img_extensions = {".png", ".jpg", ".jpeg", ".bmp", ".ppm", ".tiff", ".dat", ".json"};
     if (std::filesystem::exists(local_config_.screenshots_path))
       for (const auto& dir_entry : std::filesystem::recursive_directory_iterator(local_config_.screenshots_path))
@@ -1477,6 +1665,37 @@ properties:
     const HashSet<std::string> img_extensions = {".png", ".jpg", ".jpeg", ".bmp", ".ppm", ".tiff", ".dat", ".json"};
     if (std::filesystem::exists(local_config_.events_path))
       for (const auto& dir_entry : std::filesystem::recursive_directory_iterator(local_config_.events_path))
+        if (dir_entry.is_regular_file() && img_extensions.contains(dir_entry.path().extension().string()))
+        {
+          if (auto t = std::chrono::file_clock::to_sys(dir_entry.last_write_time()); t < tp)
+          {
+            std::error_code ec;
+            std::filesystem::remove(dir_entry, ec);
+            if (ec)
+              LOG_ERROR_TO(logger_) << ec.message();
+          }
+        }
+  }
+
+  void Workflow::doOldLogBarcodesMaintenance() const
+  {
+    LOG_INFO_TO(logger_, "Removing obsolete entries from the log_barcodes table");
+
+    auto tp = std::chrono::system_clock::now() - local_config_.log_barcodes_ttl;
+    try
+    {
+      pg_cluster_->Execute(userver::storages::postgres::ClusterHostType::kMaster,
+        SQL_REMOVE_OLD_LOG_BARCODES, userver::storages::postgres::TimePointTz{tp});
+    } catch (const std::exception& e)
+    {
+      LOG_ERROR_TO(logger_) << e.what();
+      return;
+    }
+
+    LOG_INFO_TO(logger_, "Removing outdated barcode screenshots");
+    const HashSet<std::string> img_extensions = {".png", ".jpg", ".jpeg", ".bmp", ".ppm", ".tiff"};
+    if (std::filesystem::exists(local_config_.barcodes_path))
+      for (const auto& dir_entry : std::filesystem::recursive_directory_iterator(local_config_.barcodes_path))
         if (dir_entry.is_regular_file() && img_extensions.contains(dir_entry.path().extension().string()))
         {
           if (auto t = std::chrono::file_clock::to_sys(dir_entry.last_write_time()); t < tp)
@@ -2149,5 +2368,24 @@ properties:
     }
 
     return id_descriptor;
+  }
+
+  int64_t Workflow::addLogBarcode(int32_t id_vstream, const userver::storages::postgres::TimePointTz& log_date, const userver::formats::json::Value& info) const
+  {
+    const userver::storages::postgres::Query query{SQL_ADD_LOG_BARCODE};
+    int64_t result = -1;
+    auto trx = pg_cluster_->Begin(userver::storages::postgres::ClusterHostType::kMaster, {});
+    try
+    {
+      if (const auto res = trx.Execute(query, id_vstream, log_date, info); !res.IsEmpty())
+        result = res.AsSingleRow<int64_t>();
+      trx.Commit();
+    } catch (const std::exception& e)
+    {
+      trx.Rollback();
+      LOG_ERROR_TO(logger_) << e.what();
+    }
+
+    return result;
   }
 }  // namespace Frs

@@ -53,12 +53,16 @@ set(USERVER_PG_INCLUDE_DIR "/usr/include/postgresql")
 set(USERVER_PG_LIBRARY_DIR "/usr/lib/postgresql/14/lib")
 set(USERVER_DISABLE_PHDR_CACHE ON)
 
+set(ZXING_READERS ON)
+set(ZXING_WRITERS OFF CACHE STRING "")
+
 find_package(OpenCV REQUIRED)
 list(APPEND TRITON_CLIENT_INCLUDE_DIRS ${TRITON_CLIENT_DIR}/include)
 list(APPEND TRITON_CLIENT_LIBS ${TRITON_CLIENT_DIR}/lib/libhttpclient_static.a)
 
 add_subdirectory(contrib/userver)
 add_subdirectory(contrib/abseil-cpp)
+add_subdirectory(contrib/zxing-cpp)
 
 list(APPEND SOURCES main.cpp)
 if (BUILD_LPRS)
@@ -84,4 +88,4 @@ add_executable(${TARGET_NAME} ${SOURCES})
 # include directories
 include_directories(${OpenCV_INCLUDE_DIRS} ${TRITON_CLIENT_INCLUDE_DIRS})
 
-target_link_libraries(${TARGET_NAME} ${OpenCV_LIBS} ${TRITON_CLIENT_LIBS} userver::core userver::postgresql absl::strings absl::str_format absl::time absl::flat_hash_map absl::flat_hash_set dl)
+target_link_libraries(${TARGET_NAME} ${OpenCV_LIBS} ${TRITON_CLIENT_LIBS} userver::core userver::postgresql absl::strings absl::str_format absl::time absl::flat_hash_map absl::flat_hash_set ZXing::ZXing dl)

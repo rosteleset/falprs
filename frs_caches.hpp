@@ -35,6 +35,10 @@ namespace Frs
     inline static constexpr auto LOG_FACES_TTL = "log-faces-ttl";
     inline static constexpr auto FLAG_DELETED_TTL = "flag-deleted-ttl";
     inline static constexpr auto EVENTS_TTL = "events-ttl";
+    inline static constexpr auto BARCODES_PATH = "barcodes-path";
+    inline static constexpr auto BARCODES_URL_PREFIX = "barcodes-url-prefix";
+    inline static constexpr auto CLEAR_OLD_LOG_BARCODES = "clear-old-log-barcodes";
+    inline static constexpr auto LOG_BARCODES_TTL = "log-barcodes-ttl";
 
     // Common
     inline static constexpr auto CALLBACK_TIMEOUT = "callback-timeout";
@@ -91,6 +95,8 @@ namespace Frs
     inline static constexpr auto WORKFLOW_TIMEOUT = "workflow-timeout";
     inline static constexpr auto FLAG_SPAWNED_DESCRIPTORS = "flag-spawned-descriptors";
     inline static constexpr auto UNKNOWN_DESCRIPTOR_TTL = "unknown-descriptor-ttl";
+    inline static constexpr auto FLAG_PROCESS_FACES = "flag-process-faces";
+    inline static constexpr auto FLAG_PROCESS_BARCODES = "flag-process-barcodes";
 
     // Video stream specific params
     inline static constexpr auto TITLE = "title";
@@ -156,6 +162,8 @@ namespace Frs
     std::vector<float> work_area;
     std::chrono::milliseconds workflow_timeout{std::chrono::seconds{0}};
     bool flag_spawned_descriptors{false};
+    bool flag_process_faces{true};
+    bool flag_process_barcodes{false};
     std::chrono::milliseconds unknown_descriptor_ttl{std::chrono::seconds{5}};
 
     // additional data
@@ -164,6 +172,7 @@ namespace Frs
     std::string vstream_ext;
     std::string url;
     std::string callback_url;
+    std::string callback_url_barcodes;
   };
 
   static VStreamConfig updateVStreamConfig(const userver::formats::json::Value& json)
@@ -194,6 +203,8 @@ namespace Frs
       config.work_area = json[ConfigParams::WORK_AREA].As<decltype(config.work_area)>();
     config.workflow_timeout = convertToDuration(json[ConfigParams::WORKFLOW_TIMEOUT], config.workflow_timeout);
     config.flag_spawned_descriptors = convertToBool(json[ConfigParams::FLAG_SPAWNED_DESCRIPTORS], config.flag_spawned_descriptors);
+    config.flag_process_faces = convertToBool(json[ConfigParams::FLAG_PROCESS_FACES], config.flag_process_faces);
+    config.flag_process_barcodes = convertToBool(json[ConfigParams::FLAG_PROCESS_BARCODES], config.flag_process_barcodes);
     config.unknown_descriptor_ttl = convertToDuration(json[ConfigParams::UNKNOWN_DESCRIPTOR_TTL], config.unknown_descriptor_ttl);
 
     return config;
@@ -331,6 +342,7 @@ namespace Frs
     std::string vstream_ext;
     std::string url;
     std::string callback_url;
+    std::string callback_url_barcodes;
     std::optional<userver::formats::json::Value> config;
     bool flag_deleted{};
   };
@@ -346,7 +358,7 @@ namespace Frs
         data_.erase(key);
       } else
       {
-        // save data in cache
+        // save data in a cache
         VStreamConfig config{};
         if (item.config)
           config = updateVStreamConfig(*item.config);
@@ -355,6 +367,7 @@ namespace Frs
         config.vstream_ext = item.vstream_ext;
         config.url = item.url;
         config.callback_url = item.callback_url;
+        config.callback_url_barcodes = item.callback_url_barcodes;
         data_[key] = std::move(config);
       }
     }
@@ -387,6 +400,7 @@ namespace Frs
         vs.vstream_ext,
         coalesce(vs.url, '') url,
         coalesce(vs.callback_url, '') callback_url,
+        coalesce(vs.callback_url_barcodes, '') callback_url_barcodes,
         coalesce(d.config, '{}') || coalesce(vs.config, '{}') config,
         vs.flag_deleted
       from
