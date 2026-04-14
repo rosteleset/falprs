@@ -536,7 +536,7 @@ paths:
                   type: string
                   format: date-time
                 eventId:
-                  description: Event identifier from the FRS log (required if streamId is not specified); if specified, then other parameters are ignored
+                  description: Event identifier from the faces log (required if streamId is not specified); if specified, then other parameters are ignored
                   type: integer
                   format: int64
                 uuid:
@@ -692,6 +692,90 @@ paths:
           description: No content
         '400':
           description: Bad request
+
+  /frs/api/getBarcodeEvent:
+    post:
+      tags:
+        - Host --> FRS
+      summary: Get Barcode Event Info
+      description: |
+        Returns detailed information about the barcode recognition event. The request must specify the `eventId` parameter or both `streamId` and `date`. If `eventId` is specified, the method simply retrieves the data by identifier and sends it back. Otherwise, the method looks for the nearest event by video stream identifier in the interval determined by the `event-log-before` and `event-log-after` configuration parameters and the specified date.
+      operationId: frs_getBarcodeEvent
+      parameters:
+        - in: header
+          name: Authorization
+          description: Bearer authorization token
+          schema:
+            type: string
+          required: false
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                eventId:
+                  description: Event identifier from the barcodes log (required if streamId is not specified); if specified, then other parameters are ignored
+                  type: integer
+                  format: int64
+                streamId:
+                  $ref: '#/components/schemas/streamId'
+                date:
+                  type: string
+                  format: date-time
+            examples:
+              Example 1:
+                value:
+                  eventId: 1001
+              Example 2:
+                value:
+                  streamId: 1234
+                  date: '2026-03-22T09:11:33.822638+00:00'
+      responses:
+        '200':
+          description: Successful operation
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  date:
+                    description: Event date
+                    type: string
+                    format: date-time
+                  screenshot:
+                    type: string
+                    format: url
+                  barcodes:
+                    description: Information about found barcodes
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        text:
+                          description: Barcode text
+                          type: string
+                        format:
+                          description: Barcode format (QR Code, EAN-13, etc.)
+                          type: string
+                        position:
+                          description: Barcode contour
+                          type: array
+                          items:
+                            type: integer
+                example:
+                  date: '2026-04-14T12:57:13.574452+00:00'
+                  screenshot: 'https://my.falprs.server/frs/barcodes/3/6/8/9/36892261-730c-42b7-a042-16f32ad37078.jpg'
+                  barcodes:
+                    - position: [416, 700, 605, 700, 600, 736, 406, 736]
+                      format: 'EAN-13'
+                      text: '2000218379163'
+        '204':
+          description: No content
+        '400':
+          description: Bad request
+
   /frs/api/setCommonConfig:
     post:
       tags:
@@ -1266,7 +1350,7 @@ paths:
                       type: string
                       format: date-time
                     eventId:
-                      description: Event identifier from the FRS log
+                      description: Event identifier from the faces log
                       type: string
                     uuid:
                       description: UUID of host event or empty
@@ -1382,12 +1466,70 @@ paths:
                   description: Registered face descriptor
                   type: integer
                 eventId:
-                  description: Event identifier from the FRS log
+                  description: Event identifier from the faces log
                   type: integer
                   format: int64
             example:
               faceId: 4567
               eventId: 1002
+      responses:
+        '200':
+          description: Successful operation
+        '204':
+          description: No content
+
+  /frs_callback_barcodes:
+    post:
+      tags:
+        - FRS --> Host
+      description: Sends a barcode recognition event
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - streamId
+                - date
+                - eventId
+                - barcodes
+              properties:
+                streamId:
+                  $ref: '#/components/schemas/streamId'
+                date:
+                  description: Event date
+                  type: string
+                  format: date-time
+                eventId:
+                  description: Event identifier from the barcodes log
+                  type: integer
+                  format: int64
+                barcodes:
+                  description: Information about found barcodes
+                  type: array
+                  items:
+                    type: object
+                    properties:
+                      text:
+                        description: Barcode text
+                        type: string
+                      format:
+                        description: Barcode format (QR Code, EAN-13, etc.)
+                        type: string
+                      position:
+                        description: Barcode contour
+                        type: array
+                        items:
+                          type: integer
+            example:
+              streamId: 1234
+              date: '2026-04-14T12:40:09.492526949+00:00'
+              eventId: 23
+              barcodes:
+                - position: [365, 676, 463, 681, 459, 780, 358, 776]
+                  format: 'QR Code'
+                  text: 'QWERTY'
       responses:
         '200':
           description: Successful operation

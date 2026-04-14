@@ -141,6 +141,7 @@ namespace Frs
     static constexpr auto METHOD_GET_COMMON_CONFIG = "getCommonConfig";                 // get common configuration parameters
     static constexpr auto METHOD_SET_STREAM_DEFAULT_CONFIG = "setStreamDefaultConfig";  // set common configuration parameters
     static constexpr auto METHOD_GET_STREAM_DEFAULT_CONFIG = "getStreamDefaultConfig";  // get common configuration parameters
+    static constexpr auto METHOD_GET_BARCODE_EVENT = "getBarcodeEvent";                 // get barcode event info
 
     // parameters
     static constexpr auto P_CODE = "code";
@@ -191,6 +192,7 @@ namespace Frs
 
     // queries
     static constexpr auto SQL_GET_VSTREAM_ID = "select id_vstream from video_streams where id_group = $1 and vstream_ext = $2 and not flag_deleted";
+    static constexpr auto SQL_GET_VSTREAM_EXT = "select vstream_ext from video_streams where id_group = $1 and id_vstream = $2 and not flag_deleted";
 
     static constexpr auto SQL_GET_STREAM = R"__SQL__(
       select
@@ -519,6 +521,22 @@ namespace Frs
         id_log = $1
     )_SQL_";
 
+    static constexpr auto SQL_GET_LOG_BARCODE_NEAREST = R"_SQL_(
+      select
+        log_date,
+        info
+      from
+        log_barcodes
+      where
+        id_vstream = $1
+        and (log_date > $2::timestamptz - $3 * interval '1 millisecond')
+        and (log_date < $2::timestamptz + $4 * interval '1 millisecond')
+      order by
+        abs(extract(epoch from (log_date - $2::timestamptz)))
+      limit
+        1
+    )_SQL_";
+
     // Component is valid after construction and is able to accept requests
     Api(const userver::components::ComponentConfig& config, const userver::components::ComponentContext& context);
 
@@ -537,6 +555,7 @@ namespace Frs
     int32_t checkToken(absl::string_view token) const;
     int32_t checkSGToken(absl::string_view token) const;
     int32_t getVStreamId(int32_t id_group, absl::string_view vstream_ext) const;
+    std::string getVStreamExt(int32_t id_group, int32_t id_vstream) const;
     static void requireMemberThrow(const userver::formats::json::Value& json, absl::string_view member);
     static void requireArrayThrow(const userver::formats::json::Value& json, absl::string_view member);
     void addStream(int32_t id_group, const userver::formats::json::Value& json) const;

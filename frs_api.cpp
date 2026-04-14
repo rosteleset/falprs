@@ -257,6 +257,10 @@ namespace Frs
         {
           return getStreamDefaultConfigParams(id_group);
         }},
+        {METHOD_GET_BARCODE_EVENT, [this](auto&& id_group, auto&& json)
+        {
+          return getBarcodeEvent(id_group, json);
+        }},
     };
 
     if (with_content_methods.contains(api_method))
@@ -308,6 +312,21 @@ namespace Frs
     }
 
     return -1;
+  }
+
+  std::string Api::getVStreamExt(const int32_t id_group, int32_t id_vstream) const
+  {
+    try
+    {
+      if (const auto result = pg_cluster_->Execute(userver::storages::postgres::ClusterHostType::kMaster, SQL_GET_VSTREAM_EXT, id_group, id_vstream); !result.IsEmpty())
+        return result[0][DatabaseFields::VSTREAM_EXT].As<std::string>();
+    } catch (const std::exception& e)
+    {
+      LOG_ERROR_TO(workflow_.getLogger()) << e.what();
+      throw userver::server::handlers::ClientError(HandlerErrorCode::kServerSideError);
+    }
+
+    return {};
   }
 
   void Api::requireMemberThrow(const userver::formats::json::Value& json, const absl::string_view member)
@@ -1453,7 +1472,7 @@ namespace Frs
         {
           // check if access permitted to this event
           const auto id_vstream = result[0][DatabaseFields::ID_VSTREAM].As<int32_t>();
-          const auto vstream_key = absl::Substitute("$0_$1", id_group, id_vstream);
+          const auto vstream_key = absl::Substitute("$0_$1", id_group, getVStreamExt(id_group, id_vstream));
           // scope for accessing cache
           {
             const auto cache = vstreams_config_cache_.Get();
@@ -1487,15 +1506,15 @@ namespace Frs
           interval_after = cache->getData().at(vstream_key).best_quality_interval_after;
         }
         const auto result = pg_cluster_->Execute(userver::storages::postgres::ClusterHostType::kMaster,
-          SQL_GET_NEAREST_EVENT,
+          SQL_GET_LOG_BARCODE_NEAREST,
             id_vstream,
-            json[PARAM_EVENT_DATE].As<std::string>(),
-            event_log_before.count(),
-            event_log_after.count());
+            json[P_DATE].As<std::string>(),
+            interval_before.count(),
+            interval_after.count());
         if (!result.IsEmpty())
         {
           userver::formats::json::ValueBuilder event_data = result[0][DatabaseFields::INFO].As<userver::formats::json::Value>();
-          event_data[PARAM_EVENT_DATE] = result[0][DatabaseFields::LOG_DATE].As<userver::storages::postgres::TimePointTz>();
+          event_data[P_DATE] = result[0][DatabaseFields::LOG_DATE].As<userver::storages::postgres::TimePointTz>();
           return event_data.ExtractValue();
         }
       }
