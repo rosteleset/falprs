@@ -100,6 +100,7 @@ namespace Lprs
     void stopWorkflow(std::string&& vstream_key, bool is_internal = true);
     const LocalConfig& getLocalConfig();
     const userver::logging::LoggerPtr& getLogger();
+    void OnAllComponentsAreStopping() override;
 
   private:
     userver::concurrent::BackgroundTaskStorageCore tasks_;
@@ -119,17 +120,12 @@ namespace Lprs
     userver::concurrent::Variable<HashMap<std::string, std::chrono::time_point<std::chrono::steady_clock>>> ban_special_data;
     userver::concurrent::Variable<HashMap<std::string, std::chrono::time_point<std::chrono::steady_clock>>> vstream_timeouts;
 
-    void OnAllComponentsAreStopping() override;
     void processPipeline(std::string&& vstream_key);
     void doBanMaintenance();
     void doEventsLogMaintenance() const;
     void nextPipeline(std::string&& vstream_key, std::chrono::milliseconds delay);
 
     // Inference pipeline methods
-    static std::vector<float> preprocessImageForVdNet(const cv::Mat& img, int32_t width, int32_t height, cv::Point2f& shift, double& scale);
-    static std::vector<float> preprocessImageForVcNet(const cv::Mat& img, int32_t width, int32_t height);
-    static std::vector<float> preprocessImageForLpdNet(const cv::Mat& img, int32_t width, int32_t height, cv::Point2f& shift, double& scale);
-    static std::vector<float> preprocessImageForLprNet(const cv::Mat& img, int32_t width, int32_t height, cv::Point2f& shift, double& scale);
 
     // VDNet
     bool doInferenceVdNet(const cv::Mat& img, const VStreamConfig& config, std::vector<Vehicle>& detected_vehicles) const;

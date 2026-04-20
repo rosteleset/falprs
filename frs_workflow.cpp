@@ -1,6 +1,7 @@
 #include <filesystem>
 #include <fstream>
 
+#include <ReadBarcode.h>
 #include <boost/uuid/uuid_generators.hpp>
 #include <boost/uuid/uuid_io.hpp>
 #include <http_client.h>
@@ -12,12 +13,10 @@
 #include <userver/http/common_headers.hpp>
 #include <userver/http/content_type.hpp>
 #include <userver/yaml_config/merge_schemas.hpp>
-#include <Barcode.h>
 
 #include "frs_api.hpp"
 #include "frs_workflow.hpp"
-
-#include "ReadBarcode.h"
+#include "image_preprocessing.hpp"
 
 namespace tc = triton::client;
 
@@ -1806,22 +1805,16 @@ properties:
       USERVER_IMPL_LOG_TO(logger_, userver::logging::Level::kTrace,
         "vstream_key = {};  before image preprocessing for face detection",
         task_data.vstream_key);
-    cv::Mat pr_img = preprocessImage(frame, dnn_fd_input_width, dnn_fd_input_height, scale);
-    int channels = 3;
-    int input_size = channels * dnn_fd_input_width * dnn_fd_input_height;
-    std::vector<float> input_buffer(input_size);
-    for (int c = 0; c < channels; ++c)
-      for (int h = 0; h < dnn_fd_input_height; ++h)
-        for (int w = 0; w < dnn_fd_input_width; ++w)
-          input_buffer[c * dnn_fd_input_height * dnn_fd_input_width + h * dnn_fd_input_width + w] = (static_cast<float>(pr_img.at<cv::Vec3b>(h, w)[2 - c]) - 127.5f) / 128.0f;
+    auto blob = prepareBlobForScrfd(frame, dnn_fd_input_width, dnn_fd_input_height, scale);
     if (config.logs_level <= userver::logging::Level::kTrace || task_data.task_type == TASK_TEST)
       USERVER_IMPL_LOG_TO(logger_, userver::logging::Level::kTrace,
         "vstream_key = {};  after image preprocessing for face detection",
         task_data.vstream_key);
 
-    std::vector<uint8_t> input_data(input_size * sizeof(float));
-    memcpy(input_data.data(), input_buffer.data(), input_data.size());
-    std::vector<int64_t> shape = {1, channels, dnn_fd_input_height, dnn_fd_input_width};
+    const auto* raw = blob.ptr<uint8_t>();
+    const auto byte_size = blob.total() * blob.elemSize();
+    std::vector input_data(raw, raw + byte_size);
+    std::vector<int64_t> shape = {1, 3, dnn_fd_input_height, dnn_fd_input_width};
     tc::InferInput* input;
     err = tc::InferInput::Create(&input, dnn_fd_input_tensor_name, shape, "FP32");
     if (!err.IsOk())
@@ -2005,37 +1998,11 @@ properties:
       return false;
     }
 
-    int channels = 3;
-    int input_size = channels * dnn_fc_input_width * dnn_fc_input_height;
-    std::vector<float> input_buffer(input_size);
-
-    for (int c = 0; c < channels; ++c)
-      for (int h = 0; h < dnn_fc_input_height; ++h)
-        for (int w = 0; w < dnn_fc_input_width; ++w)
-        {
-          float mean = 0.0f;
-          float std_d = 1.0f;
-          if (c == 0)
-          {
-            mean = 0.485;
-            std_d = 0.229;
-          }
-          if (c == 1)
-          {
-            mean = 0.456;
-            std_d = 0.224;
-          }
-          if (c == 2)
-          {
-            mean = 0.406;
-            std_d = 0.225;
-          }
-          input_buffer[c * dnn_fc_input_height * dnn_fc_input_width + h * dnn_fc_input_width + w] =
-            (static_cast<float>(aligned_face.at<cv::Vec3b>(h, w)[2 - c]) / 255.0f - mean) / std_d;
-        }
-    std::vector<uint8_t> input_data(input_size * sizeof(float));
-    memcpy(input_data.data(), input_buffer.data(), input_data.size());
-    std::vector<int64_t> shape = {1, channels, dnn_fc_input_height, dnn_fc_input_width};
+    auto blob = prepareBlobForGenet(aligned_face, dnn_fc_input_width, dnn_fc_input_height);
+    const auto* raw = blob.ptr<uint8_t>();
+    const auto byte_size = blob.total() * blob.elemSize();
+    std::vector input_data(raw, raw + byte_size);
+    std::vector<int64_t> shape = {1, 3, dnn_fc_input_height, dnn_fc_input_width};
     tc::InferInput* input;
     err = tc::InferInput::Create(&input, dnn_fc_input_tensor_name, shape, "FP32");
     if (!err.IsOk())
@@ -2163,19 +2130,11 @@ properties:
       return false;
     }
 
-    int channels = 3;
-    int input_size = channels * dnn_fr_input_width * dnn_fr_input_height;
-    std::vector<float> input_buffer(input_size);
-    for (int c = 0; c < channels; ++c)
-      for (int h = 0; h < dnn_fr_input_height; ++h)
-        for (int w = 0; w < dnn_fr_input_width; ++w)
-          if (dnn_fr_model_name == "arcface")
-            input_buffer[c * dnn_fr_input_height * dnn_fr_input_width + h * dnn_fr_input_width + w] = static_cast<float>(aligned_face.at<cv::Vec3b>(h, w)[2 - c]) / 127.5f - 1.0f;
-          else
-            input_buffer[c * dnn_fr_input_height * dnn_fr_input_width + h * dnn_fr_input_width + w] = (static_cast<float>(aligned_face.at<cv::Vec3b>(h, w)[2 - c]) - 127.5f) / 128.0f;
-    std::vector<uint8_t> input_data(input_size * sizeof(float));
-    memcpy(input_data.data(), input_buffer.data(), input_data.size());
-    std::vector<int64_t> shape = {1, channels, dnn_fr_input_height, dnn_fr_input_width};
+    auto blob = prepareBlobForArcface(aligned_face, dnn_fr_input_width, dnn_fr_input_height);
+    const auto* raw = blob.ptr<uint8_t>();
+    const auto byte_size = blob.total() * blob.elemSize();
+    std::vector input_data(raw, raw + byte_size);
+    std::vector<int64_t> shape = {1, 3, dnn_fr_input_height, dnn_fr_input_width};
     tc::InferInput* input;
     err = tc::InferInput::Create(&input, dnn_fr_input_tensor_name, shape, "FP32");
     if (!err.IsOk())

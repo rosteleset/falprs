@@ -64,7 +64,7 @@ add_subdirectory(contrib/userver)
 add_subdirectory(contrib/abseil-cpp)
 add_subdirectory(contrib/zxing-cpp)
 
-list(APPEND SOURCES main.cpp)
+list(APPEND SOURCES main.cpp image_preprocessing.cpp)
 if (BUILD_LPRS)
   add_definitions(-DBUILD_LPRS)
   list(APPEND SOURCES

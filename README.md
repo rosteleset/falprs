@@ -273,9 +273,9 @@ Example of adding a new group to FRS:
 ```bash
 python3 ~/falprs/utils/vstream_groups.py -t frs -a "My new group"
 ```
-Show list of groups in LPRS:
+Show list of groups in FRS:
 ```bash
-python3 ~/falprs/utils/vstream_groups.py -t lprs -l
+python3 ~/falprs/utils/vstream_groups.py -t frs -l
 ```
 Example output:
 ```bash

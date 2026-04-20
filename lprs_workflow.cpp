@@ -15,6 +15,7 @@
 
 #include "lprs_api.hpp"
 #include "lprs_workflow.hpp"
+#include "image_preprocessing.hpp"
 
 namespace tc = triton::client;
 
@@ -911,107 +912,6 @@ properties:
   }
 
   // Inference pipeline methods
-  std::vector<float> Workflow::preprocessImageForVdNet(const cv::Mat& img, const int32_t width, const int32_t height, cv::Point2f& shift,
-    double& scale)
-  {
-    return preprocessImageForLpdNet(img, width, height, shift, scale);
-  }
-
-    std::vector<float> Workflow::preprocessImageForVcNet(const cv::Mat& img, const int32_t width, const int32_t height)
-  {
-    cv::Mat out(height, width, CV_8UC3);
-    resize(img, out, out.size(), 0, 0, cv::INTER_AREA);
-
-    constexpr int32_t channels = 3;
-    const int32_t input_size = channels * width * height;
-    std::vector<float> input_buffer(input_size);
-    /*const std::vector<float> means = {0.485, 0.456, 0.406};
-    const std::vector<float> std_d = {0.229, 0.224, 0.225};*/
-    const std::vector<float> means = {0.5, 0.5, 0.5};
-    const std::vector<float> std_d = {0.5, 0.5, 0.5};
-    for (auto c = 0; c < channels; ++c)
-      for (auto h = 0; h < height; ++h)
-        for (auto w = 0; w < width; ++w)
-          input_buffer[c * height * width + h * width + w] =
-            (static_cast<float>(out.at<cv::Vec3b>(h, w)[2 - c]) / 255.0f - means[c]) / std_d[c];
-
-    return input_buffer;
-  }
-
-  std::vector<float> Workflow::preprocessImageForLpdNet(const cv::Mat& img, const int32_t width, const int32_t height, cv::Point2f& shift,
-    double& scale)
-  {
-    const auto r_w = width / (img.cols * 1.0);
-    const auto r_h = height / (img.rows * 1.0);
-    scale = fmin(r_w, r_h);
-    const auto ww = static_cast<int>(lround(scale * img.cols));
-    const auto hh = static_cast<int>(lround(scale * img.rows));
-    shift.x = static_cast<float>(width - ww) / 2;
-    shift.y = static_cast<float>(height - hh) / 2;
-    cv::Mat re(hh, ww, CV_8UC3);
-    resize(img, re, re.size(), 0, 0, cv::INTER_LINEAR);
-
-    const int border_top = static_cast<int>(shift.y);
-    const int border_bottom = height - hh - border_top;
-    const int border_left = static_cast<int>(shift.x);
-    const int border_right = width - ww - border_left;
-
-    cv::Mat out;
-    copyMakeBorder(re, out, border_top, border_bottom,
-      border_left, border_right, cv::BORDER_CONSTANT, {114, 114, 114});
-
-    /*cv::Mat out(height, width, CV_8UC3, cv::Scalar(0, 0, 0));
-    re.copyTo(out(cv::Rect(shift.x, shift.y, re.cols, re.rows)));*/
-
-    // for test
-    // cv::imwrite(absl::Substitute("p_$0_$1.jpg", border_left, border_top), out);
-
-    constexpr int32_t channels = 3;
-    const int32_t input_size = channels * width * height;
-    std::vector<float> input_buffer(input_size);
-    for (auto c = 0; c < channels; ++c)
-      for (auto h = 0; h < height; ++h)
-        for (auto w = 0; w < width; ++w)
-          input_buffer[c * height * width + h * width + w] =
-            static_cast<float>(out.at<cv::Vec3b>(h, w)[2 - c]) / 255.0f;
-
-    return input_buffer;
-  }
-
-  std::vector<float> Workflow::preprocessImageForLprNet(const cv::Mat& img, const int32_t width, const int32_t height, cv::Point2f& shift, double& scale)
-  {
-    const auto r_w = width / (img.cols * 1.0);
-    const auto r_h = height / (img.rows * 1.0);
-    scale = fmin(r_w, r_h);
-    const auto ww = static_cast<int>(lround(scale * img.cols));
-    const auto hh = static_cast<int>(lround(scale * img.rows));
-    shift.x = static_cast<float>(width - ww) / 2;
-    shift.y = static_cast<float>(height - hh) / 2;
-    cv::Mat re(hh, ww, CV_8UC3);
-    resize(img, re, re.size(), 0, 0, cv::INTER_LINEAR);
-
-    cv::Mat out;
-    copyMakeBorder(re, out, static_cast<int>(shift.y), static_cast<int>(shift.y),
-      static_cast<int>(shift.x), static_cast<int>(shift.x), cv::BORDER_CONSTANT, {114, 114, 114});
-
-    /*cv::Mat out(height, width, CV_8UC3, cv::Scalar(0, 0, 0));
-    re.copyTo(out(cv::Rect(shift.x, shift.y, re.cols, re.rows)));*/
-
-    // for test
-    // cv::imwrite("plate.jpg", out);
-
-    constexpr int32_t channels = 3;
-    const int32_t input_size = channels * width * height;
-    std::vector<float> input_buffer(input_size);
-    for (auto c = 0; c < channels; ++c)
-      for (auto h = 0; h < height; ++h)
-        for (auto w = 0; w < width; ++w)
-          input_buffer[c * height * width + h * width + w] =
-            static_cast<float>(out.at<cv::Vec3b>(h, w)[2 - c]) / 255.0f;
-
-    return input_buffer;
-  }
-
   bool Workflow::doInferenceVdNet(const cv::Mat& img, const VStreamConfig& config, std::vector<Vehicle>& detected_vehicles) const
   {
     detected_vehicles.clear();
@@ -1032,15 +932,16 @@ properties:
         config.id_group, config.ext_id);
     cv::Point2f shift;
     double scale;
-    auto input_buffer = preprocessImageForVdNet(img, config.lpd_net_input_width, config.lpd_net_input_height, shift,
+    auto blob = prepareBlobForYOLO(img, config.lpd_net_input_width, config.lpd_net_input_height, shift,
       scale);
     if (config.logs_level <= userver::logging::Level::kTrace)
       USERVER_IMPL_LOG_TO(logger_, userver::logging::Level::kTrace,
         "vstream_key = {}_{};  after preprocess image for VDNet",
         config.id_group, config.ext_id);
 
-    std::vector<uint8_t> input_data(config.vd_net_input_width * config.vd_net_input_height * 3 * sizeof(float));
-    memcpy(input_data.data(), input_buffer.data(), input_data.size());
+    const auto* raw = blob.ptr<uint8_t>();
+    const auto byte_size = blob.total() * blob.elemSize();
+    std::vector input_data(raw, raw + byte_size);
     std::vector<int64_t> shape = {1, 3, config.vd_net_input_height, config.vd_net_input_width};
     tc::InferInput* input;
     err = tc::InferInput::Create(&input, config.vd_net_input_tensor_name, shape, "FP32");
@@ -1182,7 +1083,7 @@ properties:
     results.resize(detected_vehicles.size());
 
     std::vector<std::vector<uint8_t>> inputs_data;
-    inputs_data.resize(detected_vehicles.size());
+    inputs_data.reserve(detected_vehicles.size());
 
     std::vector<std::shared_ptr<tc::InferInput>> input_ptrs;
     input_ptrs.reserve(detected_vehicles.size());
@@ -1216,14 +1117,15 @@ properties:
           config.id_group, config.ext_id, vindex);
       cv::Rect roi(cv::Point{static_cast<int>(bbox[0]), static_cast<int>(bbox[1])},
         cv::Point{static_cast<int>(bbox[2]), static_cast<int>(bbox[3])});
-      auto input_buffer = preprocessImageForVcNet(img(roi), config.vc_net_input_width, config.vc_net_input_height);
+      auto blob = prepareBlobForVcNet(img(roi), config.vc_net_input_width, config.vc_net_input_height);
       if (config.logs_level <= userver::logging::Level::kTrace)
         USERVER_IMPL_LOG_TO(logger_, userver::logging::Level::kTrace,
           "vstream_key = {}_{};  after preprocess image {} for VcNet",
           config.id_group, config.ext_id, vindex);
 
-      inputs_data[vindex].resize(config.vc_net_input_width * config.vc_net_input_height * 3 * sizeof(float));
-      memcpy(inputs_data[vindex].data(), input_buffer.data(), inputs_data[vindex].size());
+      const auto* raw = blob.ptr<uint8_t>();
+      const auto byte_size = blob.total() * blob.elemSize();
+      inputs_data.push_back(std::vector(raw, raw + byte_size));
       std::vector<int64_t> shape = {1, 3, config.vc_net_input_height, config.vc_net_input_width};
       tc::InferInput* input;
       err = tc::InferInput::Create(&input, config.vc_net_input_tensor_name, shape, "FP32");
@@ -1336,7 +1238,7 @@ properties:
     results.resize(detected_vehicles.size());
 
     std::vector<std::vector<uint8_t>> inputs_data;
-    inputs_data.resize(detected_vehicles.size());
+    inputs_data.reserve(detected_vehicles.size());
 
     std::vector<std::shared_ptr<tc::InferInput>> input_ptrs;
     input_ptrs.reserve(detected_vehicles.size());
@@ -1379,15 +1281,16 @@ properties:
       // for test
       // cv::imwrite(absl::Substitute("for_lpd_net_$0_$1_$2_$3.jpg", roi.tl().x, roi.tl().y, roi.br().x, roi.br().y), img(roi));
 
-      auto input_buffer = preprocessImageForLpdNet(img(roi), config.lpd_net_input_width, config.lpd_net_input_height, shifts[vindex],
+      auto blob = prepareBlobForYOLO(img(roi), config.lpd_net_input_width, config.lpd_net_input_height, shifts[vindex],
         scales[vindex]);
       if (config.logs_level <= userver::logging::Level::kTrace)
         USERVER_IMPL_LOG_TO(logger_, userver::logging::Level::kTrace,
           "vstream_key = {}_{};  after preprocess image {} for LPDNet",
           config.id_group, config.ext_id, vindex);
 
-      inputs_data[vindex].resize(config.lpd_net_input_width * config.lpd_net_input_height * 3 * sizeof(float));
-      memcpy(inputs_data[vindex].data(), input_buffer.data(), inputs_data[vindex].size());
+      const auto* raw = blob.ptr<uint8_t>();
+      const auto byte_size = blob.total() * blob.elemSize();
+      inputs_data.push_back(std::vector(raw, raw + byte_size));
       std::vector<int64_t> shape = {1, 3, config.lpd_net_input_height, config.lpd_net_input_width};
       tc::InferInput* input;
       err = tc::InferInput::Create(&input, config.lpd_net_input_tensor_name, shape, "FP32");
@@ -1479,15 +1382,25 @@ properties:
           "vstream_key = {}_{};  license plate confidence threshold (vindex = {}): {}",
           config.id_group, config.ext_id, vindex, config.plate_confidence);
       for (auto j = 0; j < num_cols; ++j)
+      {
+        const float cx = data[(bbox_index + 0) * num_cols + j];
+        const float cy = data[(bbox_index + 1) * num_cols + j];
+        const float bw = data[(bbox_index + 2) * num_cols + j];
+        const float bh = data[(bbox_index + 3) * num_cols + j];
+
         for (auto k = class_start_index; k < class_start_index + PLATE_CLASS_COUNT; ++k)
-          if (data[k * num_cols + j] > config.plate_confidence)
+        {
+          const float conf = data[k * num_cols + j];
+          if (conf > config.plate_confidence)
           {
             // calculating absolute coordinates of the license plate
             detected_plates.emplace_back();
-            detected_plates.back().bbox[0] = bbox[0] + static_cast<float>((data[(bbox_index + 0) * num_cols + j] - data[(bbox_index + 2) * num_cols + j] / 2 - shifts[vindex].x) / scales[vindex]);
-            detected_plates.back().bbox[1] = bbox[1] + static_cast<float>((data[(bbox_index + 1) * num_cols + j] - data[(bbox_index + 3) * num_cols + j] / 2 - shifts[vindex].y) / scales[vindex]);
-            detected_plates.back().bbox[2] = bbox[0] + static_cast<float>((data[(bbox_index + 0) * num_cols + j] + data[(bbox_index + 2) * num_cols + j] / 2 - shifts[vindex].x) / scales[vindex]);
-            detected_plates.back().bbox[3] = bbox[1] + static_cast<float>((data[(bbox_index + 1) * num_cols + j] + data[(bbox_index + 3) * num_cols + j] / 2 - shifts[vindex].y) / scales[vindex]);
+            auto& plate = detected_plates.back();
+            const float inv_scale = 1.0f / static_cast<float>(scales[vindex]);
+            plate.bbox[0] = bbox[0] + (cx - bw / 2 - shifts[vindex].x) * inv_scale;
+            plate.bbox[1] = bbox[1] + (cy - bh / 2 - shifts[vindex].y) * inv_scale;
+            plate.bbox[2] = bbox[0] + (cx + bw / 2 - shifts[vindex].x) * inv_scale;
+            plate.bbox[3] = bbox[1] + (cy + bh / 2 - shifts[vindex].y) * inv_scale;
             for (int l = 0; l < 8; ++l)
             {
               auto sh = shifts[vindex].x;
@@ -1502,6 +1415,8 @@ properties:
             detected_plates.back().confidence = data[k * num_cols + j];
             detected_plates.back().plate_class = k - class_start_index;
           }
+        }
+      }
 
       if (config.logs_level <= userver::logging::Level::kTrace)
         USERVER_IMPL_LOG_TO(logger_, userver::logging::Level::kTrace,
@@ -1704,7 +1619,7 @@ properties:
     results.resize(detected_plates.size());
 
     std::vector<std::vector<uint8_t>> inputs_data;
-    inputs_data.resize(detected_plates.size());
+    inputs_data.reserve(detected_plates.size());
 
     std::vector<std::shared_ptr<tc::InferInput>> input_ptrs;
     input_ptrs.reserve(detected_plates.size());
@@ -1755,7 +1670,7 @@ properties:
       // for test
       // cv::imwrite(absl::Substitute("pp_$0.jpg", pindex), lp_image);
 
-      auto input_buffer = preprocessImageForLprNet(lp_image, config.lpr_net_input_width, config.lpr_net_input_height, shifts[pindex],
+      auto blob = prepareBlobForYOLO(lp_image, config.lpr_net_input_width, config.lpr_net_input_height, shifts[pindex],
         scales[pindex]);
 
       if (config.logs_level <= userver::logging::Level::kTrace)
@@ -1763,8 +1678,9 @@ properties:
           "vstream_key = {}_{};  after preprocess image {} for LPRNet",
           config.id_group, config.ext_id, pindex);
 
-      inputs_data[pindex].resize(config.lpr_net_input_width * config.lpr_net_input_height * 3 * sizeof(float));
-      memcpy(inputs_data[pindex].data(), input_buffer.data(), inputs_data[pindex].size());
+      const auto* raw = blob.ptr<uint8_t>();
+      const auto byte_size = blob.total() * blob.elemSize();
+      inputs_data.push_back(std::vector(raw, raw + byte_size));
       std::vector<int64_t> shape = {1, 3, config.lpr_net_input_height, config.lpr_net_input_width};
       tc::InferInput* input;
       err = tc::InferInput::Create(&input, config.lpr_net_input_tensor_name, shape, "FP32");

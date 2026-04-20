@@ -271,9 +271,9 @@ python3 ~/falprs/utils/vstream_groups.py -h
 ```bash
 python3 ~/falprs/utils/vstream_groups.py -t frs -a "My new group"
 ```
-Показать список групп в LPRS:
+Показать список групп в FRS:
 ```bash
-python3 ~/falprs/utils/vstream_groups.py -t lprs -l
+python3 ~/falprs/utils/vstream_groups.py -t frs -l
 ```
 Пример вывода:
 ```bash
