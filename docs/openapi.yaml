@@ -2153,6 +2153,11 @@ components:
           type: number
           format: float
           default: 0.7
+        face-iou-threshold:
+          description: Face intersection over union threshold value for NMS algorithm
+          type: number
+          format: float
+          default: 0.4
         face-enlarge-scale:
           description: Expansion factor of rectangular face storage area
           type: number
@@ -2224,6 +2229,11 @@ components:
           description: Barcode processing flag
           type: boolean
           default: false
+        barcode-confidence:
+          description: Barcode detection probability threshold
+          type: number
+          format: float
+          default: 0.8
 
     LPRSInternalVStreamConfig:
       description: Configuration of the video stream

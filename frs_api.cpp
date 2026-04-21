@@ -409,6 +409,7 @@ namespace Frs
           ConfigParams::DNN_FD_INFERENCE_SERVER,
           ConfigParams::DNN_FC_INFERENCE_SERVER,
           ConfigParams::DNN_FR_INFERENCE_SERVER,
+          ConfigParams::DNN_BD_INFERENCE_SERVER,
           ConfigParams::TITLE};
 
         HashSet<std::string> time_params = {

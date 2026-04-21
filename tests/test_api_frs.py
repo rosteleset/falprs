@@ -28,6 +28,8 @@ SIMILARITY_THRESHOLD = "similarityThreshold"
 UUID = "uuid"
 EVENT_ID = "eventId"
 SIMILARITY = "similarity"
+CONFIG = "config"
+LOGS_LEVEL = "logs-level"
 
 order = 0
 face_id1 = 0
@@ -58,7 +60,8 @@ def test_list_streams_empty():
 @pytest.mark.order(++order)
 def test_add_stream():
     url = API_URL + "addStream"
-    data = {STREAM_ID: "1", URL: FALPRS_URL + "/einstein_001.jpg"}
+    config = {LOGS_LEVEL: "trace"}
+    data = {STREAM_ID: "1", URL: FALPRS_URL + "/einstein_001.jpg", CONFIG: config}
     response = requests.post(url, json=data)
     assert response.status_code == 204
 
@@ -82,7 +85,8 @@ def test_list_streams():
 @pytest.mark.order(++order)
 def test_add_stream3():
     url = API_URL + "addStream"
-    data = {STREAM_ID: "2", URL: FALPRS_URL + "/einstein_001.jpg"}
+    config = {LOGS_LEVEL: "trace"}
+    data = {STREAM_ID: "2", URL: FALPRS_URL + "/einstein_001.jpg", CONFIG: config}
     response = requests.post(url, json=data)
     assert response.status_code == 204
 

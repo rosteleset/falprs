@@ -154,8 +154,8 @@ namespace Frs
     return interBoxS / ((lbox[2] - lbox[0]) * (lbox[3] - lbox[1]) + (rbox[2] - rbox[0]) * (rbox[3] - rbox[1]) - interBoxS + 0.000001f);
   }
 
-  // non maximum suppression algorithm
-  inline void nms(std::vector<FaceDetection>& dets, const float nms_thresh = 0.4)
+  // non-maximum suppression algorithm
+  inline void nms_faces(std::vector<FaceDetection>& dets, const float nms_thresh = 0.4)
   {
     std::ranges::sort(dets, [](const auto& a, const auto& b)
       { return a.face_confidence > b.face_confidence; });
@@ -253,6 +253,42 @@ namespace Frs
     }
 
     return result;
+  }
+
+  inline bool cmp_barcodes(const Barcode& a, const Barcode& b)
+  {
+    return a.confidence > b.confidence;
+  }
+
+  inline bool hasIntersection(float lbox[4], float rbox[4])
+  {
+    const float inter_box[] =
+    {
+      std::max(lbox[0], rbox[0]),  // left
+      std::min(lbox[2], rbox[2]),  // right
+      std::max(lbox[1], rbox[1]),  // top
+      std::min(lbox[3], rbox[3]),  // bottom
+    };
+
+    return inter_box[0] < inter_box[1] && inter_box[2] < inter_box[3];
+  }
+
+  // non-maximum suppression algorithm for barcode detection
+  inline void nms_barcodes(std::vector<Barcode>& dets)
+  {
+    std::ranges::sort(dets, cmp_barcodes);
+    for (size_t m = 0; m < dets.size(); ++m)
+    {
+      auto& [bbox, confidence] = dets[m];
+      for (size_t n = m + 1; n < dets.size(); ++n)
+      {
+        if (hasIntersection(bbox, dets[n].bbox))
+        {
+          dets.erase(dets.begin() + static_cast<int>(n));
+          --n;
+        }
+      }
+    }
   }
 
   Workflow::Workflow(const userver::components::ComponentConfig& config, const userver::components::ComponentContext& context)
@@ -663,51 +699,64 @@ properties:
             .face_image = {},
             .id_descriptors = {}};
         }
-        if (config.logs_level <= userver::logging::Level::kTrace || task_data.task_type == TASK_TEST)
+
+        // looking for barcodes
+        if (std::vector<Barcode> detected_barcodes; detectBarcodes(task_data, frame, common_config, config, detected_barcodes))
         {
-          USERVER_IMPL_LOG_TO(logger_, userver::logging::Level::kTrace,
-            "vstream_key = {};  before decoding barcodes",
-            task_data.vstream_key);
-        }
-        auto image_format_from_channels = std::array{ZXing::ImageFormat::None, ZXing::ImageFormat::Lum, ZXing::ImageFormat::LumA, ZXing::ImageFormat::RGB, ZXing::ImageFormat::RGBA};
-        auto image = ZXing::ImageView(frame.data, frame.cols, frame.rows, image_format_from_channels.at(frame.channels()));
-        auto options = ZXing::ReaderOptions()
-                         .setFormats(ZXing::BarcodeFormat::All)
-                         .setTryHarder(true)
-                         .setTryRotate(true);
-        auto barcodes = ZXing::ReadBarcodes(image, options);
-        if (config.logs_level <= userver::logging::Level::kTrace || task_data.task_type == TASK_TEST)
-        {
-          USERVER_IMPL_LOG_TO(logger_, userver::logging::Level::kTrace,
-            "vstream_key = {};  after decoding barcodes",
-            task_data.vstream_key);
-        }
-        if (!barcodes.empty())
-        {
+          auto image_format_from_channels = std::array{ZXing::ImageFormat::None, ZXing::ImageFormat::Lum, ZXing::ImageFormat::LumA, ZXing::ImageFormat::RGB, ZXing::ImageFormat::RGBA};
+          auto options = ZXing::ReaderOptions()
+                           .setFormats(ZXing::BarcodeFormat::All)
+                           .setTryHarder(true)
+                           .setTryRotate(true);
+          userver::formats::json::ValueBuilder json_barcodes = userver::formats::json::MakeArray();
+          if (config.logs_level <= userver::logging::Level::kTrace || task_data.task_type == TASK_TEST)
+          {
+            USERVER_IMPL_LOG_TO(logger_, userver::logging::Level::kTrace,
+              "vstream_key = {};  before decoding barcodes",
+              task_data.vstream_key);
+          }
+
+          for (size_t bindex = 0; bindex < detected_barcodes.size(); ++bindex)
+          {
+            const auto& [bbox, confidence] = detected_barcodes[bindex];
+            cv::Rect roi(cv::Point{static_cast<int>(bbox[0]), static_cast<int>(bbox[1])},
+              cv::Point{static_cast<int>(bbox[2]), static_cast<int>(bbox[3])});
+            cv::Mat bc_img = frame(roi).clone();
+            auto image = ZXing::ImageView(bc_img.data, bc_img.cols, bc_img.rows, image_format_from_channels.at(bc_img.channels()));
+            if (auto barcodes = ZXing::ReadBarcodes(image, options); !barcodes.empty())
+            {
+              for (auto&& barcode : barcodes)
+                if (barcode.format() != ZXing::BarcodeFormat::None)
+                {
+                  userver::formats::json::ValueBuilder barcode_data;
+                  barcode_data[Api::P_TEXT] = barcode.text();
+                  barcode_data[Api::P_FORMAT] = ZXing::ToString(barcode.format());
+                  barcode_data[Api::P_POSITION] = userver::formats::json::MakeArray(
+                    lround(barcode.position()[0].x + bbox[0]),
+                    lround(barcode.position()[0].y + bbox[1]),
+                    lround(barcode.position()[1].x + bbox[0]),
+                    lround(barcode.position()[1].y + bbox[1]),
+                    lround(barcode.position()[2].x + bbox[0]),
+                    lround(barcode.position()[2].y + bbox[1]),
+                    lround(barcode.position()[3].x + bbox[0]),
+                    lround(barcode.position()[3].y + bbox[1]));
+                  json_barcodes.PushBack(std::move(barcode_data));
+                }
+            }
+          }
+          if (config.logs_level <= userver::logging::Level::kTrace || task_data.task_type == TASK_TEST)
+          {
+            USERVER_IMPL_LOG_TO(logger_, userver::logging::Level::kTrace,
+              "vstream_key = {};  after decoding barcodes",
+              task_data.vstream_key);
+          }
           if (config.logs_level <= userver::logging::Level::kTrace || task_data.task_type == TASK_TEST)
           {
             USERVER_IMPL_LOG_TO(logger_, userver::logging::Level::kTrace,
               "vstream_key = {};  found barcodes: {}",
-              task_data.vstream_key, barcodes.size());
+              task_data.vstream_key, json_barcodes.GetSize());
           }
-          userver::formats::json::ValueBuilder json_barcodes;
-          for (auto&& barcode : barcodes)
-            if (barcode.format() != ZXing::BarcodeFormat::None)
-            {
-              userver::formats::json::ValueBuilder barcode_data;
-              barcode_data[Api::P_TEXT] = barcode.text();
-              barcode_data[Api::P_FORMAT] = ZXing::ToString(barcode.format());
-              barcode_data[Api::P_POSITION] = userver::formats::json::MakeArray(
-                barcode.position()[0].x,
-                barcode.position()[0].y,
-                barcode.position()[1].x,
-                barcode.position()[1].y,
-                barcode.position()[2].x,
-                barcode.position()[2].y,
-                barcode.position()[3].x,
-                barcode.position()[3].y);
-              json_barcodes.PushBack(std::move(barcode_data));
-            }
+
           if (!json_barcodes.IsEmpty())
           {
             auto t_now = std::chrono::system_clock::now();
@@ -1748,28 +1797,6 @@ properties:
   }
 
   // Inference pipeline functions
-  cv::Mat Workflow::preprocessImage(const cv::Mat& img, const int width, const int height, float& scale)
-  {
-    int w, h;
-    const auto r_w = width / (img.cols * 1.0);
-    if (const auto r_h = height / (img.rows * 1.0); r_h > r_w)
-    {
-      w = width;
-      h = static_cast<int>(r_w * img.rows);
-    } else
-    {
-      w = static_cast<int>(r_h * img.cols);
-      h = height;
-    }
-    cv::Mat re(h, w, CV_8UC3);
-    cv::resize(img, re, re.size(), 0, 0, cv::INTER_LINEAR);
-    cv::Mat out(height, width, CV_8UC3, cv::Scalar(0, 0, 0));
-    re.copyTo(out(cv::Rect(0, 0, re.cols, re.rows)));
-    scale = static_cast<float>(h) / static_cast<float>(img.rows);
-
-    return out;
-  }
-
   bool Workflow::detectFaces(const TaskData& task_data, const cv::Mat& frame, const VStreamConfig& config, std::vector<FaceDetection>& detected_faces)
   {
     decltype(CommonConfig::dnn_fd_model_name) dnn_fd_model_name = "scrfd";
@@ -1960,7 +1987,7 @@ properties:
       }
     }
 
-    nms(detected_faces);
+    nms_faces(detected_faces, config.face_iou_threshold);
 
     return true;
   }
@@ -2346,5 +2373,164 @@ properties:
     }
 
     return result;
+  }
+
+  bool Workflow::detectBarcodes(const TaskData& task_data, const cv::Mat& frame, const CommonConfig& common_config, const VStreamConfig& config,
+      std::vector<Barcode>& detected_barcodes)
+  {
+    detected_barcodes.clear();
+
+    std::unique_ptr<tc::InferenceServerHttpClient> triton_client;
+    auto err = tc::InferenceServerHttpClient::Create(&triton_client, config.dnn_bd_inference_server, false);
+    if (!err.IsOk())
+    {
+      LOG_ERROR_TO(logger_,
+        "Error! Unable to create inference client: {}",
+        err.Message());
+      return false;
+    }
+
+    if (config.logs_level <= userver::logging::Level::kTrace || task_data.task_type == TASK_TEST)
+      USERVER_IMPL_LOG_TO(logger_, userver::logging::Level::kTrace,
+        "vstream_key = {};  before image preprocessing for barcode detection",
+        task_data.vstream_key);
+    cv::Point2f shift;
+    double scale;
+    auto blob = prepareBlobForYOLO(frame, common_config.dnn_bd_input_width, common_config.dnn_bd_input_height, shift, scale);
+    if (config.logs_level <= userver::logging::Level::kTrace || task_data.task_type == TASK_TEST)
+      USERVER_IMPL_LOG_TO(logger_, userver::logging::Level::kTrace,
+        "vstream_key = {};  after image preprocessing for face detection",
+        task_data.vstream_key);
+
+    const auto* raw = blob.ptr<uint8_t>();
+    const auto byte_size = blob.total() * blob.elemSize();
+    std::vector input_data(raw, raw + byte_size);
+    std::vector<int64_t> shape = {1, 3, common_config.dnn_bd_input_height, common_config.dnn_bd_input_width};
+    tc::InferInput* input;
+    err = tc::InferInput::Create(&input, common_config.dnn_bd_input_tensor_name, shape, "FP32");
+    if (!err.IsOk())
+    {
+      LOG_ERROR_TO(logger_,
+        "Error! Unable to create input data: {}",
+        err.Message());
+      return false;
+    }
+    std::shared_ptr<tc::InferInput> input_ptr(input);
+
+    tc::InferRequestedOutput* output;
+    err = tc::InferRequestedOutput::Create(&output, common_config.dnn_bd_output_tensor_name);
+    if (!err.IsOk())
+    {
+      LOG_ERROR_TO(logger_,
+        "Error! Unable to create output data: {}",
+        err.Message());
+      return false;
+    }
+    std::shared_ptr<tc::InferRequestedOutput> output_ptr(output);
+
+    std::vector inputs = {input_ptr.get()};
+    std::vector<const tc::InferRequestedOutput*> outputs = {output_ptr.get()};
+    err = input_ptr->AppendRaw(input_data);
+    if (!err.IsOk())
+    {
+      LOG_ERROR_TO(logger_,
+        "Error! Unable to set up input data: {}",
+        err.Message());
+      return false;
+    }
+
+    tc::InferOptions options(common_config.dnn_bd_model_name);
+    options.model_version_ = "";
+    tc::InferResult* result;
+
+    AsyncNoSpan(fs_task_processor_,
+      [&]
+      {
+        if (config.logs_level <= userver::logging::Level::kTrace)
+          USERVER_IMPL_LOG_TO(logger_, userver::logging::Level::kTrace,
+            "vstream_key = {};  before inference barcode detection",
+            task_data.vstream_key);
+        err = triton_client->Infer(&result, options, inputs, outputs);
+        if (config.logs_level <= userver::logging::Level::kTrace)
+          USERVER_IMPL_LOG_TO(logger_, userver::logging::Level::kTrace,
+            "vstream_key = {};  after inference barcode detection",
+            task_data.vstream_key);
+      }).Get();
+
+    if (!err.IsOk())
+    {
+      LOG_ERROR_TO(logger_,
+        "Error! Unable to send inference request: {}",
+        err.Message());
+      return false;
+    }
+
+    std::shared_ptr<tc::InferResult> result_ptr(result);
+    if (!result_ptr->RequestStatus().IsOk())
+    {
+      LOG_ERROR_TO(logger_,
+        "Error! Unable to receive inference result: {}",
+        err.Message());
+      return false;
+    }
+
+    if (config.logs_level <= userver::logging::Level::kDebug)
+      USERVER_IMPL_LOG_TO(logger_, userver::logging::Level::kDebug,
+        "vstream_key = {};  inference barcode detection OK",
+        task_data.vstream_key);
+
+    const float* data;
+    size_t data_size;
+    result_ptr->RawData(common_config.dnn_bd_output_tensor_name, reinterpret_cast<const uint8_t**>(&data), &data_size);
+
+    // the output tensor has a dimension of [5, 2100]
+    //  0 - bbox x_center
+    //  1 - bbox y_center
+    //  2 - bbox width
+    //  3 - bbox height
+    //  4 - confidence
+    auto num_cols = 2100;
+    auto bbox_index = 0;
+    auto class_start_index = bbox_index + 4;
+    if (config.logs_level <= userver::logging::Level::kTrace)
+      USERVER_IMPL_LOG_TO(logger_, userver::logging::Level::kTrace,
+        "vstream_key = {};  barcode confidence threshold: {:.3f}",
+        task_data.vstream_key, config.barcode_confidence);
+    for (auto j = 0; j < num_cols; ++j)
+    {
+      const float cx = data[(bbox_index + 0) * num_cols + j];
+      const float cy = data[(bbox_index + 1) * num_cols + j];
+      const float bw = data[(bbox_index + 2) * num_cols + j];
+      const float bh = data[(bbox_index + 3) * num_cols + j];
+      auto k = class_start_index;
+      if (auto conf = data[k * num_cols + j]; conf > config.barcode_confidence)
+      {
+        detected_barcodes.emplace_back();
+        auto& [bbox, confidence] = detected_barcodes.back();
+        const float inv_scale = 1.0f / static_cast<float>(scale);
+        auto x_min = std::fmax((cx - bw / 2 - bw / 10 - shift.x) * inv_scale, 0.0f);
+        auto y_min = std::fmax((cy - bh / 2 - bh / 10 - shift.y) * inv_scale, 0.0f);
+        auto x_max = std::fmin((cx + bw / 2 + bw / 10 - shift.x) * inv_scale, static_cast<float>(frame.cols - 1));
+        auto y_max = std::fmin((cy + bh / 2 + bh / 10 - shift.y) * inv_scale, static_cast<float>(frame.rows - 1));
+
+        bbox[0] = x_min;
+        bbox[1] = y_min;
+        bbox[2] = x_max;
+        bbox[3] = y_max;
+        confidence = conf;
+      }
+    }
+
+    if (config.logs_level <= userver::logging::Level::kTrace)
+      USERVER_IMPL_LOG_TO(logger_, userver::logging::Level::kTrace,
+        "vstream_key = {};  before nms_barcodes count: {}",
+        task_data.vstream_key, detected_barcodes.size());
+    nms_barcodes(detected_barcodes);
+    if (config.logs_level <= userver::logging::Level::kTrace)
+      USERVER_IMPL_LOG_TO(logger_, userver::logging::Level::kTrace,
+        "vstream_key = {};  after nms_barcodes count: {}",
+        task_data.vstream_key, detected_barcodes.size());
+
+    return true;
   }
 }  // namespace Frs

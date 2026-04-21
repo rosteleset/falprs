@@ -70,6 +70,11 @@ namespace Frs
     inline static constexpr auto COMMENTS_PARTIAL_FACE = "comments-partial-face";
     inline static constexpr auto COMMENTS_URL_IMAGE_ERROR = "comments-url-image-error";
     inline static constexpr auto SG_MAX_DESCRIPTOR_COUNT = "sg-max-descriptor-count";
+    inline static constexpr auto DNN_BD_MODEL_NAME = "dnn-bd-model-name";
+    inline static constexpr auto DNN_BD_INPUT_WIDTH = "dnn-bd-input-width";
+    inline static constexpr auto DNN_BD_INPUT_HEIGHT = "dnn-bd-input-height";
+    inline static constexpr auto DNN_BD_INPUT_TENSOR_NAME = "dnn-bd-input-tensor-name";
+    inline static constexpr auto DNN_BD_OUTPUT_TENSOR_NAME = "dnn-bd-output-tensor-name";
 
     // Video stream
     inline static constexpr auto BEST_QUALITY_INTERVAL_AFTER = "best-quality-interval-after";
@@ -84,6 +89,7 @@ namespace Frs
     inline static constexpr auto DNN_FR_INFERENCE_SERVER = "dnn-fr-inference-server";
     inline static constexpr auto FACE_CLASS_CONFIDENCE_THRESHOLD = "face-class-confidence";
     inline static constexpr auto FACE_CONFIDENCE_THRESHOLD = "face-confidence";
+    inline static constexpr auto FACE_IOU_THRESHOLD = "face-iou-threshold";
     inline static constexpr auto FACE_ENLARGE_SCALE = "face-enlarge-scale";
     inline static constexpr auto LOGS_LEVEL = "logs-level";
     inline static constexpr auto MARGIN = "margin";
@@ -97,6 +103,8 @@ namespace Frs
     inline static constexpr auto UNKNOWN_DESCRIPTOR_TTL = "unknown-descriptor-ttl";
     inline static constexpr auto FLAG_PROCESS_FACES = "flag-process-faces";
     inline static constexpr auto FLAG_PROCESS_BARCODES = "flag-process-barcodes";
+    inline static constexpr auto DNN_BD_INFERENCE_SERVER = "dnn-bd-inference-server";
+    inline static constexpr auto BARCODE_CONFIDENCE_THRESHOLD = "barcode-confidence";
 
     // Video stream specific params
     inline static constexpr auto TITLE = "title";
@@ -134,6 +142,11 @@ namespace Frs
     std::string comments_partial_face{"The face must be fully visible in the image."};
     std::string comments_url_image_error{"Failed to receive image."};
     int32_t sg_max_descriptor_count{1000};
+    std::string dnn_bd_model_name{"barcode_detection"};
+    int32_t dnn_bd_input_width{320};
+    int32_t dnn_bd_input_height{320};
+    std::string dnn_bd_input_tensor_name{"images"};
+    std::string dnn_bd_output_tensor_name{"output0"};
   };
 
   struct VStreamConfig
@@ -148,8 +161,10 @@ namespace Frs
     std::string dnn_fd_inference_server{"127.0.0.1:8000"};
     std::string dnn_fc_inference_server{"127.0.0.1:8000"};
     std::string dnn_fr_inference_server{"127.0.0.1:8000"};
+    std::string dnn_bd_inference_server{"127.0.0.1:8000"};
     float face_class_confidence{0.7};
     float face_confidence{0.7};
+    float face_iou_threshold{0.4};
     float face_enlarge_scale{1.5};
     userver::logging::Level logs_level{userver::logging::Level::kInfo};
     float margin{5.0};
@@ -165,6 +180,7 @@ namespace Frs
     bool flag_process_faces{true};
     bool flag_process_barcodes{false};
     std::chrono::milliseconds unknown_descriptor_ttl{std::chrono::seconds{5}};
+    float barcode_confidence{0.8};
 
     // additional data
     int32_t id_group{};
@@ -190,6 +206,7 @@ namespace Frs
     config.dnn_fr_inference_server = convertToString(json[ConfigParams::DNN_FR_INFERENCE_SERVER], config.dnn_fr_inference_server);
     config.face_class_confidence = convertToNumber(json[ConfigParams::FACE_CLASS_CONFIDENCE_THRESHOLD], config.face_class_confidence);
     config.face_confidence = convertToNumber(json[ConfigParams::FACE_CONFIDENCE_THRESHOLD], config.face_confidence);
+    config.face_iou_threshold = convertToNumber(json[ConfigParams::FACE_IOU_THRESHOLD], config.face_iou_threshold);
     config.face_enlarge_scale = convertToNumber(json[ConfigParams::FACE_ENLARGE_SCALE], config.face_enlarge_scale);
     config.logs_level = convertToLevel(json[ConfigParams::LOGS_LEVEL], config.logs_level);
     config.margin = convertToNumber(json[ConfigParams::MARGIN], config.margin);
@@ -206,6 +223,8 @@ namespace Frs
     config.flag_process_faces = convertToBool(json[ConfigParams::FLAG_PROCESS_FACES], config.flag_process_faces);
     config.flag_process_barcodes = convertToBool(json[ConfigParams::FLAG_PROCESS_BARCODES], config.flag_process_barcodes);
     config.unknown_descriptor_ttl = convertToDuration(json[ConfigParams::UNKNOWN_DESCRIPTOR_TTL], config.unknown_descriptor_ttl);
+    config.dnn_bd_inference_server = convertToString(json[ConfigParams::DNN_BD_INFERENCE_SERVER], config.dnn_bd_inference_server);
+    config.barcode_confidence = convertToNumber(json[ConfigParams::BARCODE_CONFIDENCE_THRESHOLD], config.barcode_confidence);
 
     return config;
   }

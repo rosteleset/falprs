@@ -164,6 +164,12 @@ namespace Frs
     cv::Mat face_image;
   };
 
+  struct Barcode
+  {
+    float bbox[4];  // absolute xmin, ymin, xmax, ymax
+    float confidence;
+  };
+
   class Workflow final : public userver::components::LoggableComponentBase
   {
   public:
@@ -323,7 +329,6 @@ namespace Frs
     void nextPipeline(TaskData&& task_data, std::chrono::milliseconds delay);
 
     // Inference pipeline functions
-    static cv::Mat preprocessImage(const cv::Mat& img, int width, int height, float& scale);
     bool detectFaces(const TaskData& task_data, const cv::Mat& frame, const VStreamConfig& config,
       std::vector<FaceDetection>& detected_faces);
     bool inferFaceClass(const TaskData& task_data, const cv::Mat& aligned_face, const VStreamConfig& config,
@@ -335,5 +340,7 @@ namespace Frs
     int32_t addFaceDescriptor(int32_t id_group, int32_t id_vstream, const FaceDescriptor& fd, const cv::Mat& f_img, int32_t id_parent = 0);
     int32_t addSGroupFaceDescriptor(int32_t id_sgroup, const FaceDescriptor& fd, const cv::Mat& f_img);
     int64_t addLogBarcode(int32_t id_vstream, const userver::storages::postgres::TimePointTz& log_date, const userver::formats::json::Value& info) const;
+    bool detectBarcodes(const TaskData& task_data, const cv::Mat& frame, const CommonConfig& common_config, const VStreamConfig& config,
+      std::vector<Barcode>& detected_barcodes);
   };
 }  // namespace Frs
