@@ -77,6 +77,7 @@ namespace Lprs
     inline static constexpr auto FLAG_SAVE_FAILED = "flag-save-failed";
     inline static constexpr auto FLAG_PROCESS_SPECIAL = "flag-process-special";
     inline static constexpr auto WORKFLOW_TIMEOUT = "workflow-timeout";
+    inline static constexpr auto INFERENCE_TIMEOUT = "inference-timeout";
 
     // Video stream specific params
     inline static constexpr auto SCREENSHOT_URL = "screenshot-url";
@@ -137,6 +138,7 @@ namespace Lprs
     bool flag_save_failed{false};
     bool flag_process_special{false};
     std::chrono::milliseconds workflow_timeout{std::chrono::seconds{0}};
+    std::chrono::milliseconds inference_timeout{std::chrono::seconds{1}};
 
     // additional data
     int32_t id_group{};
@@ -217,6 +219,7 @@ namespace Lprs
         config.work_area = {};
       }
     config.workflow_timeout = convertToDuration(json[ConfigParams::WORKFLOW_TIMEOUT], config.workflow_timeout);
+    config.inference_timeout = convertToDuration(json[ConfigParams::INFERENCE_TIMEOUT], config.inference_timeout);
 
     return config;
   }

@@ -978,6 +978,8 @@ properties:
 
     tc::InferOptions options(config.vd_net_model_name);
     options.model_version_ = "";
+    // inference timeout in microseconds
+    options.client_timeout_ = std::chrono::duration_cast<std::chrono::microseconds>(config.inference_timeout).count();
     tc::InferResult* result;
 
     AsyncNoSpan(fs_task_processor_,
@@ -1159,6 +1161,8 @@ properties:
       }
       options.emplace_back(config.vc_net_model_name);
       options.back().model_version_ = "";
+      // inference timeout in microseconds
+      options.back().client_timeout_ = std::chrono::duration_cast<std::chrono::microseconds>(config.inference_timeout).count();
 
       tasks.emplace_back(AsyncNoSpan(fs_task_processor_,
         [&, vindex]
@@ -1324,6 +1328,8 @@ properties:
       }
       options.emplace_back(config.lpd_net_model_name);
       options.back().model_version_ = "";
+      // inference timeout in microseconds
+      options.back().client_timeout_ = std::chrono::duration_cast<std::chrono::microseconds>(config.inference_timeout).count();
 
       tasks.emplace_back(AsyncNoSpan(fs_task_processor_,
         [&, vindex]
@@ -1715,6 +1721,8 @@ properties:
 
       options.emplace_back(config.lpr_net_model_name);
       options.back().model_version_ = "";
+      // inference timeout in microseconds
+      options.back().client_timeout_ = std::chrono::duration_cast<std::chrono::microseconds>(config.inference_timeout).count();
 
       tasks.emplace_back(AsyncNoSpan(fs_task_processor_,
         [&, pindex]

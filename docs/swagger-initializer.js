@@ -6,14 +6,14 @@ window.onload = function() {
     url: "openapi.yaml",
     dom_id: '#swagger-ui',
     deepLinking: true,
-    defaultModelsExpandDepth: -1,
-    supportedSubmitMethods: [],
     presets: [
       SwaggerUIBundle.presets.apis,
+      SwaggerUIStandalonePreset
     ],
     plugins: [
       SwaggerUIBundle.plugins.DownloadUrl
     ],
+    layout: "StandaloneLayout"
   });
 
   //</editor-fold>

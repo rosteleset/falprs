@@ -105,6 +105,7 @@ namespace Frs
     inline static constexpr auto FLAG_PROCESS_BARCODES = "flag-process-barcodes";
     inline static constexpr auto DNN_BD_INFERENCE_SERVER = "dnn-bd-inference-server";
     inline static constexpr auto BARCODE_CONFIDENCE_THRESHOLD = "barcode-confidence";
+    inline static constexpr auto INFERENCE_TIMEOUT = "inference-timeout";
 
     // Video stream specific params
     inline static constexpr auto TITLE = "title";
@@ -181,6 +182,7 @@ namespace Frs
     bool flag_process_barcodes{false};
     std::chrono::milliseconds unknown_descriptor_ttl{std::chrono::seconds{5}};
     float barcode_confidence{0.8};
+    std::chrono::milliseconds inference_timeout{std::chrono::seconds{1}};
 
     // additional data
     int32_t id_group{};
@@ -225,6 +227,7 @@ namespace Frs
     config.unknown_descriptor_ttl = convertToDuration(json[ConfigParams::UNKNOWN_DESCRIPTOR_TTL], config.unknown_descriptor_ttl);
     config.dnn_bd_inference_server = convertToString(json[ConfigParams::DNN_BD_INFERENCE_SERVER], config.dnn_bd_inference_server);
     config.barcode_confidence = convertToNumber(json[ConfigParams::BARCODE_CONFIDENCE_THRESHOLD], config.barcode_confidence);
+    config.inference_timeout = convertToDuration(json[ConfigParams::INFERENCE_TIMEOUT], config.inference_timeout);
 
     return config;
   }

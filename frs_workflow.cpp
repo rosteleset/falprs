@@ -1886,6 +1886,8 @@ properties:
 
     tc::InferOptions options(dnn_fd_model_name);
     options.model_version_ = "";
+    // inference timeout in microseconds
+    options.client_timeout_ = std::chrono::duration_cast<std::chrono::microseconds>(config.inference_timeout).count();
     tc::InferResult* result;
 
     if (config.logs_level <= userver::logging::Level::kTrace || task_data.task_type == TASK_TEST)
@@ -2067,6 +2069,8 @@ properties:
 
     tc::InferOptions options(dnn_fc_model_name);
     options.model_version_ = "";
+    // inference timeout in microseconds
+    options.client_timeout_ = std::chrono::duration_cast<std::chrono::microseconds>(config.inference_timeout).count();
     tc::InferResult* result;
 
     if (config.logs_level <= userver::logging::Level::kTrace || task_data.task_type == TASK_TEST)
@@ -2199,6 +2203,8 @@ properties:
 
     tc::InferOptions options(dnn_fr_model_name);
     options.model_version_ = "";
+    // inference timeout in microseconds
+    options.client_timeout_ = std::chrono::duration_cast<std::chrono::microseconds>(config.inference_timeout).count();
     tc::InferResult* result;
 
     if (config.logs_level <= userver::logging::Level::kTrace || task_data.task_type == TASK_TEST)
@@ -2441,6 +2447,8 @@ properties:
 
     tc::InferOptions options(common_config.dnn_bd_model_name);
     options.model_version_ = "";
+    // inference timeout in microseconds
+    options.client_timeout_ = std::chrono::duration_cast<std::chrono::microseconds>(config.inference_timeout).count();
     tc::InferResult* result;
 
     AsyncNoSpan(fs_task_processor_,
