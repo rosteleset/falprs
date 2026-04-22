@@ -448,5 +448,4 @@ Below are the load data for a cluster of two different servers with different sh
 
 #### Second Server
 ![](./docs/srv2_cpu.png)
-![](./docs/srv2_gpu0.png)
-![](./docs/srv2_gpu1.png)
+![](./docs/srv2_gpu.png)

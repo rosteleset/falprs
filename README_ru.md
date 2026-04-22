@@ -453,5 +453,4 @@ rm -rf venv
 
 #### Второй сервер
 ![](./docs/srv2_cpu.png)
-![](./docs/srv2_gpu0.png)
-![](./docs/srv2_gpu1.png)
+![](./docs/srv2_gpu.png)
