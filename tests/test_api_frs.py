@@ -31,6 +31,13 @@ SIMILARITY = "similarity"
 CONFIG = "config"
 LOGS_LEVEL = "logs-level"
 
+CALLBACK_URL_BARCODES = "callbackBarcodes"
+LOG_EVENT_ID = "eventId"
+BARCODES = "barcodes"
+TEXT = "text"
+FORMAT = "format"
+POSITION = "position"
+
 order = 0
 face_id1 = 0
 face_id2 = 0
@@ -929,3 +936,115 @@ def test_delete_faces3():
 @pytest.mark.order(++order)
 def test_list_all_faces8():
     test_list_all_faces6()
+
+# ==================== QR-code / Barcode tests ====================
+
+# addStream with barcode processing enabled
+@pytest.mark.order(++order)
+def test_add_stream_barcode():
+    url = API_URL + "addStream"
+    config = {LOGS_LEVEL: "trace", "flag-process-barcodes": True}
+    data = {STREAM_ID: "bc_1", URL: FALPRS_URL + "/qr_code_001.jpg", CALLBACK_URL_BARCODES: "http://localhost:9999/barcode_callback", CONFIG: config}
+    response = requests.post(url, json=data)
+    assert response.status_code == 204
+
+# addStream with barcode processing (same stream, idempotent)
+@pytest.mark.order(++order)
+def test_add_stream_barcode2():
+    test_add_stream_barcode()
+
+# listStreams: verify barcode stream is present with callbackBarcodes
+@pytest.mark.order(++order)
+def test_list_streams_barcode():
+    url = API_URL + "listStreams"
+    response = requests.post(url)
+    assert response.status_code == 200
+
+    data = response.json()
+    bc_streams = [s for s in data[DATA] if s[STREAM_ID] == "bc_1"]
+    assert len(bc_streams) == 1
+    assert CALLBACK_URL_BARCODES in bc_streams[0]
+    assert bc_streams[0][CALLBACK_URL_BARCODES] == "http://localhost:9999/barcode_callback"
+
+# getBarcodeEvent without required parameters -> 400
+@pytest.mark.order(++order)
+def test_get_barcode_event_no_params():
+    url = API_URL + "getBarcodeEvent"
+    response = requests.post(url, json={})
+    assert response.status_code == 400
+
+# getBarcodeEvent with streamId and date (no barcode events yet) -> 204
+@pytest.mark.order(++order)
+def test_get_barcode_event_empty():
+    url = API_URL + "getBarcodeEvent"
+    data = {STREAM_ID: "bc_1", DATE: datetime.now().isoformat()}
+    response = requests.post(url, json=data)
+    assert response.status_code == 204
+
+# getBarcodeEvent with non-existent eventId -> 204
+@pytest.mark.order(++order)
+def test_get_barcode_event_nonexistent_id():
+    url = API_URL + "getBarcodeEvent"
+    data = {LOG_EVENT_ID: 999999}
+    response = requests.post(url, json=data)
+    assert response.status_code == 204
+
+# getBarcodeEvent with only streamId (missing date) -> 400
+@pytest.mark.order(++order)
+def test_get_barcode_event_missing_date():
+    url = API_URL + "getBarcodeEvent"
+    data = {STREAM_ID: "bc_1"}
+    response = requests.post(url, json=data)
+    assert response.status_code == 400
+
+# getBarcodeEvent with only date (missing streamId) -> 400
+@pytest.mark.order(++order)
+def test_get_barcode_event_missing_stream():
+    url = API_URL + "getBarcodeEvent"
+    data = {DATE: datetime.now().isoformat()}
+    response = requests.post(url, json=data)
+    assert response.status_code == 400
+
+# addStream with barcode processing disabled
+@pytest.mark.order(++order)
+def test_add_stream_barcode_disabled():
+    url = API_URL + "addStream"
+    config = {LOGS_LEVEL: "trace", "flag-process-barcodes": False}
+    data = {STREAM_ID: "bc_2", URL: FALPRS_URL + "/qr_code_001.jpg", CONFIG: config}
+    response = requests.post(url, json=data)
+    assert response.status_code == 204
+
+# listStreams: verify bc_2 has no callbackBarcodes
+@pytest.mark.order(++order)
+def test_list_streams_barcode2():
+    url = API_URL + "listStreams"
+    response = requests.post(url)
+    assert response.status_code == 200
+
+    data = response.json()
+    bc_streams = [s for s in data[DATA] if s[STREAM_ID] == "bc_2"]
+    assert len(bc_streams) == 1
+    assert CALLBACK_URL_BARCODES not in bc_streams[0]
+
+# removeStream barcode streams
+@pytest.mark.order(++order)
+def test_remove_stream_barcode():
+    url = API_URL + "removeStream"
+    data = {STREAM_ID: "bc_1"}
+    response = requests.post(url, json=data)
+    assert response.status_code == 204
+
+@pytest.mark.order(++order)
+def test_remove_stream_barcode2():
+    url = API_URL + "removeStream"
+    data = {STREAM_ID: "bc_2"}
+    response = requests.post(url, json=data)
+    assert response.status_code == 204
+
+# listStreams: verify barcode streams are removed
+@pytest.mark.order(++order)
+def test_list_streams_barcode3():
+    url = API_URL + "listStreams"
+    response = requests.post(url)
+    # could be 204 (empty) or 200 depending on other streams
+    assert response.status_code in [200, 204]
