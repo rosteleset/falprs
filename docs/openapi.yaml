@@ -845,6 +845,11 @@ paths:
                 dnn-fr-input-tensor-name: input.1
                 dnn-fr-output-tensor-name: "683"
                 dnn-fr-output-size: 512
+                dnn-bd-model-name: barcode_detection
+                dnn-bd-input-width: 320
+                dnn-bd-input-height: 320
+                dnn-bd-input-tensor-name: images
+                dnn-bd-output-tensor-name: output0
                 comments-blurry-face: The face image is not clear enough for registration.
                 comments-descriptor-creation-error: Failed to register descriptor.
                 comments-descriptor-exists: The descriptor already exists."
@@ -2053,6 +2058,26 @@ components:
           description: Number of output array elements to obtain a descriptor
           type: integer
           default: 512
+        dnn-bd-model-name:
+          description: Barcode detection model name in Triton Inference Server
+          type: string
+          default: 'barcode_detection'
+        dnn-bd-input-width:
+          description: Width of the input image of the barcode detection model
+          type: integer
+          default: 320
+        dnn-bd-input-height:
+          description: Height of the input image for the barcode detection model
+          type: integer
+          default: 320
+        dnn-bd-input-tensor-name:
+          description: Name of the input tensor for the barcode detection model
+          type: string
+          default: 'images'
+        dnn-bd-output-tensor-name:
+          description: Name of the output tensor for the barcode detection model
+          type: string
+          default: 'output0'
         comments-blurry-face:
           description: Blurred face message
           type: string
