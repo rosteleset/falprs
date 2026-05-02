@@ -137,36 +137,38 @@ namespace Frs
   }
 
   // intersection over union
-  inline float iou(const float* lbox, const float* rbox)
+  inline float iou(const float* lbox, const float* rbox, float larea, float rarea)
   {
-    const float interBox[] =
-      {
-        std::max(lbox[0], rbox[0]),  // left
-        std::min(lbox[2], rbox[2]),  // right
-        std::max(lbox[1], rbox[1]),  // top
-        std::min(lbox[3], rbox[3]),  // bottom
-      };
+    const float left = std::max(lbox[0], rbox[0]);
+    const float top = std::max(lbox[1], rbox[1]);
+    const float right = std::min(lbox[2], rbox[2]);
+    const float bottom = std::min(lbox[3], rbox[3]);
 
-    if (interBox[2] > interBox[3] || interBox[0] > interBox[1])
+    if (left >= right || top >= bottom)
       return 0.0f;
 
-    const float interBoxS = (interBox[1] - interBox[0]) * (interBox[3] - interBox[2]);
-    return interBoxS / ((lbox[2] - lbox[0]) * (lbox[3] - lbox[1]) + (rbox[2] - rbox[0]) * (rbox[3] - rbox[1]) - interBoxS + 0.000001f);
+    const float inter_box_s = (right - left) * (bottom - top);
+    return inter_box_s / (larea + rarea - inter_box_s + 1e-6f);
   }
 
   // non-maximum suppression algorithm
   inline void nms_faces(std::vector<FaceDetection>& dets, const float nms_thresh = 0.4)
   {
+    std::vector<float> areas(dets.size());
+    for (size_t i = 0; i < dets.size(); ++i) {
+        areas[i] = (dets[i].bbox[2] - dets[i].bbox[0]) * (dets[i].bbox[3] - dets[i].bbox[1]);
+    }
+
     std::ranges::sort(dets, [](const auto& a, const auto& b)
       { return a.face_confidence > b.face_confidence; });
     for (size_t m = 0; m < dets.size(); ++m)
     {
-      auto& [bbox, face_confidence, landmark] = dets[m];
       for (size_t n = m + 1; n < dets.size(); ++n)
       {
-        if (iou(bbox, dets[n].bbox) > nms_thresh)
+        if (iou(dets[m].bbox, dets[n].bbox, areas[m], areas[n]) > nms_thresh)
         {
           dets.erase(dets.begin() + static_cast<int>(n));
+          areas.erase(areas.begin() + static_cast<int>(n));
           --n;
         }
       }
@@ -229,8 +231,8 @@ namespace Frs
       constexpr int font_face = cv::FONT_HERSHEY_COMPLEX;
       constexpr int thickness = 2;
 
-      auto osd_date = absl::Now();
-      auto datetime_text = FormatTime(config.osd_dt_format, osd_date, absl::LocalTimeZone());
+      const auto osd_date = absl::Now();
+      const auto datetime_text = FormatTime(config.osd_dt_format, osd_date, absl::LocalTimeZone());
       cv::Size text_size = cv::getTextSize(datetime_text, font_face, 1.0, thickness, nullptr);
 
       // recalculate font_scale and text_size
