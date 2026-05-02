@@ -1,7 +1,12 @@
 #include "image_preprocessing.hpp"
 
+#include "absl/strings/substitute.h"
+
 cv::Mat prepareBlobForYOLO(const cv::Mat& image, const int32_t target_width, const int32_t target_height, cv::Point2f& shift, double& scale)
 {
+  // for test
+  // cv::imwrite(absl::Substitute("before_$0x$1.png", image.cols, image.rows), image);
+
   const auto r_w = target_width / (image.cols * 1.0);
   const auto r_h = target_height / (image.rows * 1.0);
   scale = fmin(r_w, r_h);
@@ -10,9 +15,12 @@ cv::Mat prepareBlobForYOLO(const cv::Mat& image, const int32_t target_width, con
   shift.x = static_cast<float>(target_width - ww) / 2;
   shift.y = static_cast<float>(target_height - hh) / 2;
 
-  cv::Mat out(target_height, target_width, CV_8UC3, cv::Scalar(114, 114, 114));
+  const cv::Mat out(target_height, target_width, CV_8UC3, cv::Scalar(114, 114, 114));
   cv::Mat roi = out(cv::Rect(static_cast<int>(shift.x), static_cast<int>(shift.y), ww, hh));
   cv::resize(image, roi, roi.size(), 0, 0, cv::INTER_LINEAR);
+
+  // for test
+  // cv::imwrite(absl::Substitute("after_$0x$1.png", image.cols, image.rows), out);
 
   return cv::dnn::blobFromImage(
     out,
@@ -22,10 +30,6 @@ cv::Mat prepareBlobForYOLO(const cv::Mat& image, const int32_t target_width, con
     true,                 // swapRB: BGR → RGB
     false                 // without crop
   );
-
-  /*const auto input_size = 3 * target_width * target_height;
-  const auto* data = reinterpret_cast<const float*>(blob.data);
-  return {data, data + input_size};*/
 }
 
 cv::Mat prepareBlobForVcNet(const cv::Mat& img, const int32_t target_width, const int32_t target_height)
@@ -41,10 +45,6 @@ cv::Mat prepareBlobForVcNet(const cv::Mat& img, const int32_t target_width, cons
     true,                             // swapRB: BGR → RGB
     false                             // without crop
   );
-
-  /*const auto input_size = 3 * target_width * target_height;
-  const auto* data = reinterpret_cast<const float*>(blob.data);
-  return {data, data + input_size};*/
 }
 
 cv::Mat prepareBlobForScrfd(const cv::Mat& image, const int32_t target_width, const int32_t target_height, float& scale)
@@ -63,7 +63,7 @@ cv::Mat prepareBlobForScrfd(const cv::Mat& image, const int32_t target_width, co
   }
   scale = static_cast<float>(h) / static_cast<float>(image.rows);
 
-  cv::Mat out(target_height, target_width, CV_8UC3, cv::Scalar(0, 0, 0));
+  const cv::Mat out(target_height, target_width, CV_8UC3, cv::Scalar(0, 0, 0));
   cv::Mat roi = out(cv::Rect(0, 0, w, h));
   cv::resize(image, roi, roi.size(), 0, 0, cv::INTER_LINEAR);
 
@@ -121,6 +121,31 @@ cv::Mat prepareBlobForArcface(const cv::Mat& img, const int32_t target_width, co
 {
   cv::Mat out;
   cv::resize(img, out, cv::Size(target_width, target_height), 0, 0, cv::INTER_LINEAR);
+
+  return cv::dnn::blobFromImage(
+    out,
+    1.0 / 127.5,                      // scale factor
+    cv::Size(),                       // size is already target
+    cv::Scalar(127.5, 127.5, 127.5),  // mean (subtracted before scaling)
+    true,                             // swapRB: BGR → RGB
+    false                             // without crop
+  );
+}
+
+// Letterbox for ViT
+cv::Mat prepareBlobForLpcNet(const cv::Mat& img, const int32_t target_width, const int32_t target_height)
+{
+  const auto r_w = target_width / (img.cols * 1.0);
+  const auto r_h = target_height / (img.rows * 1.0);
+  const auto scale = fmin(r_w, r_h);
+  const auto ww = static_cast<int>(lround(scale * img.cols));
+  const auto hh = static_cast<int>(lround(scale * img.rows));
+  const auto shift_x = static_cast<float>(target_width - ww) / 2;
+  const auto shift_y = static_cast<float>(target_height - hh) / 2;
+
+  const cv::Mat out(target_height, target_width, CV_8UC3, cv::Scalar(114, 114, 114));
+  cv::Mat roi = out(cv::Rect(static_cast<int>(shift_x), static_cast<int>(shift_y), ww, hh));
+  cv::resize(img, roi, roi.size(), 0, 0, cv::INTER_LINEAR);
 
   return cv::dnn::blobFromImage(
     out,

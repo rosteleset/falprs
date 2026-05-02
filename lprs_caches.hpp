@@ -50,6 +50,12 @@ namespace Lprs
     inline static constexpr auto LPD_NET_INPUT_HEIGHT = "lpd-net-input-height";
     inline static constexpr auto LPD_NET_INPUT_TENSOR_NAME = "lpd-net-input-tensor-name";
     inline static constexpr auto LPD_NET_OUTPUT_TENSOR_NAME = "lpd-net-output-tensor-name";
+    inline static constexpr auto LPC_NET_INFERENCE_SERVER = "vd-net-inference-server";
+    inline static constexpr auto LPC_NET_MODEL_NAME = "lpc-net-model-name";
+    inline static constexpr auto LPC_NET_INPUT_WIDTH = "lpc-net-input-width";
+    inline static constexpr auto LPC_NET_INPUT_HEIGHT = "lpc-net-input-height";
+    inline static constexpr auto LPC_NET_INPUT_TENSOR_NAME = "lpc-net-input-tensor-name";
+    inline static constexpr auto LPC_NET_OUTPUT_TENSOR_NAME = "lpc-net-output-tensor-name";
     inline static constexpr auto LPR_NET_INFERENCE_SERVER = "lpr-net-inference-server";
     inline static constexpr auto LPR_NET_MODEL_NAME = "lpr-net-model-name";
     inline static constexpr auto LPR_NET_INPUT_WIDTH = "lpr-net-input-width";
@@ -95,7 +101,7 @@ namespace Lprs
     std::string vd_net_output_tensor_name{"output0"};
 
     std::string vc_net_inference_server{"127.0.0.1:8000"};
-    std::string vc_net_model_name{"vc_genet"};
+    std::string vc_net_model_name{"vcnet_vit"};
     int32_t vc_net_input_width = 224;
     int32_t vc_net_input_height = 224;
     std::string vc_net_input_tensor_name{"input"};
@@ -107,6 +113,13 @@ namespace Lprs
     int32_t lpd_net_input_height = 640;
     std::string lpd_net_input_tensor_name{"images"};
     std::string lpd_net_output_tensor_name{"output0"};
+
+    std::string lpc_net_inference_server{"127.0.0.1:8000"};
+    std::string lpc_net_model_name{"lpcnet_vit"};
+    int32_t lpc_net_input_width = 224;
+    int32_t lpc_net_input_height = 224;
+    std::string lpc_net_input_tensor_name{"input"};
+    std::string lpc_net_output_tensor_name{"output"};
 
     std::string lpr_net_inference_server{"127.0.0.1:8000"};
     std::string lpr_net_model_name{"lprnet_yolo"};
@@ -172,6 +185,13 @@ namespace Lprs
     config.lpd_net_input_height = convertToNumber(json[ConfigParams::LPD_NET_INPUT_HEIGHT], config.lpd_net_input_height);
     config.lpd_net_input_tensor_name = convertToString(json[ConfigParams::LPD_NET_INPUT_TENSOR_NAME], config.lpd_net_input_tensor_name);
     config.lpd_net_output_tensor_name = convertToString(json[ConfigParams::LPD_NET_OUTPUT_TENSOR_NAME], config.lpd_net_output_tensor_name);
+
+    config.lpc_net_inference_server = convertToString(json[ConfigParams::LPC_NET_INFERENCE_SERVER], config.lpc_net_inference_server);
+    config.lpc_net_model_name = convertToString(json[ConfigParams::LPC_NET_MODEL_NAME], config.lpc_net_model_name);
+    config.lpc_net_input_width = convertToNumber(json[ConfigParams::LPC_NET_INPUT_WIDTH], config.lpc_net_input_width);
+    config.lpc_net_input_height = convertToNumber(json[ConfigParams::LPC_NET_INPUT_HEIGHT], config.lpc_net_input_height);
+    config.lpc_net_input_tensor_name = convertToString(json[ConfigParams::LPC_NET_INPUT_TENSOR_NAME], config.lpc_net_input_tensor_name);
+    config.lpc_net_output_tensor_name = convertToString(json[ConfigParams::LPC_NET_OUTPUT_TENSOR_NAME], config.lpc_net_output_tensor_name);
 
     config.lpr_net_inference_server = convertToString(json[ConfigParams::LPR_NET_INFERENCE_SERVER], config.lpr_net_inference_server);
     config.lpr_net_model_name = convertToString(json[ConfigParams::LPR_NET_MODEL_NAME], config.lpr_net_model_name);

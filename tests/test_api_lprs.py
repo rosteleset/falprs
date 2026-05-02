@@ -300,7 +300,7 @@ def test_add_more_streams():
             [0, 800 / h * 100]
         ]
     ])
-    add_stream("a1", FALPRS_URL + "/test_angle_001.jpg")
+    add_stream("a1", FALPRS_URL + "/test_angle_001.jpg", plate_confidence=0.2)
     add_stream("a2", FALPRS_URL + "/test_angle_002.jpg")
     add_stream("a3", FALPRS_URL + "/test_angle_003.jpg", min_plate_height=30)
     add_stream("a4", FALPRS_URL + "/test_angle_004.jpg")
@@ -326,7 +326,7 @@ def test_add_more_streams():
 
     add_stream("c1", FALPRS_URL + "/test_001.jpg", min_plate_height=100)
     add_stream("c2", FALPRS_URL + "/test_001.jpg", vehicle_confidence=0.99)
-    add_stream("c3", FALPRS_URL + "/test_001.jpg", plate_confidence=0.9)
+    add_stream("c3", FALPRS_URL + "/test_001.jpg", plate_confidence=0.99)
     add_stream("c4", FALPRS_URL + "/test_001.jpg", char_score=0.99)
 
     add_stream("b1", FALPRS_URL + "/test_blur_001.jpg")
@@ -345,7 +345,7 @@ def test_add_more_streams():
     add_stream("d7", FALPRS_URL + "/test_dirty_007.jpg")
     add_stream("d8", FALPRS_URL + "/test_dirty_008.jpg")
     add_stream("d9", FALPRS_URL + "/test_dirty_009.jpg")
-    add_stream("d10", FALPRS_URL + "/test_dirty_010.jpg")
+    add_stream("d10", FALPRS_URL + "/test_dirty_010.jpg", plate_confidence=0.08)
 
     add_stream("r1", FALPRS_URL + "/test_rain_001.jpg", vehicle_confidence=0.3)
     add_stream("r2", FALPRS_URL + "/test_rain_002.jpg", vehicle_confidence=0.3)
@@ -366,7 +366,7 @@ def test_add_more_streams():
     add_stream("sq4", FALPRS_URL + "/test_square_004.jpg")
     add_stream("sq5", FALPRS_URL + "/test_square_005.jpg")
     add_stream("sq6", FALPRS_URL + "/test_square_006.jpg")
-    add_stream("sq7", FALPRS_URL + "/test_square_007.jpg")
+    add_stream("sq7", FALPRS_URL + "/test_square_007.jpg", min_plate_height=30)
     add_stream("sq8", FALPRS_URL + "/test_square_008.jpg")
     add_stream("sq9", FALPRS_URL + "/test_square_009.jpg")
 

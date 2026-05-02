@@ -11,10 +11,11 @@
 namespace Lprs
 {
   // License plate classes
-  inline static constexpr char const* PLATE_CLASSES[] = {"ru_1", "ru_1a"};
-  inline static constexpr int32_t PLATE_CLASS_COUNT = 2;  // must be equal to the length of PLATE_CLASSES array
+  inline static constexpr char const* PLATE_CLASSES[] = {"ru_1", "ru_1a", "by", "am"};
   inline static constexpr int32_t PLATE_CLASS_RU_1 = 0;
   inline static constexpr int32_t PLATE_CLASS_RU_1A = 1;
+  inline static constexpr int32_t PLATE_CLASS_BY = 2;
+  inline static constexpr int32_t PLATE_CLASS_AM = 3;
 
   namespace DatabaseFields
   {
@@ -38,6 +39,7 @@ namespace Lprs
 
   struct PlateNumberData
   {
+    int32_t plate_class;
     std::string number;
     float score;
   };
@@ -47,7 +49,7 @@ namespace Lprs
     float bbox[4];  // absolute xmin, ymin, xmax, ymax
     float confidence;
     float kpts[8]{};  // four key points
-    int32_t plate_class;
+    int32_t plate_class_common;
     std::vector<PlateNumberData> plate_numbers;
   };
 
@@ -137,10 +139,13 @@ namespace Lprs
     bool doInferenceLpdNet(const cv::Mat& img, const VStreamConfig& config, std::vector<Vehicle>& detected_vehicles);
     void removeDuplicatePlates(const VStreamConfig& config, std::vector<Vehicle>& detected_vehicles, int32_t width, int32_t height) const;
 
+    // LPCNet
+    bool doInferenceLpcNet(const cv::Mat& img, const VStreamConfig& config, std::vector<LicensePlate*>& detected_plates) const;
+
     // LPRNet
     bool doInferenceLprNet(const cv::Mat& img, const VStreamConfig& config, std::vector<LicensePlate*>& detected_plates);
 
-    static bool isValidPlateNumber(absl::string_view plate_number, int32_t plate_class);
+    static bool isValidPlateNumber(PlateNumberData& plate_number);
     int64_t addEventLog(int32_t id_vstream, const userver::storages::postgres::TimePointTz& log_date, const userver::formats::json::Value& info) const;
   };
 }  // namespace Lprs

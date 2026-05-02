@@ -78,7 +78,7 @@ namespace Lprs
       auto& [bbox, confidence, kpts, plate_class, plate_numbers] = dets[m];
       for (size_t n = m + 1; n < dets.size(); ++n)
       {
-        if (plate_class == dets[n].plate_class && hasIntersection(bbox, dets[n].bbox))
+        if (plate_class == dets[n].plate_class_common && hasIntersection(bbox, dets[n].bbox))
         {
           dets.erase(dets.begin() + static_cast<int>(n));
           --n;
@@ -97,7 +97,7 @@ namespace Lprs
     constexpr int32_t xmin = 0;
 
     // single line license plate number
-    if (a.plate_class == PLATE_CLASS_RU_1)
+    if (a.plate_class == PLATE_CLASS_RU_1 || a.plate_class == PLATE_CLASS_BY || a.plate_class == PLATE_CLASS_AM)
       return a.bbox[xmin] < b.bbox[xmin];
 
     // double line license plate number
@@ -361,9 +361,12 @@ properties:
     }
 
     if (config.logs_level <= userver::logging::Level::kDebug)
+    {
+      auto frame_url = config.screenshot_url.starts_with("data:") ? "data:base64..." : config.screenshot_url;
       USERVER_IMPL_LOG_TO(logger_, userver::logging::Level::kDebug,
         "Start processPipeline: vstream_key = {};  frame_url = {}",
-        vstream_key, config.screenshot_url);
+        vstream_key, frame_url);
+    }
 
     try
     {
@@ -372,63 +375,83 @@ properties:
           "vstream_key = {};  before image acquisition",
           vstream_key);
 
-      // parse user and password
-      std::string auth_user;
-      std::string auth_password;
-      if (auto char_alpha = config.screenshot_url.find('@'); char_alpha != std::string::npos)
+      std::string image_data;
+      if (config.screenshot_url.starts_with("data:"))
       {
-        if (auto protocol_suffix = config.screenshot_url.find("://"); protocol_suffix != std::string::npos && protocol_suffix < char_alpha)
+        if (auto pos_comma = config.screenshot_url.find(','); pos_comma != std::string::npos)
+          if (config.screenshot_url.find(";base64,") != std::string::npos)
+            if (!absl::Base64Unescape(absl::ClippedSubstr(config.screenshot_url, pos_comma + 1), &image_data))
+            {
+              if (config.logs_level <= userver::logging::Level::kError)
+                USERVER_IMPL_LOG_TO(logger_, userver::logging::Level::kError,
+                  "Error decoding image from BASE64: vstream_key = {};",
+                  vstream_key);
+
+              return;
+            }
+      } else
+      {
+        // parse user and password
+        std::string auth_user;
+        std::string auth_password;
+        if (auto char_alpha = config.screenshot_url.find('@'); char_alpha != std::string::npos)
         {
-          if (auto char_colon = config.screenshot_url.find(':', protocol_suffix + 3); char_colon != std::string::npos && char_colon < char_alpha)
+          if (auto protocol_suffix = config.screenshot_url.find("://"); protocol_suffix != std::string::npos && protocol_suffix < char_alpha)
           {
-            auto char_slash = protocol_suffix + 2;
-            auth_user = config.screenshot_url.substr(char_slash + 1, char_colon - char_slash - 1);
-            auth_password = config.screenshot_url.substr(char_colon + 1, char_alpha - char_colon - 1);
+            if (auto char_colon = config.screenshot_url.find(':', protocol_suffix + 3); char_colon != std::string::npos && char_colon < char_alpha)
+            {
+              auto char_slash = protocol_suffix + 2;
+              auth_user = config.screenshot_url.substr(char_slash + 1, char_colon - char_slash - 1);
+              auth_password = config.screenshot_url.substr(char_colon + 1, char_alpha - char_colon - 1);
+            }
           }
         }
+        // clang-format off
+        auto capture_response = http_client_.CreateRequest()
+          .get(config.screenshot_url)
+          .http_auth_type(userver::clients::http::HttpAuthType::kAnySafe, false, auth_user, auth_password)
+          .retry(config.max_capture_error_count)
+          .timeout(config.capture_timeout)
+          .perform();
+        // clang-format on
+
+        if (capture_response->status_code() != userver::clients::http::Status::OK || capture_response->body_view().empty())
+        {
+          if (config.logs_level <= userver::logging::Level::kError)
+            USERVER_IMPL_LOG_TO(logger_, userver::logging::Level::kError,
+              "vstream_key = {};  url = {};  status_code = {}",
+              vstream_key, config.screenshot_url, capture_response->status_code());
+          if (config.delay_after_error.count() > 0)
+          {
+            if (config.logs_level <= userver::logging::Level::kError)
+              USERVER_IMPL_LOG_TO(logger_, userver::logging::Level::kError,
+                "vstream_key = {};  delay for {}ms",
+                vstream_key, config.delay_after_error.count());
+            nextPipeline(std::move(vstream_key), config.delay_after_error);
+          } else
+            stopWorkflow(std::move(vstream_key));
+
+          return;
+        }
+
+        image_data = capture_response->body();
       }
-      // clang-format off
-      auto capture_response = http_client_.CreateRequest()
-        .get(config.screenshot_url)
-        .http_auth_type(userver::clients::http::HttpAuthType::kAnySafe, false, auth_user, auth_password)
-        .retry(config.max_capture_error_count)
-        .timeout(config.capture_timeout)
-        .perform();
-      // clang-format on
+
       if (config.logs_level <= userver::logging::Level::kTrace)
         USERVER_IMPL_LOG_TO(logger_, userver::logging::Level::kTrace,
           "vstream_key = {};  after image acquisition",
           vstream_key);
 
-      if (capture_response->status_code() != userver::clients::http::Status::OK || capture_response->body_view().empty())
-      {
-        if (config.logs_level <= userver::logging::Level::kError)
-          USERVER_IMPL_LOG_TO(logger_, userver::logging::Level::kError,
-            "vstream_key = {};  url = {};  status_code = {}",
-            vstream_key, config.screenshot_url, capture_response->status_code());
-        if (config.delay_after_error.count() > 0)
-        {
-          if (config.logs_level <= userver::logging::Level::kError)
-            USERVER_IMPL_LOG_TO(logger_, userver::logging::Level::kError,
-              "vstream_key = {};  delay for {}ms",
-              vstream_key, config.delay_after_error.count());
-          nextPipeline(std::move(vstream_key), config.delay_after_error);
-        } else
-          stopWorkflow(std::move(vstream_key));
-
-        return;
-      }
-
       if (config.logs_level <= userver::logging::Level::kTrace)
       {
         USERVER_IMPL_LOG_TO(logger_, userver::logging::Level::kTrace,
           "vstream_key = {};  image size = {} bytes",
-          vstream_key, capture_response->body_view().size());
+          vstream_key, image_data.size());
         USERVER_IMPL_LOG_TO(logger_, userver::logging::Level::kTrace,
           "vstream_key = {};  before decoding the image",
           vstream_key);
       }
-      cv::Mat frame = imdecode(std::vector<char>(capture_response->body_view().begin(), capture_response->body_view().end()),
+      cv::Mat frame = imdecode(std::vector(image_data.begin(), image_data.end()),
         cv::IMREAD_COLOR);
       if (config.logs_level <= userver::logging::Level::kTrace)
         USERVER_IMPL_LOG_TO(logger_, userver::logging::Level::kTrace,
@@ -531,6 +554,16 @@ properties:
       {
         if (config.logs_level <= userver::logging::Level::kTrace)
           USERVER_IMPL_LOG_TO(logger_, userver::logging::Level::kTrace,
+            "vstream_key = {};  before doInferenceLpcNet",
+            vstream_key);
+        result = doInferenceLpcNet(frame, config, detected_plates);
+        if (config.logs_level <= userver::logging::Level::kTrace)
+          USERVER_IMPL_LOG_TO(logger_, userver::logging::Level::kTrace,
+            "vstream_key = {};  after doInferenceLpcNet",
+            vstream_key);
+
+        if (config.logs_level <= userver::logging::Level::kTrace)
+          USERVER_IMPL_LOG_TO(logger_, userver::logging::Level::kTrace,
             "vstream_key = {};  before doInferenceLprNet",
             vstream_key);
         result = doInferenceLprNet(frame, config, detected_plates);
@@ -550,10 +583,10 @@ properties:
         {
           userver::formats::json::ValueBuilder vehicle_data;
           has_special = has_special || is_special;
-          for (const auto& [bbox_plate, confidence_plate, kpts, plate_class, plate_numbers] : license_plates)
+          for (const auto& [bbox_plate, confidence_plate, kpts, plate_class_common, plate_numbers] : license_plates)
           {
             has_failed = has_failed || plate_numbers.empty();
-            for (const auto& [number, score] : plate_numbers)
+            for (const auto& [plate_class, number, score] : plate_numbers)
             {
               auto k = absl::StrCat(vstream_key, "_", number);
 
@@ -667,7 +700,7 @@ properties:
           auto path_prefix = absl::StrCat(local_config_.events_screenshots_path, path_suffix);
           userver::fs::CreateDirectories(fs_task_processor_, path_prefix);
           auto path = absl::StrCat(path_prefix, uuid, screenshot_extension);
-          userver::fs::RewriteFileContents(fs_task_processor_, path, capture_response->body_view());
+          userver::fs::RewriteFileContents(fs_task_processor_, path, image_data);
           userver::fs::Chmod(fs_task_processor_, path,
             boost::filesystem::perms::owner_read | boost::filesystem::perms::owner_write | boost::filesystem::perms::others_read | boost::filesystem::perms::others_write);
 
@@ -720,7 +753,7 @@ properties:
           userver::fs::CreateDirectories(fs_task_processor_, path_prefix);
           auto path = absl::StrCat(path_prefix, uuid, screenshot_extension);
           auto path_draw = absl::StrCat(path_prefix, uuid, "_draw", screenshot_extension);
-          userver::fs::RewriteFileContents(fs_task_processor_, path, capture_response->body_view());
+          userver::fs::RewriteFileContents(fs_task_processor_, path, image_data);
           userver::fs::Chmod(fs_task_processor_, path,
             boost::filesystem::perms::owner_read | boost::filesystem::perms::owner_write | boost::filesystem::perms::others_read | boost::filesystem::perms::others_write);
 
@@ -745,7 +778,7 @@ properties:
           plate_polygons_failed.reserve(detected_plates.size());
           for (auto plate_ptr : detected_plates)
           {
-            auto& [bbox, confidence, kpts, plate_class, plate_numbers] = *plate_ptr;
+            auto& [bbox, confidence, kpts, plate_class_common, plate_numbers] = *plate_ptr;
             std::vector<cv::Point> p = {{static_cast<int>(kpts[0]), static_cast<int>(kpts[1])},
                 {static_cast<int>(kpts[2]), static_cast<int>(kpts[3])},
                 {static_cast<int>(kpts[4]), static_cast<int>(kpts[5])},
@@ -1021,14 +1054,12 @@ properties:
     size_t data_size;
     result_ptr->RawData(config.vd_net_output_tensor_name, reinterpret_cast<const uint8_t**>(&data), &data_size);
 
-    // the output tensor has a dimension of [7, 8400]
+    // the output tensor has a dimension of [5, 8400]
     //  0 - bbox x_center
     //  1 - bbox y_center
     //  2 - bbox width
     //  3 - bbox height
-    //  4 - confidence of class 0
-    //  5 - confidence of class 1
-    //  6 - confidence of class 2
+    //  4 - confidence
     auto num_cols = 8400;
     auto bbox_index = 0;
     auto class_start_index = bbox_index + 4;
@@ -1038,25 +1069,31 @@ properties:
         config.id_group, config.ext_id, config.vehicle_confidence);
     for (auto j = 0; j < num_cols; ++j)
     {
+      const float cx = data[(bbox_index + 0) * num_cols + j];
+      const float cy = data[(bbox_index + 1) * num_cols + j];
+      const float bw = data[(bbox_index + 2) * num_cols + j];
+      const float bh = data[(bbox_index + 3) * num_cols + j];
       auto k = class_start_index;
-      if (auto confidence = data[k * num_cols + j]; confidence > config.vehicle_confidence)
+      if (auto conf = data[k * num_cols + j]; conf > config.vehicle_confidence)
       {
-        auto xmin = std::fmax(static_cast<float>((data[(bbox_index + 0) * num_cols + j] - data[(bbox_index + 2) * num_cols + j] / 2 - shift.x) / scale), 0.0f);
-        auto ymin = std::fmax(static_cast<float>((data[(bbox_index + 1) * num_cols + j] - data[(bbox_index + 3) * num_cols + j] / 2 - shift.y) / scale), 0.0f);
-        auto xmax = std::fmin(static_cast<float>((data[(bbox_index + 0) * num_cols + j] + data[(bbox_index + 2) * num_cols + j] / 2 - shift.x) / scale), static_cast<float>(img.cols - 1));
-        auto ymax = std::fmin(static_cast<float>((data[(bbox_index + 1) * num_cols + j] + data[(bbox_index + 3) * num_cols + j] / 2 - shift.y) / scale), static_cast<float>(img.rows - 1));
+        const float inv_scale = 1.0f / static_cast<float>(scale);
+        auto x_min = std::fmax((cx - bw / 2 - shift.x) * inv_scale, 0.0f);
+        auto y_min = std::fmax((cy - bh / 2 - shift.y) * inv_scale, 0.0f);
+        auto x_max = std::fmin((cx + bw / 2 - shift.x) * inv_scale, static_cast<float>(img.cols - 1));
+        auto y_max = std::fmin((cy + bh / 2 - shift.y) * inv_scale, static_cast<float>(img.rows - 1));
 
         // remove small vehicle detections
-        auto vehicle_area = (xmax - xmin + 1) * (ymax - ymin + 1);
+        auto vehicle_area = (x_max - x_min + 1) * (y_max - y_min + 1);
         if (auto screen_area = static_cast<float>(img.cols * img.rows); vehicle_area / screen_area < config.vehicle_area_ratio_threshold)
           continue;
 
         detected_vehicles.emplace_back();
-        detected_vehicles.back().bbox[0] = xmin;
-        detected_vehicles.back().bbox[1] = ymin;
-        detected_vehicles.back().bbox[2] = xmax;
-        detected_vehicles.back().bbox[3] = ymax;
-        detected_vehicles.back().confidence = confidence;
+        auto& vehicle = detected_vehicles.back();
+        vehicle.bbox[0] = x_min;
+        vehicle.bbox[1] = y_min;
+        vehicle.bbox[2] = x_max;
+        vehicle.bbox[3] = y_max;
+        vehicle.confidence = conf;
       }
     }
 
@@ -1103,7 +1140,7 @@ properties:
 
     for (size_t vindex = 0; vindex < detected_vehicles.size(); ++vindex)
     {
-      auto err = tc::InferenceServerHttpClient::Create(&triton_clients[vindex], config.lpr_net_inference_server, false);
+      auto err = tc::InferenceServerHttpClient::Create(&triton_clients[vindex], config.vc_net_inference_server, false);
       if (!err.IsOk())
       {
         LOG_ERROR_TO(logger_,
@@ -1127,7 +1164,7 @@ properties:
 
       const auto* raw = blob.ptr<uint8_t>();
       const auto byte_size = blob.total() * blob.elemSize();
-      inputs_data.push_back(std::vector(raw, raw + byte_size));
+      inputs_data.emplace_back(raw, raw + byte_size);
       std::vector<int64_t> shape = {1, 3, config.vc_net_input_height, config.vc_net_input_width};
       tc::InferInput* input;
       err = tc::InferInput::Create(&input, config.vc_net_input_tensor_name, shape, "FP32");
@@ -1207,21 +1244,20 @@ properties:
       result_ptr->RawData(config.vc_net_output_tensor_name, reinterpret_cast<const uint8_t**>(&data), &data_size);
 
       std::vector<float> scores;
-      scores.assign(data, data + 2);
+      scores.assign(data, data + static_cast<int>(data_size / sizeof(float)));
 
       if (config.logs_level <= userver::logging::Level::kTrace)
         USERVER_IMPL_LOG_TO(logger_, userver::logging::Level::kTrace,
-          "vstream_key = {}_{};  vindex = {};  softmax scores: {:.3f} {:.3f}",
-          config.id_group, config.ext_id, vindex, scores[0], scores[1]);
+          "vstream_key = {}_{};  vindex = {};  softmax scores: ",
+          config.id_group, config.ext_id, vindex) << scores;
 
       scores = softMax(scores);
 
       if (config.logs_level <= userver::logging::Level::kTrace)
         USERVER_IMPL_LOG_TO(logger_, userver::logging::Level::kTrace,
-          "vstream_key = {}_{};  vindex = {};  bbox = [{:.2f}, {:.2f}, {:.2f}, {:.2f}];  data[0]: {:.2f};  data[1]: {:.2f}",
+          "vstream_key = {}_{};  vindex = {};  bbox = [{:.2f}, {:.2f}, {:.2f}, {:.2f}];  scores: ",
           config.id_group, config.ext_id, vindex,
-          detected_vehicles[vindex].bbox[0], detected_vehicles[vindex].bbox[1], detected_vehicles[vindex].bbox[2], detected_vehicles[vindex].bbox[3],
-          scores[0], scores[1]);
+          detected_vehicles[vindex].bbox[0], detected_vehicles[vindex].bbox[1], detected_vehicles[vindex].bbox[2], detected_vehicles[vindex].bbox[3]) << scores;
       detected_vehicles[vindex].is_special = scores[1] > scores[0] && scores[1] > config.special_confidence;
 
       is_ok = true;
@@ -1283,7 +1319,7 @@ properties:
         cv::Point{static_cast<int>(bbox[2]), static_cast<int>(bbox[3])});
 
       // for test
-      // cv::imwrite(absl::Substitute("for_lpd_net_$0_$1_$2_$3.jpg", roi.tl().x, roi.tl().y, roi.br().x, roi.br().y), img(roi));
+      // cv::imwrite(absl::Substitute("for_lpd_net_$4_$5_$0_$1_$2_$3.jpg", roi.tl().x, roi.tl().y, roi.br().x, roi.br().y, config.ext_id, vindex), img(roi));
 
       auto blob = prepareBlobForYOLO(img(roi), config.lpd_net_input_width, config.lpd_net_input_height, shifts[vindex],
         scales[vindex]);
@@ -1294,7 +1330,7 @@ properties:
 
       const auto* raw = blob.ptr<uint8_t>();
       const auto byte_size = blob.total() * blob.elemSize();
-      inputs_data.push_back(std::vector(raw, raw + byte_size));
+      inputs_data.emplace_back(raw, raw + byte_size);
       std::vector<int64_t> shape = {1, 3, config.lpd_net_input_height, config.lpd_net_input_width};
       tc::InferInput* input;
       err = tc::InferInput::Create(&input, config.lpd_net_input_tensor_name, shape, "FP32");
@@ -1370,57 +1406,56 @@ properties:
       size_t data_size;
       result_ptr->RawData(config.lpd_net_output_tensor_name, reinterpret_cast<const uint8_t**>(&data), &data_size);
 
-      // the output tensor has a dimension of [14, 8400], and each column contains:
+      // the output tensor has a dimension of [300, 14], and each row contains:
       //  0 - bbox x_center
       //  1 - bbox y_center
       //  2 - bbox width
       //  3 - bbox height
-      //  4 - confidence of class 0
-      //  5 - confidence of class 1
+      //  4 - confidence
+      //  5 - class
       //  6..13 - coordinates of four key points
-      auto num_rows = 12 + PLATE_CLASS_COUNT;  // 12 = 4 (bbox coordinates) + 8 (key points coordinates)
-      auto num_cols = 8400;
+
+      auto num_cols = 14;
+      auto num_rows = data_size / num_cols / sizeof(float);
       auto bbox_index = 0;
-      auto class_start_index = bbox_index + 4;
-      auto kpts_start_index = num_rows - 8;
+      auto conf_index = bbox_index + 4;
+      auto kpts_start_index = num_cols - 8;
       if (config.logs_level <= userver::logging::Level::kTrace)
         USERVER_IMPL_LOG_TO(logger_, userver::logging::Level::kTrace,
           "vstream_key = {}_{};  license plate confidence threshold (vindex = {}): {}",
           config.id_group, config.ext_id, vindex, config.plate_confidence);
-      for (auto j = 0; j < num_cols; ++j)
+      for (size_t i = 0; i < num_rows; ++i)
       {
-        const float cx = data[(bbox_index + 0) * num_cols + j];
-        const float cy = data[(bbox_index + 1) * num_cols + j];
-        const float bw = data[(bbox_index + 2) * num_cols + j];
-        const float bh = data[(bbox_index + 3) * num_cols + j];
+        const float left = data[bbox_index + 0 + num_cols * i];
+        const float top = data[bbox_index + 1 + num_cols * i];
+        const float right = data[bbox_index + 2 + num_cols * i];
+        const float bottom = data[bbox_index + 3 + num_cols * i];
 
-        for (auto k = class_start_index; k < class_start_index + PLATE_CLASS_COUNT; ++k)
+        if (const float conf = data[conf_index + num_cols * i]; conf > config.plate_confidence)
         {
-          const float conf = data[k * num_cols + j];
-          if (conf > config.plate_confidence)
+          // for test
+          // std::cout << "conf: " << conf << std::endl;
+          // calculating absolute coordinates of the license plate
+          detected_plates.emplace_back();
+          auto& plate = detected_plates.back();
+          const float inv_scale = 1.0f / static_cast<float>(scales[vindex]);
+          plate.bbox[0] = bbox[0] + (left - shifts[vindex].x) * inv_scale;
+          plate.bbox[1] = bbox[1] + (top - shifts[vindex].y) * inv_scale;
+          plate.bbox[2] = bbox[0] + (right - shifts[vindex].x) * inv_scale;
+          plate.bbox[3] = bbox[1] + (bottom - shifts[vindex].y) * inv_scale;
+          for (int l = 0; l < 8; ++l)
           {
-            // calculating absolute coordinates of the license plate
-            detected_plates.emplace_back();
-            auto& plate = detected_plates.back();
-            const float inv_scale = 1.0f / static_cast<float>(scales[vindex]);
-            plate.bbox[0] = bbox[0] + (cx - bw / 2 - shifts[vindex].x) * inv_scale;
-            plate.bbox[1] = bbox[1] + (cy - bh / 2 - shifts[vindex].y) * inv_scale;
-            plate.bbox[2] = bbox[0] + (cx + bw / 2 - shifts[vindex].x) * inv_scale;
-            plate.bbox[3] = bbox[1] + (cy + bh / 2 - shifts[vindex].y) * inv_scale;
-            for (int l = 0; l < 8; ++l)
+            auto sh = shifts[vindex].x;
+            auto delta = bbox[0];
+            if (l % 2 == 1)
             {
-              auto sh = shifts[vindex].x;
-              auto delta = bbox[0];
-              if (l % 2 == 1)
-              {
-                sh = shifts[vindex].y;
-                delta = bbox[1];
-              }
-              detected_plates.back().kpts[l] = delta + static_cast<float>((data[(kpts_start_index + l) * num_cols + j] - sh) / scales[vindex]);
+              sh = shifts[vindex].y;
+              delta = bbox[1];
             }
-            detected_plates.back().confidence = data[k * num_cols + j];
-            detected_plates.back().plate_class = k - class_start_index;
+            detected_plates.back().kpts[l] = delta + static_cast<float>((data[kpts_start_index + l + num_cols * i] - sh) / scales[vindex]);
           }
+          detected_plates.back().confidence = data[conf_index + num_cols * i];
+          detected_plates.back().plate_class_common = - 1;
         }
       }
 
@@ -1579,29 +1614,290 @@ properties:
       });
   }
 
-  bool Workflow::isValidPlateNumber(const absl::string_view plate_number, const int32_t plate_class)
+  bool isNumber(const char c)
   {
-    if (plate_class == PLATE_CLASS_RU_1 || plate_class == PLATE_CLASS_RU_1A)
+    return c >= '0' && c <= '9';
+  }
+
+  bool isLetter(const char c)
+  {
+    return c >= 'A' && c <= 'Z';
+  }
+
+  bool isLetterRU(const char c)
+  {
+    return std::string_view("ABCEHKMOPTXY").find(c) != std::string_view::npos;
+  }
+
+  bool isLetterBY(const char c)
+  {
+    return std::string_view("ABCEHIKMOPTX").find(c) != std::string_view::npos;
+  }
+
+  // format: L NNN LL NN or L NNN LL NNN
+  std::string checkRU(std::string number)
+  {
+    std::erase_if(number, [](const char c)
+      { return !isNumber(c) && !isLetterRU(c); });
+
+    if (number.size() < 8 || number.size() > 9)
+      return {};
+
+    for (size_t i = 0; i < number.size(); ++i)
+      if (i == 0 || i == 4 || i == 5)
+      {
+        if (!isLetterRU(number[i]))
+          return {};
+      } else
+      {
+        if (!isNumber(number[i]))
+          return {};
+      }
+
+    return number;
+  }
+
+  // format: NNNN LL N
+  std::string checkBY(std::string number)
+  {
+    if (number.size() < 2)
+      return {};
+
+    for (size_t i = 0; i < 2; ++i)
+      if (number[0] == 'B' || number[0] == 'Y')
+        number.erase(0, 1);
+
+    if (number.size() != 7)
+      return {};
+
+    for (size_t i = 0; i < number.size(); ++i)
+      if (i < 4 || i > 5)
+      {
+        if (!isNumber(number[i]))
+          return {};
+      } else
+        if (!isLetterBY(number[i]))
+          return {};
+
+    return number;
+  }
+
+  // format: NN LL NNN or NNN LL NN
+  std::string checkAM(std::string number)
+  {
+    if (number.size() < 2)
+      return {};
+
+    for (size_t i = 0; i < 2; ++i)
+      if (number[0] == 'A' || number[0] == 'M')
+        number.erase(0, 1);
+
+    if (number.size() != 7)
+      return {};
+
+    for (size_t i = 0; i < number.size(); ++i)
+      if (i == 0 || i == 1 || i == 5 || i == 6)
+      {
+        if (!isNumber(number[i]))
+          return {};
+      } else if (i == 3)
+        if (!isLetter(number[i]))
+          return {};
+
+    return number;
+  }
+
+  bool Workflow::isValidPlateNumber(PlateNumberData& plate_number)
+  {
+    if (plate_number.number.empty())
+      return false;
+
+    std::string res = checkRU(plate_number.number);
+    if (!res.empty())
     {
-      const HashSet<char> numbers = {'0', '1', '2', '3', '4', '5', '6', '7', '8', '9'};
-      const HashSet<char> letters = {'A', 'B', 'C', 'E', 'H', 'K', 'M', 'O', 'P', 'T', 'X', 'Y'};
-
-      if (plate_number.size() < 8 || plate_number.size() > 9)
-        return false;
-
-      for (size_t i = 0; i < plate_number.size(); ++i)
-        if (i == 0 || i == 4 || i == 5)
-        {
-          if (!letters.contains(plate_number[i]))
-            return false;
-        } else
-        {
-          if (!numbers.contains(plate_number[i]))
-            return false;
-        }
+      plate_number.number = std::move(res);
+      if (plate_number.plate_class != PLATE_CLASS_RU_1 && plate_number.plate_class != PLATE_CLASS_RU_1A)
+        plate_number.plate_class = PLATE_CLASS_RU_1;
+      return true;
     }
 
-    return true;
+    res = checkBY(plate_number.number);
+    if (!res.empty())
+    {
+      plate_number.number = std::move(res);
+      plate_number.plate_class = PLATE_CLASS_BY;
+      return true;
+    }
+
+    res = checkAM(plate_number.number);
+    if (!res.empty())
+    {
+      plate_number.number = std::move(res);
+      plate_number.plate_class = PLATE_CLASS_AM;
+      return true;
+    }
+
+    return false;
+  }
+
+  bool Workflow::doInferenceLpcNet(const cv::Mat& img, const VStreamConfig& config, std::vector<LicensePlate*>& detected_plates) const
+  {
+    std::vector<userver::engine::TaskWithResult<triton::client::Error>> tasks;
+    tasks.reserve(detected_plates.size());
+
+    std::vector<std::unique_ptr<tc::InferenceServerHttpClient>> triton_clients;
+    triton_clients.resize(detected_plates.size());
+
+    std::vector<tc::InferResult*> results;
+    results.resize(detected_plates.size());
+
+    std::vector<std::vector<uint8_t>> inputs_data;
+    inputs_data.reserve(detected_plates.size());
+
+    std::vector<std::shared_ptr<tc::InferInput>> input_ptrs;
+    input_ptrs.reserve(detected_plates.size());
+
+    std::vector<std::shared_ptr<tc::InferRequestedOutput>> output_ptrs;
+    output_ptrs.reserve(detected_plates.size());
+
+    std::vector<tc::InferOptions> options;
+    options.reserve(detected_plates.size());
+
+    if (config.logs_level <= userver::logging::Level::kTrace)
+      USERVER_IMPL_LOG_TO(logger_, userver::logging::Level::kTrace,
+        "vstream_key = {}_{};  before inference LpcNet",
+        config.id_group, config.ext_id);
+
+    for (size_t pindex = 0; pindex < detected_plates.size(); ++pindex)
+    {
+      auto err = tc::InferenceServerHttpClient::Create(&triton_clients[pindex], config.lpc_net_inference_server, false);
+      if (!err.IsOk())
+      {
+        LOG_ERROR_TO(logger_,
+          "Error! Unable to create inference client: {}",
+          err.Message());
+        return false;
+      }
+
+      auto& [bbox, confidence, kpts, plate_class, plate_numbers] = *detected_plates[pindex];
+      if (config.logs_level <= userver::logging::Level::kTrace)
+        USERVER_IMPL_LOG_TO(logger_, userver::logging::Level::kTrace,
+          "vstream_key = {}_{};  before preprocess image {} for LpcNet",
+          config.id_group, config.ext_id, pindex);
+      cv::Rect roi(cv::Point{static_cast<int>(bbox[0]), static_cast<int>(bbox[1])},
+        cv::Point{static_cast<int>(bbox[2]), static_cast<int>(bbox[3])});
+      auto blob = prepareBlobForLpcNet(img(roi), config.lpc_net_input_width, config.lpc_net_input_height);
+      if (config.logs_level <= userver::logging::Level::kTrace)
+        USERVER_IMPL_LOG_TO(logger_, userver::logging::Level::kTrace,
+          "vstream_key = {}_{};  after preprocess image {} for LpcNet",
+          config.id_group, config.ext_id, pindex);
+
+      const auto* raw = blob.ptr<uint8_t>();
+      const auto byte_size = blob.total() * blob.elemSize();
+      inputs_data.emplace_back(raw, raw + byte_size);
+      std::vector<int64_t> shape = {1, 3, config.lpc_net_input_height, config.lpc_net_input_width};
+      tc::InferInput* input;
+      err = tc::InferInput::Create(&input, config.lpc_net_input_tensor_name, shape, "FP32");
+      if (!err.IsOk())
+      {
+        LOG_ERROR_TO(logger_,
+          "Error! Unable to create input data: {}",
+          err.Message());
+        return false;
+      }
+      input_ptrs.emplace_back(input);
+
+      tc::InferRequestedOutput* output;
+      err = tc::InferRequestedOutput::Create(&output, config.lpc_net_output_tensor_name);
+      if (!err.IsOk())
+      {
+        LOG_ERROR_TO(logger_,
+          "Error! Unable to create output data: {}",
+          err.Message());
+        return false;
+      }
+      output_ptrs.emplace_back(output);
+
+      err = input_ptrs.back()->AppendRaw(inputs_data[pindex]);
+      if (!err.IsOk())
+      {
+        LOG_ERROR_TO(logger_,
+          "Error! Unable to set up input data: {}",
+          err.Message());
+        return false;
+      }
+      options.emplace_back(config.lpc_net_model_name);
+      options.back().model_version_ = "";
+
+      // inference timeout in microseconds
+      options.back().client_timeout_ = std::chrono::duration_cast<std::chrono::microseconds>(config.inference_timeout).count();
+
+      tasks.emplace_back(AsyncNoSpan(fs_task_processor_,
+        [&, pindex]
+        {
+          return triton_clients[pindex]->Infer(&results[pindex], options[pindex], {input_ptrs[pindex].get()}, {output_ptrs[pindex].get()});
+        }));
+    }
+    WaitAllChecked(tasks);
+
+    if (config.logs_level <= userver::logging::Level::kTrace)
+      USERVER_IMPL_LOG_TO(logger_, userver::logging::Level::kTrace,
+        "vstream_key = {}_{};  after inference LpcNet",
+        config.id_group, config.ext_id);
+
+    bool is_ok = false;
+    for (size_t pindex = 0; pindex < detected_plates.size(); ++pindex)
+    {
+      if (auto err = tasks[pindex].Get(); !err.IsOk())
+      {
+        LOG_ERROR_TO(logger_,
+          "Error! Unable to send inference request (vindex = {}): {}",
+          pindex, err.Message());
+        continue;
+      }
+
+      const std::shared_ptr<tc::InferResult> result_ptr(results[pindex]);
+      if (!result_ptr->RequestStatus().IsOk())
+      {
+        LOG_ERROR_TO(logger_,
+          "Error! Unable to receive inference result (vindex = {}): {}",
+          pindex, result_ptr->RequestStatus().Message());
+        continue;
+      }
+
+      const float* data;
+      size_t data_size;
+      result_ptr->RawData(config.vc_net_output_tensor_name, reinterpret_cast<const uint8_t**>(&data), &data_size);
+
+      std::vector<float> scores;
+      scores.assign(data, data + static_cast<int>(data_size / sizeof(float)));
+
+      if (config.logs_level <= userver::logging::Level::kTrace)
+        USERVER_IMPL_LOG_TO(logger_, userver::logging::Level::kTrace,
+          "vstream_key = {}_{};  pindex = {};  softmax scores: ",
+          config.id_group, config.ext_id, pindex) << scores;
+
+      scores = softMax(scores);
+
+      if (config.logs_level <= userver::logging::Level::kTrace)
+        USERVER_IMPL_LOG_TO(logger_, userver::logging::Level::kTrace,
+          "vstream_key = {}_{};  pindex = {};  bbox = [{:.2f}, {:.2f}, {:.2f}, {:.2f}];  scores: ",
+          config.id_group, config.ext_id, pindex,
+          detected_plates[pindex]->bbox[0], detected_plates[pindex]->bbox[1], detected_plates[pindex]->bbox[2], detected_plates[pindex]->bbox[3]) << scores;
+
+      // determine the index of the maximum element
+      int32_t max_index = 0;
+      for (size_t i = 1; i < scores.size(); ++i)
+      {
+        if (scores[i] > scores[max_index])
+          max_index = static_cast<int32_t>(i);
+      }
+      detected_plates[pindex]->plate_class_common = max_index;
+
+      is_ok = true;
+    }
+
+    return is_ok;
   }
 
   bool Workflow::doInferenceLprNet(const cv::Mat& img, const VStreamConfig& config, std::vector<LicensePlate*>& detected_plates)
@@ -1611,8 +1907,10 @@ properties:
 
     // scale values by plate class to calculate height of an image after perspective transformation
     std::vector scale_height_by_plate_class = {
-      112.0f / 520.f,   // 0 - Russian type 1
-      170.0f / 290.0f,  // 1 - Russian type 1A
+      112.0f / 520.f,   // 0 - Russia type 1
+      170.0f / 290.0f,  // 1 - Russia type 1A
+      112.0f / 520.f,   // 2 - Belarus
+      112.0f / 520.f,   // 3 - Armenia
     };
 
     std::vector<userver::engine::TaskWithResult<triton::client::Error>> tasks;
@@ -1674,7 +1972,7 @@ properties:
       cv::warpPerspective(img, lp_image, transform_mat, {config.lpr_net_input_width, static_cast<int>(static_cast<float>(config.lpr_net_input_width) * scale_height_by_plate_class[plate_class])});
 
       // for test
-      // cv::imwrite(absl::Substitute("pp_$0.jpg", pindex), lp_image);
+      // cv::imwrite(absl::Substitute("pp_$1_$0.jpg", pindex, config.ext_id), lp_image);
 
       auto blob = prepareBlobForYOLO(lp_image, config.lpr_net_input_width, config.lpr_net_input_height, shifts[pindex],
         scales[pindex]);
@@ -1686,7 +1984,7 @@ properties:
 
       const auto* raw = blob.ptr<uint8_t>();
       const auto byte_size = blob.total() * blob.elemSize();
-      inputs_data.push_back(std::vector(raw, raw + byte_size));
+      inputs_data.emplace_back(raw, raw + byte_size);
       std::vector<int64_t> shape = {1, 3, config.lpr_net_input_height, config.lpr_net_input_width};
       tc::InferInput* input;
       err = tc::InferInput::Create(&input, config.lpr_net_input_tensor_name, shape, "FP32");
@@ -1788,7 +2086,7 @@ properties:
 
             chars_data.back().confidence = data[k * num_cols + j];
             chars_data.back().char_class = k - class_start_index;
-            chars_data.back().plate_class = plate.plate_class;
+            chars_data.back().plate_class = plate.plate_class_common;
           }
 
       if (config.logs_level <= userver::logging::Level::kTrace)
@@ -1804,7 +2102,7 @@ properties:
       // assembling license plate numbers from char data
       std::ranges::sort(chars_data, cmp_chars_position);
       HashSet<size_t> used_indices;
-      plate.plate_numbers.push_back({"", 1.0f});
+      plate.plate_numbers.push_back({plate.plate_class_common, "", 1.0f});
       for (size_t i = 0; i < chars_data.size(); ++i)
         if (!used_indices.contains(i))
         {
@@ -1837,9 +2135,9 @@ properties:
 
       // remove invalid numbers
       std::erase_if(plate.plate_numbers,
-        [this, &plate, &config](const auto& item)
+        [this, &config](auto& item)
         {
-          auto is_valid = isValidPlateNumber(item.number, plate.plate_class);
+          auto is_valid = isValidPlateNumber(item);
           if (!is_valid)
             if (config.logs_level <= userver::logging::Level::kTrace)
               USERVER_IMPL_LOG_TO(logger_, userver::logging::Level::kTrace,

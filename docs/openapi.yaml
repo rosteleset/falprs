@@ -2398,6 +2398,30 @@ components:
             - critical
             - none
           type: string
+        lpc-net-inference-server:
+          default: 127.0.0.1:8000
+          description: 'LPCNet: URL for Triton Inference Server'
+          type: string
+        lpc-net-input-height:
+          default: 224
+          description: 'LPCNet: input image height'
+          type: integer
+        lpc-net-input-tensor-name:
+          default: input
+          description: 'LPCNet: name of the input tensor'
+          type: string
+        lpc-net-input-width:
+          default: 224
+          description: 'LPCNet: input image width'
+          type: integer
+        lpc-net-model-name:
+          default: lpcnet_vit
+          description: 'LPCNet: model name'
+          type: string
+        lpc-net-output-tensor-name:
+          default: output
+          description: 'LPCNet: name of the output tensor'
+          type: string
         lpd-net-inference-server:
           default: 127.0.0.1:8000
           description: 'LPDNet: URL for Triton Inference Server'

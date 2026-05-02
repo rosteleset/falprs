@@ -623,8 +623,25 @@ properties:
           USERVER_IMPL_LOG_TO(logger_, userver::logging::Level::kTrace,
             "vstream_key = {};  before image acquisition",
             task_data.vstream_key);
+
+        // parse user and password
+        std::string auth_user;
+        std::string auth_password;
+        if (auto char_alpha = url.find('@'); char_alpha != std::string::npos)
+        {
+          if (auto protocol_suffix = url.find("://"); protocol_suffix != std::string::npos && protocol_suffix < char_alpha)
+          {
+            if (auto char_colon = url.find(':', protocol_suffix + 3); char_colon != std::string::npos && char_colon < char_alpha)
+            {
+              auto char_slash = protocol_suffix + 2;
+              auth_user = url.substr(char_slash + 1, char_colon - char_slash - 1);
+              auth_password = url.substr(char_colon + 1, char_alpha - char_colon - 1);
+            }
+          }
+        }
         auto capture_response = http_client_.CreateRequest()
           .get(url)
+          .http_auth_type(userver::clients::http::HttpAuthType::kAny, false, auth_user, auth_password)
           .retry(config.max_capture_error_count)
           .timeout(config.capture_timeout)
           .perform();
@@ -671,7 +688,7 @@ properties:
           "vstream_key = {};  before decoding the image",
           task_data.vstream_key);
       }
-      cv::Mat frame = imdecode(std::vector<char>(image_data.begin(), image_data.end()), cv::IMREAD_COLOR);
+      cv::Mat frame = imdecode(std::vector(image_data.begin(), image_data.end()), cv::IMREAD_COLOR);
       if (config.logs_level <= userver::logging::Level::kTrace || task_data.task_type == TASK_TEST)
         USERVER_IMPL_LOG_TO(logger_, userver::logging::Level::kTrace,
           "vstream_key = {};  after decoding the image",
