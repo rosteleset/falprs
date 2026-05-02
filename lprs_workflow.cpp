@@ -398,12 +398,13 @@ properties:
         {
           if (auto protocol_suffix = config.screenshot_url.find("://"); protocol_suffix != std::string::npos && protocol_suffix < char_alpha)
           {
-            if (auto char_colon = config.screenshot_url.find(':', protocol_suffix + 3); char_colon != std::string::npos && char_colon < char_alpha)
+            auto start_of_authority = protocol_suffix + 3;
+            if (auto char_colon = config.screenshot_url.find(':', start_of_authority); char_colon != std::string::npos && char_colon < char_alpha)
             {
-              auto char_slash = protocol_suffix + 2;
-              auth_user = config.screenshot_url.substr(char_slash + 1, char_colon - char_slash - 1);
+              auth_user = config.screenshot_url.substr(start_of_authority, char_colon - start_of_authority);
               auth_password = config.screenshot_url.substr(char_colon + 1, char_alpha - char_colon - 1);
-            }
+            } else
+              auth_user = config.screenshot_url.substr(start_of_authority, char_alpha - start_of_authority);
           }
         }
         // clang-format off
