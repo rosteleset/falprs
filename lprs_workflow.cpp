@@ -1661,11 +1661,8 @@ properties:
   // format: NNNN LL N
   std::string checkBY(std::string number)
   {
-    if (number.size() < 2)
-      return {};
-
-    for (size_t i = 0; i < 2; ++i)
-      if (number[0] == 'B' || number[0] == 'Y')
+    while (number.size() > 7)
+      if (!isNumber(number[0]))
         number.erase(0, 1);
 
     if (number.size() != 7)
@@ -1686,11 +1683,8 @@ properties:
   // format: NN LL NNN or NNN LL NN
   std::string checkAM(std::string number)
   {
-    if (number.size() < 2)
-      return {};
-
-    for (size_t i = 0; i < 2; ++i)
-      if (number[0] == 'A' || number[0] == 'M')
+    while (number.size() > 7)
+      if (!isNumber(number[0]))
         number.erase(0, 1);
 
     if (number.size() != 7)
