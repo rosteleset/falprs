@@ -2451,7 +2451,7 @@ components:
           description: 'LPRNet: URL for Triton Inference Server'
           type: string
         lpr-net-input-height:
-          default: 160
+          default: 320
           description: 'LPRNet: input image height'
           type: integer
         lpr-net-input-tensor-name:
@@ -2459,7 +2459,7 @@ components:
           description: 'LPRNet: name of the input tensor'
           type: string
         lpr-net-input-width:
-          default: 160
+          default: 320
           description: 'LPRNet: input image width'
           type: integer
         lpr-net-model-name:

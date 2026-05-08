@@ -1,3 +1,4 @@
+#include <algorithm>
 #include <cmath>
 #include <filesystem>
 
@@ -1426,12 +1427,6 @@ properties:
           "vstream_key = {}_{};  license plate confidence threshold (vindex = {}): {}",
           config.id_group, config.ext_id, vindex, config.plate_confidence);
       for (size_t i = 0; i < num_rows; ++i)
-      {
-        const float left = data[bbox_index + 0 + num_cols * i];
-        const float top = data[bbox_index + 1 + num_cols * i];
-        const float right = data[bbox_index + 2 + num_cols * i];
-        const float bottom = data[bbox_index + 3 + num_cols * i];
-
         if (const float conf = data[conf_index + num_cols * i]; conf > config.plate_confidence)
         {
           // for test
@@ -1439,6 +1434,10 @@ properties:
           // calculating absolute coordinates of the license plate
           detected_plates.emplace_back();
           auto& plate = detected_plates.back();
+          const float left = data[bbox_index + 0 + num_cols * i];
+          const float top = data[bbox_index + 1 + num_cols * i];
+          const float right = data[bbox_index + 2 + num_cols * i];
+          const float bottom = data[bbox_index + 3 + num_cols * i];
           const float inv_scale = 1.0f / static_cast<float>(scales[vindex]);
           plate.bbox[0] = bbox[0] + (left - shifts[vindex].x) * inv_scale;
           plate.bbox[1] = bbox[1] + (top - shifts[vindex].y) * inv_scale;
@@ -1455,10 +1454,9 @@ properties:
             }
             detected_plates.back().kpts[l] = delta + static_cast<float>((data[kpts_start_index + l + num_cols * i] - sh) / scales[vindex]);
           }
-          detected_plates.back().confidence = data[conf_index + num_cols * i];
-          detected_plates.back().plate_class_common = - 1;
+          plate.confidence = data[conf_index + num_cols * i];
+          plate.plate_class_common = - 1;
         }
-      }
 
       if (config.logs_level <= userver::logging::Level::kTrace)
         USERVER_IMPL_LOG_TO(logger_, userver::logging::Level::kTrace,
@@ -1662,8 +1660,12 @@ properties:
   std::string checkBY(std::string number)
   {
     while (number.size() > 7)
+    {
       if (!isNumber(number[0]))
         number.erase(0, 1);
+      else
+        return {};
+    }
 
     if (number.size() != 7)
       return {};
@@ -1684,8 +1686,12 @@ properties:
   std::string checkAM(std::string number)
   {
     while (number.size() > 7)
+    {
       if (!isNumber(number[0]))
         number.erase(0, 1);
+      else
+        return {};
+    }
 
     if (number.size() != 7)
       return {};
@@ -1956,18 +1962,19 @@ properties:
           "vstream_key = {}_{};  before preprocess image {} for LPRNet",
           config.id_group, config.ext_id, pindex);
 
+      const auto safe_plate_class = std::clamp(plate_class, 0, static_cast<int32_t>(scale_height_by_plate_class.size() - 1));
       auto src = cv::Mat(4, 2, CV_32F, kpts);
       std::vector<cv::Point2f> dst = {
         {0.0f, 0.0f},
         {static_cast<float>(config.lpr_net_input_width - 1), 0.0f},
-        {static_cast<float>(config.lpr_net_input_width - 1), static_cast<float>(config.lpr_net_input_width) * scale_height_by_plate_class[plate_class] - 1},
-        {0.0f, static_cast<float>(config.lpr_net_input_width) * scale_height_by_plate_class[plate_class] - 1}};
+        {static_cast<float>(config.lpr_net_input_width - 1), static_cast<float>(config.lpr_net_input_width) * scale_height_by_plate_class[safe_plate_class] - 1},
+        {0.0f, static_cast<float>(config.lpr_net_input_width) * scale_height_by_plate_class[safe_plate_class] - 1}};
       auto transform_mat = cv::getPerspectiveTransform(src, dst);
       cv::Mat lp_image;
-      cv::warpPerspective(img, lp_image, transform_mat, {config.lpr_net_input_width, static_cast<int>(static_cast<float>(config.lpr_net_input_width) * scale_height_by_plate_class[plate_class])});
+      cv::warpPerspective(img, lp_image, transform_mat, {config.lpr_net_input_width, static_cast<int>(static_cast<float>(config.lpr_net_input_width) * scale_height_by_plate_class[safe_plate_class])});
 
       // for test
-      // cv::imwrite(absl::Substitute("pp_$1_$0.jpg", pindex, config.ext_id), lp_image);
+      // cv::imwrite(absl::Substitute("pp_$1_$0.png", pindex, config.ext_id), lp_image);
 
       auto blob = prepareBlobForYOLO(lp_image, config.lpr_net_input_width, config.lpr_net_input_height, shifts[pindex],
         scales[pindex]);
@@ -2014,6 +2021,7 @@ properties:
 
       options.emplace_back(config.lpr_net_model_name);
       options.back().model_version_ = "";
+
       // inference timeout in microseconds
       options.back().client_timeout_ = std::chrono::duration_cast<std::chrono::microseconds>(config.inference_timeout).count();
 
@@ -2057,32 +2065,34 @@ properties:
       result_ptr->RawData(config.lpr_net_output_tensor_name, reinterpret_cast<const uint8_t**>(&data), &data_size);
 
       std::vector<CharData> chars_data;
-      auto num_rows = 40;
-      auto num_cols = 525;
+      auto num_rows = 300;
+      auto num_cols = 6;
       auto bbox_index = 0;
-      auto class_start_index = bbox_index + 4;
+      auto conf_index = bbox_index + 4;
+      auto class_index = conf_index + 1;
       if (config.logs_level <= userver::logging::Level::kTrace)
         USERVER_IMPL_LOG_TO(logger_, userver::logging::Level::kTrace,
           "vstream_key = {}_{};  char score threshold: {:.2f}",
           config.id_group, config.ext_id, config.char_score);
-      for (auto j = 0; j < num_cols; ++j)
-        for (auto k = class_start_index; k < num_rows; ++k)
-          if (data[k * num_cols + j] > config.char_score)
-          {
-            chars_data.emplace_back();
-            chars_data.back().bbox[0] = static_cast<float>(
-              (data[(bbox_index + 0) * num_cols + j] - data[(bbox_index + 2) * num_cols + j] / 2 - shifts[pindex].x) / scales[pindex]);
-            chars_data.back().bbox[1] = static_cast<float>(
-              (data[(bbox_index + 1) * num_cols + j] - data[(bbox_index + 3) * num_cols + j] / 2 - shifts[pindex].y) / scales[pindex]);
-            chars_data.back().bbox[2] = static_cast<float>(
-              (data[(bbox_index + 0) * num_cols + j] + data[(bbox_index + 2) * num_cols + j] / 2 - shifts[pindex].x) / scales[pindex]);
-            chars_data.back().bbox[3] = static_cast<float>(
-              (data[(bbox_index + 1) * num_cols + j] + data[(bbox_index + 3) * num_cols + j] / 2 - shifts[pindex].y) / scales[pindex]);
+      for (auto i = 0; i < num_rows; ++i)
+        if (const float conf = data[conf_index + num_cols * i]; conf > config.char_score)
+        {
+          chars_data.emplace_back();
+          auto& [bbox, confidence, char_class, plate_class] = chars_data.back();
+          const float left = data[bbox_index + 0 + num_cols * i];
+          const float top = data[bbox_index + 1 + num_cols * i];
+          const float right = data[bbox_index + 2 + num_cols * i];
+          const float bottom = data[bbox_index + 3 + num_cols * i];
+          const float inv_scale = 1.0f / static_cast<float>(scales[pindex]);
+          bbox[0] = (left - shifts[pindex].x) * inv_scale;
+          bbox[1] = (top - shifts[pindex].y) * inv_scale;
+          bbox[2] = (right - shifts[pindex].x) * inv_scale;
+          bbox[3] = (bottom - shifts[pindex].y) * inv_scale;
 
-            chars_data.back().confidence = data[k * num_cols + j];
-            chars_data.back().char_class = k - class_start_index;
-            chars_data.back().plate_class = plate.plate_class_common;
-          }
+          confidence = conf;
+          char_class = static_cast<int32_t>(data[class_index + num_cols * i]);
+          plate_class = plate.plate_class_common;
+        }
 
       if (config.logs_level <= userver::logging::Level::kTrace)
         USERVER_IMPL_LOG_TO(logger_, userver::logging::Level::kTrace,

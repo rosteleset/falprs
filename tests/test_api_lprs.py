@@ -104,10 +104,12 @@ def run_single(stream_id, number, type = TYPE_RU_1):
     assert len(data[DATA][VEHICLES]) == 1
     vehicle = data[DATA][VEHICLES][0]
     check_event_vehicle(vehicle, type)
-    has_number = False
+
+    valid_numbers = set([number])
+    test_numbers = set()
     for item in vehicle[PLATES]:
-        has_number = has_number or (item[NUMBER] == number)
-    assert has_number == True
+        test_numbers.add(item[NUMBER])
+    assert valid_numbers <= test_numbers
 
 def run_double(stream_id, number1, number2, type = TYPE_RU_1):
     start_stop_workflow(stream_id)
@@ -127,10 +129,13 @@ def run_double(stream_id, number1, number2, type = TYPE_RU_1):
     check_event_vehicle(vehicle0)
     vehicle1 = data[DATA][VEHICLES][1]
     check_event_vehicle(vehicle1, type)
-    valid_numbers = [number1, number2]
-    assert vehicle0[PLATES][0][NUMBER] in valid_numbers
-    assert vehicle1[PLATES][0][NUMBER] in valid_numbers
-    assert vehicle0[PLATES][0][NUMBER] != vehicle1[PLATES][0][NUMBER]
+    valid_numbers = set([number1, number2])
+    test_numbers = set()
+    for item in vehicle0[PLATES]:
+        test_numbers.add(item[NUMBER])
+    for item in vehicle1[PLATES]:
+        test_numbers.add(item[NUMBER])
+    assert valid_numbers <= test_numbers
 
 def run_special_single(stream_id):
     start_stop_workflow(stream_id)

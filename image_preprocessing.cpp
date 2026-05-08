@@ -5,7 +5,8 @@
 cv::Mat prepareBlobForYOLO(const cv::Mat& image, const int32_t target_width, const int32_t target_height, cv::Point2f& shift, double& scale)
 {
   // for test
-  // cv::imwrite(absl::Substitute("before_$0x$1.png", image.cols, image.rows), image);
+  // static int count = 0;
+  // cv::imwrite(absl::Substitute("before_$0x$1_$2.png", image.cols, image.rows, count), image);
 
   const auto r_w = target_width / (image.cols * 1.0);
   const auto r_h = target_height / (image.rows * 1.0);
@@ -20,7 +21,7 @@ cv::Mat prepareBlobForYOLO(const cv::Mat& image, const int32_t target_width, con
   cv::resize(image, roi, roi.size(), 0, 0, cv::INTER_LINEAR);
 
   // for test
-  // cv::imwrite(absl::Substitute("after_$0x$1.png", image.cols, image.rows), out);
+  // cv::imwrite(absl::Substitute("after_$0x$1_$2.png", image.cols, image.rows, count++), out);
 
   return cv::dnn::blobFromImage(
     out,

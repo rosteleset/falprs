@@ -55,7 +55,7 @@ mkdir -p $FALPRS_WORKDIR
 mkdir -p $FALPRS_WORKDIR/static
 cp falprs $FALPRS_WORKDIR
 cd $BASEDIR/..
-cp -n config.yaml.example $FALPRS_WORKDIR/config.yaml
-cp -n ./examples/lprs/test001.jpg $FALPRS_WORKDIR/static/
-cp -n ./examples/frs/einstein_001.jpg $FALPRS_WORKDIR/static/
-cp -n ./examples/frs/einstein_002.jpg $FALPRS_WORKDIR/static/
+cp --update=none config.yaml.example $FALPRS_WORKDIR/config.yaml
+cp --update=none ./examples/lprs/test001.jpg $FALPRS_WORKDIR/static/
+cp --update=none ./examples/frs/einstein_001.jpg $FALPRS_WORKDIR/static/
+cp --update=none ./examples/frs/einstein_002.jpg $FALPRS_WORKDIR/static/

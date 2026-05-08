@@ -123,8 +123,8 @@ namespace Lprs
 
     std::string lpr_net_inference_server{"127.0.0.1:8000"};
     std::string lpr_net_model_name{"lprnet_yolo"};
-    int32_t lpr_net_input_width = 160;
-    int32_t lpr_net_input_height = 160;
+    int32_t lpr_net_input_width = 320;
+    int32_t lpr_net_input_height = 320;
     std::string lpr_net_input_tensor_name{"images"};
     std::string lpr_net_output_tensor_name{"output0"};
 
