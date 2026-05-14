@@ -1409,13 +1409,13 @@ properties:
       result_ptr->RawData(config.lpd_net_output_tensor_name, reinterpret_cast<const uint8_t**>(&data), &data_size);
 
       // the output tensor has a dimension of [300, 14], and each row contains:
-      //  0 - bbox x_center
-      //  1 - bbox y_center
-      //  2 - bbox width
-      //  3 - bbox height
+      //  0 - bbox left
+      //  1 - bbox top
+      //  2 - bbox right
+      //  3 - bbox bottom
       //  4 - confidence
       //  5 - class
-      //  6..13 - coordinates of four key points
+      //  6..13 - coordinates of four key points clockwise starting from the left upper corner
 
       auto num_cols = 14;
       auto num_rows = data_size / num_cols / sizeof(float);

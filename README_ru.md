@@ -1,3 +1,4 @@
+
 ## [![Generic badge](https://img.shields.io/badge/LANG-EN-blue.svg)](https://github.com/rosteleset/falprs/blob/main/README.md) Описание проекта FALPRS
 Этот проект является заменой [старого](https://github.com/rosteleset/frs). Основные отличия:
 * В качестве СУБД используется PostgreSQL.
@@ -40,7 +41,7 @@
 
 <a id="lprs_used_dnn"></a>
 ### Используемые модели нейронных сетей
-Сервис работает с четырмя нейронными сетями: VDNet, VCNet, LPDNet и LPRNet. VDNet предназначена для поиска транспортных средств по полученному снимку с видео камеры. VCNet определяет, является ли каждое найденное транспортное средство специальным. LPDNet предназначена для поиска автомобильных номеров. LPRNet предназначена для распознавания номеров из полученных LPDNet данных. Модели VDNet, LPDNet и LPRNet обучены с помощью [Ultralytics](https://github.com/ultralytics/ultralytics). Модель VCNet получена путем "дообучения" (transfer learning with fine-tuning). За основу взята [эта](https://huggingface.co/WinKawaks/vit-small-patch16-224) модель.
+Сервис работает с пятью нейронными сетями: VDNet, VCNet, LPDNet, LPCNet и LPRNet. VDNet предназначена для поиска транспортных средств по полученному снимку с видео камеры. VCNet определяет, является ли каждое найденное транспортное средство специальным. LPDNet предназначена для поиска автомобильных номеров. LPCNet делает классификацию найденных номеров. LPRNet предназначена для распознавания номеров из полученных LPDNet данных. Модели VDNet, LPDNet и LPRNet обучены с помощью [Ultralytics](https://github.com/ultralytics/ultralytics). Модели VCNet и LPCNet получены путем "дообучения" (transfer learning with fine-tuning). За основу взята [эта](https://huggingface.co/WinKawaks/vit-small-patch16-224) модель.
 Для инференса нейронных сетей используется [NVIDIA Triton Inference Server](https://developer.nvidia.com/triton-inference-server).
 
 <a id="lprs_scheme"></a>

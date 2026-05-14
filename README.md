@@ -42,7 +42,7 @@ The system is designed to recognize license plates and detect special vehicles w
 
 <a id="lprs_used_dnn"></a>
 ### Neural network models used
-The service works with four neural networks: VDNet, VCNet, LPDNet and LPRNet. VDNet is designed to search for vehicles using a received image from a video camera. VCNet determines whether each vehicle found is a special one. LPDNet is designed to search for license plates. LPRNet is designed to recognize license plates from data received by LPDNet. VDNet, LPDNet and LPRNet models are trained using [Ultralytics](https://github.com/ultralytics/ultralytics). The VCNet model was obtained by transfer learning with fine-tuning. Based on [this](https://huggingface.co/WinKawaks/vit-small-patch16-224) model.
+The service uses five neural networks: VDNet, VCNet, LPDNet, LPCNet, and LPRNet. VDNet is designed to search for vehicles based on camera footage. VCNet determines whether each detected vehicle is a special vehicle. LPDNet is designed to search for license plates. LPCNet classifies the license plates found. LPRNet is designed to recognize license plates from the data obtained by LPDNet. VDNet, LPDNet and LPRNet models are trained using [Ultralytics](https://github.com/ultralytics/ultralytics). The VCNet and LPCNet models are obtained by transfer learning with fine-tuning. Based on [this](https://huggingface.co/WinKawaks/vit-small-patch16-224) model.
 [NVIDIA Triton Inference Server](https://developer.nvidia.com/triton-inference-server) is used for inference of neural networks.
 
 <a id="lprs_scheme"></a>
