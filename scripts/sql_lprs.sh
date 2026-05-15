@@ -1,16 +1,25 @@
 #!/bin/bash
 
-# External variables used in the script
-
-# PG_USER - PostgreSQL user
-# PG_PASSWD - PostgreSQL password
-# PG_HOST - PostgreSQL server
-# PG_PORT - PostgreSQL port
-# PG_DB - PostgreSQL database
+set -e
 
 BASEDIR=$(realpath `dirname $0`)
 
-psql postgresql://$pg_user:$pg_passwd@$pg_host:$pg_port/$pg_db < $BASEDIR/../sql/lprs/01_vstream_groups.sql
-psql postgresql://$pg_user:$pg_passwd@$pg_host:$pg_port/$pg_db < $BASEDIR/../sql/lprs/02_vstreams.sql
-psql postgresql://$pg_user:$pg_passwd@$pg_host:$pg_port/$pg_db < $BASEDIR/../sql/lprs/03_events_log.sql
-psql postgresql://$pg_user:$pg_passwd@$pg_host:$pg_port/$pg_db < $BASEDIR/../sql/lprs/04_default_vstream_config.sql
+# Load configuration from file if exists
+if [ -f "$BASEDIR/.env" ]; then
+    source $BASEDIR/.env
+elif [ -f "$BASEDIR/../.env" ]; then
+    source $BASEDIR/../.env
+fi
+
+# External variables used in the script
+
+# PG_USER_LPRS - PostgreSQL user
+# PG_PASSWD_LPRS - PostgreSQL password
+# PG_HOST_LPRS - PostgreSQL server
+# PG_PORT_LPRS - PostgreSQL port
+# PG_DB_LPRS - PostgreSQL database
+
+psql postgresql://$PG_USER_LPRS:$PG_PASSWD_LPRS@$PG_HOST_LPRS:$PG_PORT_LPRS/$PG_DB_LPRS < $BASEDIR/../sql/lprs/01_vstream_groups.sql
+psql postgresql://$PG_USER_LPRS:$PG_PASSWD_LPRS@$PG_HOST_LPRS:$PG_PORT_LPRS/$PG_DB_LPRS < $BASEDIR/../sql/lprs/02_vstreams.sql
+psql postgresql://$PG_USER_LPRS:$PG_PASSWD_LPRS@$PG_HOST_LPRS:$PG_PORT_LPRS/$PG_DB_LPRS < $BASEDIR/../sql/lprs/03_events_log.sql
+psql postgresql://$PG_USER_LPRS:$PG_PASSWD_LPRS@$PG_HOST_LPRS:$PG_PORT_LPRS/$PG_DB_LPRS < $BASEDIR/../sql/lprs/04_default_vstream_config.sql

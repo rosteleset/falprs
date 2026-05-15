@@ -189,7 +189,7 @@ alter database lprs owner to falprs;
 
 <a id="build_falprs"></a>
 ### Сборка проекта
-Для сборки проекта можно использовать скрипт **scripts/build_falprs.sh**. Мажорная версия PostgreSQL задаётся переменной **PG_VERSION**. Установленную версию PostgreSQL можно узнать командой:
+Для сборки проекта можно использовать скрипт **scripts/build_falprs.sh**. Рекомендуем создать файл *scripts/.env* и указать значения переменных окружения. Если для какой-либо переменной будет указано значение в файле и в командной строке, то будет браться значение из файла. Используйте *scripts/.env.example* в качестве примера. Мажорная версия PostgreSQL задаётся переменной **PG_VERSION**. Установленную версию PostgreSQL можно узнать командой:
 ```bash
 psql --version
 ```
@@ -230,10 +230,10 @@ sudo TRITON_VERSION=24.09 ARCFACE_SHA1=4fd7dce20b6987ba89910eda8614a33eb3593216 
 
 <a id="config_falprs"></a>
 ### Настройка проекта
-Для первоначального заполнения баз данных выполните команды, указав значения переменных с префиксом **pg_** (пароль "123" замените на указанный вами при создании пользователя PostgreSQL):
+Для первоначального заполнения баз данных выполните команды, указав значения переменных с префиксом **PG_** (пароль "123" замените на указанный вами при создании пользователя PostgreSQL):
 ```bash
-pg_user=falprs pg_passwd=123 pg_host=localhost pg_port=5432 pg_db=frs ~/falprs/scripts/sql_frs.sh
-pg_user=falprs pg_passwd=123 pg_host=localhost pg_port=5432 pg_db=lprs ~/falprs/scripts/sql_lprs.sh
+PG_USER_FRS=falprs PG_PASSWD_FRS=123 PG_HOST_FRS=localhost PG_PORT_FRS=5432 PG_DB_FRS=frs ~/falprs/scripts/sql_frs.sh
+PG_USER_LPRS=falprs PG_PASSWD_LPRS=123 PG_HOST_LPRS=localhost PG_PORT_LPRS=5432 PG_DB_LPRS=lprs ~/falprs/scripts/sql_lprs.sh
 ```
 Конфигурация проекта находится в файле **/opt/falprs/config.yaml**
 У основных параметров есть описание в комментариях. Некоторые значения нужно заменить.

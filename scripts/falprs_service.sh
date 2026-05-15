@@ -1,12 +1,24 @@
 #!/bin/bash
 
+# Creates FALPRS service
+
+set -e
+
+BASEDIR=$(realpath `dirname $0`)
+
+# Load configuration from file if exists
+if [ -f "$BASEDIR/.env" ]; then
+    source $BASEDIR/.env
+elif [ -f "$BASEDIR/../.env" ]; then
+    source $BASEDIR/../.env
+fi
+
 # External variables used in the script
 
 # FALPRS_WORKDIR - FALPRS working directory
 
 FALPRS_WORKDIR="${FALPRS_WORKDIR:=/opt/falprs}"
 
-BASEDIR=$(realpath `dirname $0`)
 cp $BASEDIR/../falprs.service.example /etc/systemd/system/falprs.service
 cp $BASEDIR/../logrotate.example /etc/logrotate.d/falprs
 groupadd falprs

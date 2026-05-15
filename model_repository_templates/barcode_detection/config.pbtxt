@@ -1,0 +1,12 @@
+name: "barcode_detection"
+platform: "tensorrt_plan"
+default_model_filename: "barcode_detection.engine"
+
+max_batch_size: 8
+dynamic_batching { }
+instance_group [
+  {
+    kind: KIND_GPU
+    count: 1
+  }
+]

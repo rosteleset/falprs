@@ -1,0 +1,12 @@
+name: "lpcnet_vit"
+platform: "tensorrt_plan"
+default_model_filename: "lpcnet_vit.engine"
+
+max_batch_size: 8
+dynamic_batching { }
+instance_group [
+  {
+    kind: KIND_GPU
+    count: 1
+  }
+]

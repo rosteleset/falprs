@@ -30,7 +30,7 @@ for i, gpu in enumerate(gpus):
         cc_set.add(cc)
 
 TRITON_VERSION = 'TRITON_VERSION'
-triton_version = os.environ.get(TRITON_VERSION) if os.environ.get(TRITON_VERSION) is not None else "22.12"
+triton_version = os.environ.get(TRITON_VERSION) if os.environ.get(TRITON_VERSION) is not None else "24.09"
 
 FALPRS_WORKDIR = 'FALPRS_WORKDIR'
 falprs_workdir = os.environ.get(FALPRS_WORKDIR) if os.environ.get(FALPRS_WORKDIR) is not None else "/opt/falprs"
@@ -71,6 +71,16 @@ except:
     print("Error downloading arcface model.")
     exit(-1)
 
+# barcode_detection - barcode_detection.onnx
+try:
+    subprocess.run(['wget', '--content-disposition', '--no-clobber',
+                    'https://drive.usercontent.google.com/download?id=19Lf1lXFUgLGtsZLjLkcTfyQC38KyI20n&confirm=y',
+                    '-O',
+                    tmp_dir + '/barcode_detection.onnx'])
+except:
+    print("Error downloading genet model.")
+    exit(-1)
+
 # genet - genet_small_custom_ft.onnx
 try:
     subprocess.run(['wget', '--content-disposition', '--no-clobber',
@@ -81,22 +91,32 @@ except:
     print("Error downloading genet model.")
     exit(-1)
 
-# lpdnet_yolo - lpdnet_yolo.onnx
+# lpcnet_vit - lpcnet_vit.onnx
 try:
     subprocess.run(['wget', '--content-disposition', '--no-clobber',
-                    'https://drive.usercontent.google.com/download?id=1k9aUWGW61JPnAG3j7LlAQR4rn1avsX1L&confirm=y',
+                    'https://drive.usercontent.google.com/download?id=1xAz9tQfBJsKXuJVoNE9EYfwrtBP_2Yvk&confirm=y',
                     '-O',
-                    tmp_dir + '/lpdnet_yolo.onnx'])
+                    tmp_dir + '/lpcnet_vit.onnx'])
+except:
+    print("Error downloading lpcnet_vit model.")
+    exit(-1)
+
+# lpdnet_yolo - lpdnet_yolo_v2.onnx
+try:
+    subprocess.run(['wget', '--content-disposition', '--no-clobber',
+                    'https://drive.usercontent.google.com/download?id=1oLQc2vBQtmxa2PRpF7DHcD1I9EKPkWw-&confirm=y',
+                    '-O',
+                    tmp_dir + '/lpdnet_yolo_v2.onnx'])
 except:
     print("Error downloading lpdnet_yolo model.")
     exit(-1)
 
-# lprnet_yolo - lprnet_yolo.onnx
+# lprnet_yolo - lprnet_yolo_v2.onnx
 try:
     subprocess.run(['wget', '--content-disposition', '--no-clobber',
-                    'https://drive.usercontent.google.com/download?id=1I-GlfHeAFUnOaOyH03p7Y3507ok9eSOP&confirm=y',
+                    'https://drive.usercontent.google.com/download?id=1ESgh3LMctXaGwBK9A_cO3G5demaP7G_y&confirm=y',
                     '-O',
-                    tmp_dir + '/lprnet_yolo.onnx'])
+                    tmp_dir + '/lprnet_yolo_v2.onnx'])
 except:
     print("Error downloading lprnet_yolo model.")
     exit(-1)
@@ -167,9 +187,11 @@ for i, gpu in gpu_info.items():
             })
 
     commands.append(f"CUDA_DEVICE_ORDER=PCI_BUS_ID /usr/src/tensorrt/bin/trtexec --device={i} --onnx=/source/{arcface_onnx} --saveEngine=/destination/arcface/1/model{suffix}.plan --shapes=input.1:1x3x112x112")
+    commands.append(f"CUDA_DEVICE_ORDER=PCI_BUS_ID /usr/src/tensorrt/bin/trtexec --device={i} --onnx=/source/barcode_detection.onnx --minShapes=images:1x3x320x320 --optShapes=images:8x3x320x320 --maxShapes=images:8x3x320x320 --saveEngine=/destination/barcode_detection/1/barcode_detection{suffix}.engine")
     commands.append(f"CUDA_DEVICE_ORDER=PCI_BUS_ID /usr/src/tensorrt/bin/trtexec --device={i} --onnx=/source/genet_small_custom_ft.onnx --saveEngine=/destination/genet/1/model{suffix}.plan")
-    commands.append(f"CUDA_DEVICE_ORDER=PCI_BUS_ID /usr/src/tensorrt/bin/trtexec --device={i} --onnx=/source/lpdnet_yolo.onnx --minShapes=images:1x3x640x640 --optShapes=images:8x3x640x640 --maxShapes=images:8x3x640x640 --saveEngine=/destination/lpdnet_yolo/1/lpdnet_yolo{suffix}.engine")
-    commands.append(f"CUDA_DEVICE_ORDER=PCI_BUS_ID /usr/src/tensorrt/bin/trtexec --device={i} --onnx=/source/lprnet_yolo.onnx --minShapes=images:1x3x160x160 --optShapes=images:8x3x160x160 --maxShapes=images:8x3x160x160 --saveEngine=/destination/lprnet_yolo/1/lprnet_yolo{suffix}.engine")
+    commands.append(f"CUDA_DEVICE_ORDER=PCI_BUS_ID /usr/src/tensorrt/bin/trtexec --device={i} --onnx=/source/lpcnet_vit.onnx --minShapes=input:1x3x224x224 --optShapes=input:8x3x224x224 --maxShapes=input:8x3x224x224 --saveEngine=/destination/lpcnet_vit/1/lpcnet_vit{suffix}.engine")
+    commands.append(f"CUDA_DEVICE_ORDER=PCI_BUS_ID /usr/src/tensorrt/bin/trtexec --device={i} --onnx=/source/lpdnet_yolo_v2.onnx --minShapes=images:1x3x640x640 --optShapes=images:8x3x640x640 --maxShapes=images:8x3x640x640 --saveEngine=/destination/lpdnet_yolo/1/lpdnet_yolo{suffix}.engine")
+    commands.append(f"CUDA_DEVICE_ORDER=PCI_BUS_ID /usr/src/tensorrt/bin/trtexec --device={i} --onnx=/source/lprnet_yolo_v2.onnx --minShapes=images:1x3x320x320 --optShapes=images:8x3x320x320 --maxShapes=images:8x3x320x320 --saveEngine=/destination/lprnet_yolo/1/lprnet_yolo{suffix}.engine")
     commands.append(f"CUDA_DEVICE_ORDER=PCI_BUS_ID /usr/src/tensorrt/bin/trtexec --device={i} --onnx=/source/scrfd_10g_bnkps.onnx --saveEngine=/destination/scrfd/1/model{suffix}.plan --shapes=input.1:1x3x320x320")
     commands.append(f"CUDA_DEVICE_ORDER=PCI_BUS_ID /usr/src/tensorrt/bin/trtexec --device={i} --onnx=/source/vcnet_vit.onnx --minShapes=input:1x3x224x224 --optShapes=input:8x3x224x224 --maxShapes=input:8x3x224x224 --saveEngine=/destination/vcnet_vit/1/vcnet_vit{suffix}.engine")
     commands.append(f"CUDA_DEVICE_ORDER=PCI_BUS_ID /usr/src/tensorrt/bin/trtexec --device={i} --onnx=/source/vdnet_yolo.onnx --minShapes=images:1x3x640x640 --optShapes=images:8x3x640x640 --maxShapes=images:8x3x640x640 --saveEngine=/destination/vdnet_yolo/1/vdnet_yolo{suffix}.engine")

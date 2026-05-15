@@ -1,24 +1,43 @@
 #!/bin/bash
 
+# Build script for the FALPRS project
+# Creates executable file and prepares a working directory
+
+set -e
+
+BASEDIR=$(realpath `dirname $0`)
+
+# Load configuration from file if exists
+if [ -f "$BASEDIR/.env" ]; then
+    source $BASEDIR/.env
+elif [ -f "$BASEDIR/../.env" ]; then
+    source $BASEDIR/../.env
+fi
+
 # External variables used in the script
 
 # PG_VERSION - PostgreSQL database system version
 # TRITON_VERSION - NVIDIA Triton Inference Server version
 # FALPRS_WORKDIR - FALPRS working directory
 
-PG_VERSION="${PG_VERSION:=14}"
-TRITON_VERSION="${TRITON_VERSION:=22.12}"
+PG_VERSION="${PG_VERSION:=16}"
+TRITON_VERSION="${TRITON_VERSION:=24.09}"
 FALPRS_WORKDIR="${FALPRS_WORKDIR:=/opt/falprs}"
 
-BASEDIR=$(realpath `dirname $0`)
 apt-get update
 apt-get install -y build-essential ccache cmake git libboost-dev libboost-context-dev libboost-coroutine-dev libboost-filesystem-dev libboost-iostreams-dev libboost-locale-dev libboost-program-options-dev libboost-regex-dev libboost-stacktrace-dev zlib1g-dev nasm clang-format libssl-dev libyaml-cpp-dev libjemalloc-dev libpq-dev postgresql-server-dev-$PG_VERSION rapidjson-dev python3-dev python3-jinja2 python3-protobuf python3-venv python3-voluptuous python3-yaml libgtest-dev libnghttp2-dev libev-dev libldap2-dev libkrb5-dev libzstd-dev libopencv-dev libbz2-dev
 
 cd ~
-git clone https://github.com/triton-inference-server/client.git triton-client
+if [ ! -d "triton-client" ]; then
+  git clone https://github.com/triton-inference-server/client.git triton-client
+fi
 
 cd triton-client
-git checkout r$TRITON_VERSION
+git checkout .
+TRITON_TAG="r$TRITON_VERSION"
+if [[ "$TRITON_TAG" > "r25.07" ]]; then
+  TRITON_TAG="r25.07"
+fi
 
 # Get rid of re2 dependency (we don't need GRPC)
 sed -i 's/_cc_client_depends re2/_cc_client_depends ""/' CMakeLists.txt
@@ -35,8 +54,8 @@ cmake \
     -DTRITON_ENABLE_GPU=OFF \
     -DTRITON_ENABLE_EXAMPLES=OFF \
     -DTRITON_ENABLE_TESTS=OFF \
-    -DTRITON_COMMON_REPO_TAG=r$TRITON_VERSION \
-    -DTRITON_THIRD_PARTY_REPO_TAG=r$TRITON_VERSION \
+    -DTRITON_COMMON_REPO_TAG=$TRITON_TAG \
+    -DTRITON_THIRD_PARTY_REPO_TAG=$TRITON_TAG \
     ..
 make cc-clients -j`nproc`
 
@@ -55,7 +74,7 @@ mkdir -p $FALPRS_WORKDIR
 mkdir -p $FALPRS_WORKDIR/static
 cp falprs $FALPRS_WORKDIR
 cd $BASEDIR/..
-cp --update=none config.yaml.example $FALPRS_WORKDIR/config.yaml
+python3 $BASEDIR/merge_yaml.py config.yaml.example $FALPRS_WORKDIR/config.yaml
 cp --update=none ./examples/lprs/test001.jpg $FALPRS_WORKDIR/static/
 cp --update=none ./examples/frs/einstein_001.jpg $FALPRS_WORKDIR/static/
 cp --update=none ./examples/frs/einstein_002.jpg $FALPRS_WORKDIR/static/

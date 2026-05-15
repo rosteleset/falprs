@@ -14,3 +14,7 @@
 
 # Cache data
 .cache/
+
+# Environment variables
+scripts/.env
+.env

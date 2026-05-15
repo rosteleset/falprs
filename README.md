@@ -1,5 +1,6 @@
 
 
+
 ## [![Generic badge](https://img.shields.io/badge/LANG-RU-blue.svg)](https://github.com/rosteleset/falprs/blob/main/README_ru.md) Description of the FALPRS project
 This project is a replacement for the [old](https://github.com/rosteleset/frs) one. Main differences:
 * PostgreSQL is used as a DBMS.
@@ -190,7 +191,7 @@ alter database lprs owner to falprs;
 
 <a id="build_falprs"></a>
 ### Building the project
-To build the project, you can use the script **scripts/build_falprs.sh**. The major PostgreSQL version is set by the **PG_VERSION** variable. You can find out the installed version of PostgreSQL with the command:
+To build the project, you can use the script **scripts/build_falprs.sh**. We recommend creating a *scripts/.env* file and specifying the values ​​for environment variables. If a variable has a value specified in both the file and on the command line, the value from the file will be used. Use *scripts/.env.example* as an example. The major PostgreSQL version is set by the **PG_VERSION** variable. You can find out the installed version of PostgreSQL with the command:
 ```bash
 psql --version
 ```
@@ -231,14 +232,14 @@ sudo TRITON_VERSION=24.09 ARCFACE_SHA1=4fd7dce20b6987ba89910eda8614a33eb3593216 
 
 <a id="config_falprs"></a>
 ### Project configuration
-To initially populate the databases, run the commands, specifying the values ​​of the variables with the prefix **pg_** (replace the password “123” with the one you specified when creating the PostgreSQL user):
+To initially populate the databases, run the commands, specifying the values of the variables with the prefix **PG_** (replace the password “123” with the one you specified when creating the PostgreSQL user):
 ```bash
-pg_user=falprs pg_passwd=123 pg_host=localhost pg_port=5432 pg_db=frs ~/falprs/scripts/sql_frs.sh
-pg_user=falprs pg_passwd=123 pg_host=localhost pg_port=5432 pg_db=lprs ~/falprs/scripts/sql_lprs.sh
+PG_USER_FRS=falprs PG_PASSWD_FRS=123 PG_HOST_FRS=localhost PG_PORT_FRS=5432 PG_DB_FRS=frs ~/falprs/scripts/sql_frs.sh
+PG_USER_LPRS=falprs PG_PASSWD_LPRS=123 PG_HOST_LPRS=localhost PG_PORT_LPRS=5432 PG_DB_LPRS=lprs ~/falprs/scripts/sql_lprs.sh
 ```
 The project configuration is in the file **/opt/falprs/config.yaml**
-The main parameters have a description in the comments. Some values ​​need to be replaced.
-* In the sections *components_manager -> components -> lprs-postgresql-database* and *components_manager -> components -> frs-postgresql-database* in the values ​​of the **dbconnection** attributes, replace the password "123" with the one you specified when creating the PostgreSQL user, as well as other access details, if they differ.
+The main parameters have a description in the comments. Some values need to be replaced.
+* In the sections *components_manager -> components -> lprs-postgresql-database* and *components_manager -> components -> frs-postgresql-database* in the values of the **dbconnection** attributes, replace the password "123" with the one you specified when creating the PostgreSQL user, as well as other access details, if they differ.
 * In the *components_manager -> task_processors -> main-task-processor* section, replace the **worker_threads** value with the number of CPU cores of your server. The quantity can be viewed, for example, using the command:
 ```bash
 cat /proc/cpuinfo | grep processor | wc -l
@@ -423,7 +424,7 @@ Copying the file:
 ```bash
 cp config.sample.py config.py
 ```
-In the *config.py* file, replace the variable values ​​according to your configuration of the old and new service. Variables of the form *mysql_** and *\*_old* refer to the old project, *pg_** and *\*_new* - to the new one. Run the commands:
+In the *config.py* file, replace the variable values according to your configuration of the old and new service. Variables of the form *mysql_** and *\*_old* refer to the old project, *pg_** and *\*_new* - to the new one. Run the commands:
 ```bash
 virtualenv venv
 source venv/bin/activate

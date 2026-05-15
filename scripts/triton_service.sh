@@ -5,7 +5,16 @@
 # TRITON_VERSION - NVIDIA Triton Inference Server version
 # FALPRS_WORKDIR - FALPRS working directory
 
-TRITON_VERSION="${TRITON_VERSION:=22.12}"
+BASEDIR=$(realpath `dirname $0`)
+
+# Load configuration from file if exists
+if [ -f "$BASEDIR/.env" ]; then
+    source $BASEDIR/.env
+elif [ -f "$BASEDIR/../.env" ]; then
+    source $BASEDIR/../.env
+fi
+
+TRITON_VERSION="${TRITON_VERSION:=24.09}"
 FALPRS_WORKDIR="${FALPRS_WORKDIR:=/opt/falprs}"
 
 sudo docker run --gpus all -d --restart unless-stopped --net=host -v $FALPRS_WORKDIR/model_repository:/models nvcr.io/nvidia/tritonserver:$TRITON_VERSION-py3 sh -c "tritonserver --model-repository=/models"
