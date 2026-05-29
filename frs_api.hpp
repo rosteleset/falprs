@@ -185,7 +185,7 @@ namespace Frs
     static constexpr auto P_BARCODES = "barcodes";
 
     // messages
-    static constexpr auto MESSAGE_REQUEST_COMPLETED = "Request completed successfully";
+    static constexpr auto MESSAGE_REQUEST_COMPLETED = "Ok";
 
     // errors
     static constexpr auto ERROR_UNKNOWN_METHOD = "Unknown API method";
