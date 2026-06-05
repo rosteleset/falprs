@@ -44,11 +44,6 @@ export TRITON_VERSION=${TRITON_VERSION:-24.09}
 export FALPRS_WORKDIR=${FALPRS_WORKDIR:-/opt/falprs}
 export FALPRS_REPOSITORY_URL=${FALPRS_REPOSITORY_URL:-https://github.com/rosteleset/falprs}
 
-echo "Updating source code and submodules..."
-cd $BASEDIR/..
-git pull $FALPRS_REPOSITORY_URL
-git submodule update --init --recursive
-
 echo "Stopping services..."
 
 # Stop falprs service
