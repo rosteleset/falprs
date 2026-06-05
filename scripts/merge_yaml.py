@@ -42,6 +42,12 @@ def main():
         # If the file exists, perform a merge
         dest_data = merge_dicts(example_data, dest_data)
 
+        # Remove tracer and http-client components if present
+        components = dest_data.get('components_manager', {}).get('components')
+        if isinstance(components, dict):
+            components.pop('tracer', None)
+            components.pop('http-client', None)
+
     try:
         import os
         os.makedirs(os.path.dirname(os.path.abspath(dest_path)), exist_ok=True)

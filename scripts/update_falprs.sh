@@ -14,10 +14,40 @@ elif [ -f "$BASEDIR/../.env" ]; then
     source $BASEDIR/../.env
 fi
 
+# External variables used in the script
+
+# PG_VERSION - PostgreSQL database system version
+# TRITON_VERSION - NVIDIA Triton Inference Server version
+# FALPRS_WORKDIR - FALPRS working directory
+
 # Set default values if not provided
-export PG_VERSION=${PG_VERSION:-16}
+# Auto-detect Ubuntu version if not set
+if [ -f /etc/os-release ]; then
+    . /etc/os-release
+    UBUNTU_VERSION=$VERSION_ID
+fi
+
+if [ -z "$PG_VERSION" ]; then
+    case $UBUNTU_VERSION in
+        "24.04")
+            PG_VERSION=16
+            ;;
+        "26.04")
+            PG_VERSION=18
+            ;;
+        *)
+            PG_VERSION=16
+            ;;
+    esac
+fi
 export TRITON_VERSION=${TRITON_VERSION:-24.09}
 export FALPRS_WORKDIR=${FALPRS_WORKDIR:-/opt/falprs}
+export FALPRS_REPOSITORY_URL=${FALPRS_REPOSITORY_URL:-https://github.com/rosteleset/falprs}
+
+echo "Updating source code and submodules..."
+cd $BASEDIR/..
+git pull $FALPRS_REPOSITORY_URL
+git submodule update --init --recursive
 
 echo "Stopping services..."
 

@@ -50,9 +50,6 @@ components_manager:
                     level: info
                     overflow_behavior: discard  # Drop logs if the system is too busy to write them down.
 
-        tracer:                                 # Component that helps to trace execution times and requests in logs.
-            service-name: api-http
-
         dynamic-config:                      # Dynamic config storage options
             defaults:
                 POSTGRES_DEFAULT_COMMAND_CONTROL:
@@ -64,7 +61,7 @@ components_manager:
 
         testsuite-support:
 
-        http-client:
+        http-client-core:
             fs-task-processor: fs-task-processor
 
         handler-ping:

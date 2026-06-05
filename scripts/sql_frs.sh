@@ -4,15 +4,7 @@ set -e
 
 BASEDIR=$(realpath `dirname $0`)
 
-# Load configuration from file if exists
-if [ -f "$BASEDIR/.env" ]; then
-    source $BASEDIR/.env
-elif [ -f "$BASEDIR/../.env" ]; then
-    source $BASEDIR/../.env
-fi
-
 # External variables used in the script
-
 # PG_USER_FRS - PostgreSQL user
 # PG_PASSWD_FRS - PostgreSQL password
 # PG_HOST_FRS - PostgreSQL server

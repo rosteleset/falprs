@@ -1,6 +1,7 @@
 #undef linux
 
 #include <userver/clients/dns/component.hpp>
+#include <userver/clients/http/component_list.hpp>
 #include <userver/components/fs_cache.hpp>
 #include <userver/components/minimal_server_component_list.hpp>
 #include <userver/server/handlers/http_handler_static.hpp>
@@ -52,7 +53,7 @@ int main(const int argc, char* argv[])
     .Append<userver::server::handlers::HttpHandlerStatic>()
     .Append<userver::server::handlers::LogLevel>()
     .Append<userver::server::handlers::OnLogRotate>()
-    .Append<userver::components::HttpClient>()
+    .AppendComponentList(userver::clients::http::ComponentList())
     .Append<userver::components::TestsuiteSupport>()
     .Append<userver::clients::dns::Component>();
   // clang-format on
