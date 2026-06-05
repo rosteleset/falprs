@@ -155,6 +155,7 @@ model_templates = {
     'arcface': "model_{suffix}.plan",
     'genet': "model_{suffix}.plan",
     'lpdnet_yolo': "lpdnet_yolo_{suffix}.engine",
+    'lpcnet_vit': "lpcnet_vit_{suffix}.engine",
     'lprnet_yolo': "lprnet_yolo_{suffix}.engine",
     'scrfd': "model_{suffix}.plan",
     'vcnet_vit': "vcnet_vit_{suffix}.engine",
