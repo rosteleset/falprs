@@ -229,6 +229,10 @@ namespace Frs
         {
           return listAllFaces(id_group);
         }},
+      {METHOD_CLUSTER_FACES_BY_SIMILARITY, [this](auto&& id_group, auto&& json)
+        {
+          return clusterFacesBySimilarity(id_group, json);
+        }},
       {METHOD_GET_EVENTS, [this](auto&& id_group, auto&& json)
         {
           return getEvents(id_group, json);
@@ -776,6 +780,94 @@ namespace Frs
     {
       LOG_ERROR_TO(workflow_.getLogger()) << e.what();
       throw userver::server::handlers::ClientError(HandlerErrorCode::kServerSideError);
+    }
+
+    return data.ExtractValue();
+  }
+
+  userver::formats::json::Value Api::clusterFacesBySimilarity(const int32_t id_group, const userver::formats::json::Value& json) const
+  {
+    requireArrayThrow(json, P_FACE_IDS);
+    requireMemberThrow(json, P_SIMILARITY);
+
+    const float similarity_threshold = json[P_SIMILARITY].As<float>();
+    std::vector<int32_t> faces;
+    try
+    {
+      for (const auto& item : json[P_FACE_IDS].As<std::vector<userver::formats::json::Value>>())
+        if (auto id_d = convertToNumber<int32_t>(item, 0); id_d > 0)
+          faces.emplace_back(id_d);
+    } catch (const std::exception& e)
+    {
+      throw userver::server::handlers::ClientError(ExternalBody{e.what()});
+    }
+
+    if (faces.empty())
+      return userver::formats::json::MakeArray();
+
+    HashMap<int32_t, DescriptorData> descriptors;
+    try
+    {
+      for (const auto result = pg_cluster_->Execute(userver::storages::postgres::ClusterHostType::kMaster, SQL_GET_DESCRIPTORS, id_group, faces); const auto& row : result)
+      {
+        auto id_descriptor = row[DatabaseFields::ID_DESCRIPTOR].As<int32_t>();
+        std::string descriptor_data;
+        row[DatabaseFields::DESCRIPTOR_DATA].To(userver::storages::postgres::Bytea(descriptor_data));
+        descriptors[id_descriptor] = {};
+        std::memmove(descriptors[id_descriptor].data, descriptor_data.data(), descriptor_data.size());
+      }
+    } catch (const std::exception& e)
+    {
+      LOG_ERROR_TO(workflow_.getLogger()) << e.what();
+      throw userver::server::handlers::ClientError(HandlerErrorCode::kServerSideError);
+    }
+
+    std::vector<int32_t> available_faces;
+    for (auto id : faces)
+    {
+      if (descriptors.contains(id))
+        available_faces.emplace_back(id);
+    }
+
+    // cluster faces by similarity using BFS in the similarity graph connected components
+    const int n = static_cast<int>(available_faces.size());
+    std::vector<std::vector<int>> adj(n);
+    for (int i = 0; i < n; ++i)
+      for (int j = i + 1; j < n; ++j)
+      {
+        if (cosineSimilaritySIMD(descriptors[available_faces[i]].data, descriptors[available_faces[j]].data) >= similarity_threshold)
+        {
+          adj[i].push_back(j);
+          adj[j].push_back(i);
+        }
+      }
+
+    std::vector visited(n, false);
+    userver::formats::json::ValueBuilder data;
+    for (int i = 0; i < n; ++i)
+    {
+      if (!visited[i])
+      {
+        std::vector<int32_t> component;
+        std::vector<int> q;
+        q.push_back(i);
+        visited[i] = true;
+        int head = 0;
+        while (head < static_cast<int>(q.size()))
+        {
+          const int u = q[head++];
+          component.push_back(available_faces[u]);
+          for (int v : adj[u])
+          {
+            if (!visited[v])
+            {
+              visited[v] = true;
+              q.push_back(v);
+            }
+          }
+        }
+        data.PushBack(component);
+      }
     }
 
     return data.ExtractValue();
@@ -1352,7 +1444,7 @@ namespace Frs
               if (fr_data.gcount() == sizeof(data))
                 for (auto& [fst, snd] : descriptors)
                 {
-                  if (double cosine_distance = cosineDistanceSIMD(snd.data, data.data); cosine_distance > similarity_threshold)
+                  if (double cosine_distance = cosineSimilaritySIMD(snd.data, data.data); cosine_distance > similarity_threshold)
                   {
                     auto event_id = std::string(data.event_id, sizeof(data.event_id));
                     event_ids.insert(event_id);
@@ -1411,7 +1503,7 @@ namespace Frs
               if (fr_data.gcount() == sizeof(data))
                 for (auto& [fst, snd] : descriptors)
                 {
-                  if (double cosine_distance = cosineDistanceSIMD(snd.data, data.data); cosine_distance > similarity_threshold)
+                  if (double cosine_similarity = cosineSimilaritySIMD(snd.data, data.data); cosine_similarity > similarity_threshold)
                   {
                     auto event_id = std::string(data.event_id, sizeof(data.event_id));
 
@@ -1435,7 +1527,7 @@ namespace Frs
                           "",
                           image_url,
                           fst,
-                          cosine_distance});
+                          cosine_similarity});
                       }
                     }
                   }

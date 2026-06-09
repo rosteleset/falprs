@@ -142,7 +142,7 @@ namespace Frs
     bool is_non_blurry = false;
     FaceClassIndexes face_class_index = FACE_NONE;
     float face_class_confidence = 0.0f;
-    double cosine_distance = -2.0;
+    double cosine_similarity = -2.0;
     FaceDescriptor fd;
     cv::Mat landmarks5;
     double laplacian = 0.0;

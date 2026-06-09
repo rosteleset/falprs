@@ -51,7 +51,7 @@ namespace Frs
     return _mm_cvtss_f32(s1);
   }
 
-  inline double cosineDistanceSIMD(const Data& d1, const Data& d2)
+  inline double cosineSimilaritySIMD(const Data& d1, const Data& d2)
   {
     constexpr int step = 8;
     __m256 sum0 = _mm256_setzero_ps();
@@ -111,37 +111,38 @@ namespace Frs
     static constexpr auto kName = "frs-api-http";
 
     // API methods
-    static constexpr auto METHOD_ADD_STREAM = "addStream";                              // add or change a video stream
-    static constexpr auto METHOD_MOTION_DETECTION = "motionDetection";                  // provide motion detection info
-    static constexpr auto METHOD_DOOR_IS_OPEN = "doorIsOpen";                           // notify that a door is open
-    static constexpr auto METHOD_BEST_QUALITY = "bestQuality";                          // get best face info
-    static constexpr auto METHOD_GET_EVENTS = "getEvents";                              // get a list of events from a time interval
-    static constexpr auto METHOD_REGISTER_FACE = "registerFace";                        // register face
-    static constexpr auto METHOD_ADD_FACES = "addFaces";                                // attach a face descriptor to the video stream
-    static constexpr auto METHOD_REMOVE_FACES = "removeFaces";                          // detach face descriptor from the video stream
-    static constexpr auto METHOD_LIST_STREAMS = "listStreams";                          // list video streams with attached faces
-    static constexpr auto METHOD_REMOVE_STREAM = "removeStream";                        // remove video stream
-    static constexpr auto METHOD_LIST_ALL_FACES = "listAllFaces";                       // list all faces
-    static constexpr auto METHOD_DELETE_FACES = "deleteFaces";                          // delete faces from a database (regardless of attaching to video streams)
-    static constexpr auto METHOD_TEST_IMAGE = "testImage";                              // test image
-    static constexpr auto METHOD_PROCESS_FRAME = "processFrame";                        // process frame by url
-    static constexpr auto METHOD_ADD_SPECIAL_GROUP = "addSpecialGroup";                 // add a special group
-    static constexpr auto METHOD_UPDATE_SPECIAL_GROUP = "updateSpecialGroup";           // update special group
-    static constexpr auto METHOD_DELETE_SPECIAL_GROUP = "deleteSpecialGroup";           // delete a special group
-    static constexpr auto METHOD_LIST_SPECIAL_GROUPS = "listSpecialGroups";             // list special groups
-    static constexpr auto SG_METHOD_PREFIX = "sg";                                      // prefix for special group methods
-    static constexpr auto METHOD_SG_REGISTER_FACE = "sgRegisterFace";                   // register a person in a special group
-    static constexpr auto METHOD_SG_DELETE_FACES = "sgDeleteFaces";                     // remove the list of special group descriptors from the database
-    static constexpr auto METHOD_SG_LIST_FACES = "sgListFaces";                         // get a list of all special group face descriptors
-    static constexpr auto METHOD_SG_UPDATE_GROUP = "sgUpdateGroup";                     // update special group parameters
-    static constexpr auto METHOD_SG_RENEW_TOKEN = "sgRenewToken";                       // renew special group authorization Token
-    static constexpr auto METHOD_SG_SEARCH_FACES = "sgSearchFaces";                     // search faces in a special group
-    static constexpr auto METHOD_SAVE_DNN_STATS_DATA = "saveDnnStatsData";              // save inference statistics data
-    static constexpr auto METHOD_SET_COMMON_CONFIG = "setCommonConfig";                 // set common configuration parameters
-    static constexpr auto METHOD_GET_COMMON_CONFIG = "getCommonConfig";                 // get common configuration parameters
-    static constexpr auto METHOD_SET_STREAM_DEFAULT_CONFIG = "setStreamDefaultConfig";  // set common configuration parameters
-    static constexpr auto METHOD_GET_STREAM_DEFAULT_CONFIG = "getStreamDefaultConfig";  // get common configuration parameters
-    static constexpr auto METHOD_GET_BARCODE_EVENT = "getBarcodeEvent";                 // get barcode event info
+    static constexpr auto METHOD_ADD_STREAM = "addStream";                                  // add or change a video stream
+    static constexpr auto METHOD_MOTION_DETECTION = "motionDetection";                      // provide motion detection info
+    static constexpr auto METHOD_DOOR_IS_OPEN = "doorIsOpen";                               // notify that a door is open
+    static constexpr auto METHOD_BEST_QUALITY = "bestQuality";                              // get best face info
+    static constexpr auto METHOD_GET_EVENTS = "getEvents";                                  // get a list of events from a time interval
+    static constexpr auto METHOD_REGISTER_FACE = "registerFace";                            // register face
+    static constexpr auto METHOD_ADD_FACES = "addFaces";                                    // attach a face descriptor to the video stream
+    static constexpr auto METHOD_REMOVE_FACES = "removeFaces";                              // detach face descriptor from the video stream
+    static constexpr auto METHOD_LIST_STREAMS = "listStreams";                              // list video streams with attached faces
+    static constexpr auto METHOD_REMOVE_STREAM = "removeStream";                            // remove video stream
+    static constexpr auto METHOD_LIST_ALL_FACES = "listAllFaces";                           // list all faces
+    static constexpr auto METHOD_CLUSTER_FACES_BY_SIMILARITY = "clusterFacesBySimilarity";  // build face similarity clusters
+    static constexpr auto METHOD_DELETE_FACES = "deleteFaces";                              // delete faces from a database (regardless of attaching to video streams)
+    static constexpr auto METHOD_TEST_IMAGE = "testImage";                                  // test image
+    static constexpr auto METHOD_PROCESS_FRAME = "processFrame";                            // process frame by url
+    static constexpr auto METHOD_ADD_SPECIAL_GROUP = "addSpecialGroup";                     // add a special group
+    static constexpr auto METHOD_UPDATE_SPECIAL_GROUP = "updateSpecialGroup";               // update special group
+    static constexpr auto METHOD_DELETE_SPECIAL_GROUP = "deleteSpecialGroup";               // delete a special group
+    static constexpr auto METHOD_LIST_SPECIAL_GROUPS = "listSpecialGroups";                 // list special groups
+    static constexpr auto SG_METHOD_PREFIX = "sg";                                          // prefix for special group methods
+    static constexpr auto METHOD_SG_REGISTER_FACE = "sgRegisterFace";                       // register a person in a special group
+    static constexpr auto METHOD_SG_DELETE_FACES = "sgDeleteFaces";                         // remove the list of special group descriptors from the database
+    static constexpr auto METHOD_SG_LIST_FACES = "sgListFaces";                             // get a list of all special group face descriptors
+    static constexpr auto METHOD_SG_UPDATE_GROUP = "sgUpdateGroup";                         // update special group parameters
+    static constexpr auto METHOD_SG_RENEW_TOKEN = "sgRenewToken";                           // renew special group authorization Token
+    static constexpr auto METHOD_SG_SEARCH_FACES = "sgSearchFaces";                         // search faces in a special group
+    static constexpr auto METHOD_SAVE_DNN_STATS_DATA = "saveDnnStatsData";                  // save inference statistics data
+    static constexpr auto METHOD_SET_COMMON_CONFIG = "setCommonConfig";                     // set common configuration parameters
+    static constexpr auto METHOD_GET_COMMON_CONFIG = "getCommonConfig";                     // get common configuration parameters
+    static constexpr auto METHOD_SET_STREAM_DEFAULT_CONFIG = "setStreamDefaultConfig";      // set stream default configuration parameters
+    static constexpr auto METHOD_GET_STREAM_DEFAULT_CONFIG = "getStreamDefaultConfig";      // get stream default configuration parameters
+    static constexpr auto METHOD_GET_BARCODE_EVENT = "getBarcodeEvent";                     // get barcode event info
 
     // parameters
     static constexpr auto P_CODE = "code";
@@ -383,6 +384,18 @@ namespace Frs
         and id_parent is null
     )_SQL_";
 
+    static constexpr auto SQL_GET_DESCRIPTORS = R"_SQL_(
+      select
+        id_descriptor,
+        descriptor_data
+      from
+        face_descriptors
+      where
+        id_group = $1
+        and id_descriptor = any($2)
+        and not flag_deleted
+    )_SQL_";
+
     static constexpr auto SQL_ADD_SPECIAL_GROUP = R"_SQL_(
       insert into
         special_groups(id_group, group_name, sg_api_token, max_descriptor_count)
@@ -567,6 +580,7 @@ namespace Frs
     void removeFaces(int32_t id_group, const userver::formats::json::Value& json) const;
     void removeVStream(int32_t id_group, const userver::formats::json::Value& json) const;
     userver::formats::json::Value listAllFaces(int32_t id_group) const;
+    userver::formats::json::Value clusterFacesBySimilarity(int32_t id_group, const userver::formats::json::Value& json) const;
     void deleteFaces(int32_t id_group, const userver::formats::json::Value& json) const;
     userver::formats::json::Value getEvents(int32_t id_group, const userver::formats::json::Value& json) const;
     userver::formats::json::Value registerFace(int32_t id_group, const userver::formats::json::Value& json) const;

@@ -22,7 +22,7 @@ namespace tc = triton::client;
 
 namespace Frs
 {
-  double cosineDistance(const FaceDescriptor& fd1, const FaceDescriptor& fd2)
+  double cosineSimilarity(const FaceDescriptor& fd1, const FaceDescriptor& fd2)
   {
     if (fd1.cols != fd2.cols || fd1.cols == 0)
       return -1.0;
@@ -1031,7 +1031,7 @@ properties:
               USERVER_IMPL_LOG_TO(logger_, userver::logging::Level::kTrace,
                 "vstream_key = {};  before recognition",
                 task_data.vstream_key);
-            double max_cos_distance = -2.0;
+            double max_cos_similarity = -2.0;
             int id_descriptor{};
 
             // scope for accessing cache
@@ -1045,9 +1045,9 @@ properties:
                 for (const auto& item : vd_cache->getData().at(config.id_vstream))
                   if (fd_cache->getData().contains(item))
                   {
-                    if (double cos_distance = cosineDistance(face_descriptor, fd_cache->getData().at(item)); cos_distance > max_cos_distance)
+                    if (double cos_similarity = cosineSimilarity(face_descriptor, fd_cache->getData().at(item)); cos_similarity > max_cos_similarity)
                     {
-                      max_cos_distance = cos_distance;
+                      max_cos_similarity = cos_similarity;
                       id_descriptor = item;
                     }
                   }
@@ -1068,9 +1068,9 @@ properties:
                   for (const auto& id_sg_descriptor : sgd_cache->getData().at(task_data.id_sgroup))
                     if (fd_cache->getData().contains(id_sg_descriptor))
                     {
-                      if (double cos_distance = cosineDistance(face_descriptor, fd_cache->getData().at(id_sg_descriptor)); cos_distance > max_cos_distance)
+                      if (double cos_similarity = cosineSimilarity(face_descriptor, fd_cache->getData().at(id_sg_descriptor)); cos_similarity > max_cos_similarity)
                       {
-                        max_cos_distance = cos_distance;
+                        max_cos_similarity = cos_similarity;
                         id_descriptor = id_sg_descriptor;
                       }
                     }
@@ -1080,20 +1080,20 @@ properties:
                   for (const auto& id_sgroup : sgc_cache->getMappedSG().at(config.id_group))
                     if (sgd_cache->getData().contains(id_sgroup))
                     {
-                      double sg_max_cos_distance = -2.0;
+                      double sg_max_cos_similarity = -2.0;
                       int id_sg_best_descriptor{};
                       for (const auto& id_sg_descriptor : sgd_cache->getData().at(id_sgroup))
                         if (fd_cache->getData().contains(id_sg_descriptor))
                         {
-                          if (double cos_distance = cosineDistance(face_descriptor, fd_cache->getData().at(id_sg_descriptor)); cos_distance > sg_max_cos_distance)
+                          if (double cos_similarity = cosineSimilarity(face_descriptor, fd_cache->getData().at(id_sg_descriptor)); cos_similarity > sg_max_cos_similarity)
                           {
-                            sg_max_cos_distance = cos_distance;
+                            sg_max_cos_similarity = cos_similarity;
                             id_sg_best_descriptor = id_sg_descriptor;
                           }
                         }
-                      if (id_sg_best_descriptor > 0 && sg_max_cos_distance >= config.tolerance)
+                      if (id_sg_best_descriptor > 0 && sg_max_cos_similarity >= config.tolerance)
                       {
-                        face_data.back().sg_descriptors[id_sgroup] = {sg_max_cos_distance, id_sg_best_descriptor};
+                        face_data.back().sg_descriptors[id_sgroup] = {sg_max_cos_similarity, id_sg_best_descriptor};
                         has_sgroup_events = true;
                       }
                     }
@@ -1105,14 +1105,14 @@ properties:
                 "vstream_key = {};  after recognition",
                 task_data.vstream_key);
 
-            face_data.back().cosine_distance = max_cos_distance;
+            face_data.back().cosine_similarity = max_cos_similarity;
 
             if (config.logs_level <= userver::logging::Level::kTrace || task_data.task_type == TASK_TEST)
               USERVER_IMPL_LOG_TO(logger_, userver::logging::Level::kTrace,
-                "vstream_key = {};  most similar data: cosine_distance = {:.3f};  id_descriptor = {}",
-                task_data.vstream_key, max_cos_distance, id_descriptor);
+                "vstream_key = {};  most similar data: cosine_similarity = {:.3f};  id_descriptor = {}",
+                task_data.vstream_key, max_cos_similarity, id_descriptor);
 
-            if (id_descriptor == 0 || max_cos_distance < config.tolerance)
+            if (id_descriptor == 0 || max_cos_similarity < config.tolerance)
             {
               // face isn't recognized
               if (face_data.back().laplacian > best_quality && recognized_face_count == 0)
@@ -1174,9 +1174,9 @@ properties:
                     if (n_l2 <= 0.0)
                       n_l2 = 1.0;
                     fd = fd / n_l2;
-                    if (double cos_distance = cosineDistance(face_descriptor, fd); cos_distance > max_cd)
+                    if (double cos_similarity = cosineSimilarity(face_descriptor, fd); cos_similarity > max_cd)
                     {
-                      max_cd = cos_distance;
+                      max_cd = cos_similarity;
                       k = i;
                     }
                   }
@@ -1185,7 +1185,7 @@ properties:
                   {
                     if (config.logs_level <= userver::logging::Level::kTrace)
                       USERVER_IMPL_LOG_TO(logger_, userver::logging::Level::kTrace,
-                        "vstream_key = {};  unknown descriptors cosine distance = {:.3f};  index = {};  size = {}",
+                        "vstream_key = {};  unknown descriptors cosine similarity = {:.3f};  index = {};  size = {}",
                         task_data.vstream_key, max_cd, k, (*ud_ptr)[config.id_vstream].size());
                     fd_spawned = std::move((*ud_ptr)[config.id_vstream][k].fd);
                     face_image_spawned = std::move((*ud_ptr)[config.id_vstream][k].face_image);
@@ -1346,7 +1346,7 @@ properties:
 
           // send events about face recognition from special groups
           if (has_sgroup_events && task_data.task_type == TASK_RECOGNIZE)
-            for (const auto& [face_rect, is_work_area, is_frontal, is_non_blurry, face_class_index, face_class_confidence, cosine_distance, fd, landmarks5, laplacian, ioa, id_descriptor, sg_descriptors] : face_data)
+            for (const auto& [face_rect, is_work_area, is_frontal, is_non_blurry, face_class_index, face_class_confidence, cosine_similarity, fd, landmarks5, laplacian, ioa, id_descriptor, sg_descriptors] : face_data)
               for (const auto& [fst, snd] : sg_descriptors)
               {
                 auto log_uuid = boost::uuids::random_generator()();
@@ -1418,7 +1418,7 @@ properties:
               // everything is ok, register the descriptor
               cv::Rect r = enlargeFaceRect(face_data[best_register_index].face_rect, config.face_enlarge_scale);
               r = r & cv::Rect(0, 0, frame.cols, frame.rows);
-              if (face_data[best_register_index].cosine_distance > 0.999)
+              if (face_data[best_register_index].cosine_similarity > 0.999)
                 result.id_descriptor = face_data[best_register_index].id_descriptor;
               else
               {
@@ -1474,7 +1474,7 @@ properties:
           // drawing a frame and markers, saving a frame
           if (task_data.task_type == TASK_TEST)
           {
-            for (auto& [face_rect, is_work_area, is_frontal, is_non_blurry, face_class_index, face_class_confidence, cosine_distance, fd, landmarks5, laplacian, ioa, id_descriptor, sg_descriptors] : face_data)
+            for (auto& [face_rect, is_work_area, is_frontal, is_non_blurry, face_class_index, face_class_confidence, cosine_similarity, fd, landmarks5, laplacian, ioa, id_descriptor, sg_descriptors] : face_data)
             {
               if (!landmarks5.empty())
                 for (int k = 0; k < 5; ++k)

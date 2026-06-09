@@ -302,6 +302,62 @@ paths:
         '400':
           description: Bad request
 
+  /frs/api/clusterFacesBySimilarity:
+    post:
+      tags:
+        - Host --> FRS
+      summary: Cluster Faces by Similarity
+      description: Clusters the face descriptors using a similarity parameter
+      operationId: frs_clusterFacesBySimilarity
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - faces
+                - similarity
+              properties:
+                faces:
+                  description: List of registered face descriptors
+                  type: array
+                  items:
+                    type: integer
+                similarity:
+                  description: Similarity parameter in the range from 0.0 to 1.0 for clustering
+                  type: number
+                  format: float
+            example:
+              faces: [1, 2, 3, 4, 5, 6, 7]
+              similarity: 0.5
+      responses:
+        '200':
+          description: Successful operation
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ResponseBase'
+                  - type: object
+                    properties:
+                      data:
+                        type: array
+                        description: List of face clusters
+                        items:
+                          type: array
+                          items:
+                            type: integer
+              example:
+                code: "200"
+                message: "Ok"
+                data:
+                  - [1, 6]
+                  - [2, 4, 3]
+                  - [5]
+        '400':
+          description: Bad request
+
   /frs/api/registerFace:
     post:
       tags:
