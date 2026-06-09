@@ -1017,19 +1017,22 @@ properties:
     options.client_timeout_ = std::chrono::duration_cast<std::chrono::microseconds>(config.inference_timeout).count();
     tc::InferResult* result;
 
+    if (config.logs_level <= userver::logging::Level::kTrace)
+      USERVER_IMPL_LOG_TO(logger_, userver::logging::Level::kTrace,
+        "vstream_key = {}_{};  before inference VDNet",
+        config.id_group, config.ext_id);
+
     AsyncNoSpan(fs_task_processor_,
-      [&]
+      [&err, &triton_client, &result, &options, &inputs, &outputs]
       {
-        if (config.logs_level <= userver::logging::Level::kTrace)
-          USERVER_IMPL_LOG_TO(logger_, userver::logging::Level::kTrace,
-            "vstream_key = {}_{};  before inference VDNet",
-            config.id_group, config.ext_id);
         err = triton_client->Infer(&result, options, inputs, outputs);
-        if (config.logs_level <= userver::logging::Level::kTrace)
-          USERVER_IMPL_LOG_TO(logger_, userver::logging::Level::kTrace,
-            "vstream_key = {}_{};  after inference VDNet",
-            config.id_group, config.ext_id);
       }).Get();
+
+    if (config.logs_level <= userver::logging::Level::kTrace)
+      USERVER_IMPL_LOG_TO(logger_, userver::logging::Level::kTrace,
+        "vstream_key = {}_{};  after inference VDNet",
+        config.id_group, config.ext_id);
+
     if (!err.IsOk())
     {
       LOG_ERROR_TO(logger_,
@@ -1204,7 +1207,7 @@ properties:
       options.back().client_timeout_ = std::chrono::duration_cast<std::chrono::microseconds>(config.inference_timeout).count();
 
       tasks.emplace_back(AsyncNoSpan(fs_task_processor_,
-        [&, vindex]
+        [&triton_clients, &results, &options, &input_ptrs, &output_ptrs, vindex]
         {
           return triton_clients[vindex]->Infer(&results[vindex], options[vindex], {input_ptrs[vindex].get()}, {output_ptrs[vindex].get()});
         }));
@@ -1370,7 +1373,7 @@ properties:
       options.back().client_timeout_ = std::chrono::duration_cast<std::chrono::microseconds>(config.inference_timeout).count();
 
       tasks.emplace_back(AsyncNoSpan(fs_task_processor_,
-        [&, vindex]
+        [&triton_clients, &results, &options, &input_ptrs, &output_ptrs, vindex]
         {
           return triton_clients[vindex]->Infer(&results[vindex], options[vindex], {input_ptrs[vindex].get()}, {output_ptrs[vindex].get()});
         }));
@@ -1834,7 +1837,7 @@ properties:
       options.back().client_timeout_ = std::chrono::duration_cast<std::chrono::microseconds>(config.inference_timeout).count();
 
       tasks.emplace_back(AsyncNoSpan(fs_task_processor_,
-        [&, pindex]
+        [&triton_clients, &results, &options, &input_ptrs, &output_ptrs, pindex]
         {
           return triton_clients[pindex]->Infer(&results[pindex], options[pindex], {input_ptrs[pindex].get()}, {output_ptrs[pindex].get()});
         }));
@@ -2026,7 +2029,7 @@ properties:
       options.back().client_timeout_ = std::chrono::duration_cast<std::chrono::microseconds>(config.inference_timeout).count();
 
       tasks.emplace_back(AsyncNoSpan(fs_task_processor_,
-        [&, pindex]
+        [&triton_clients, &results, &options, &input_ptrs, &output_ptrs, pindex]
         {
           return triton_clients[pindex]->Infer(&results[pindex], options[pindex], {input_ptrs[pindex].get()}, {output_ptrs[pindex].get()});
         }));

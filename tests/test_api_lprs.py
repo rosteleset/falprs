@@ -32,6 +32,7 @@ CONF_FLAG_PROCESS_SPECIAL = "flag-process-special"
 
 TYPE_RU_1 = "ru_1"
 TYPE_RU_1a = "ru_1a"
+TYPE_BY = "by"
 
 order = 0
 
@@ -577,7 +578,7 @@ def test_get_event_data7():
 # test angle 1
 @pytest.mark.order(++order)
 def test_angle1():
-    run_single("a1", "O016TK68")
+    run_single("a1", "0105BT3", type=TYPE_BY)
 
 # test angle 2
 @pytest.mark.order(++order)
@@ -746,7 +747,7 @@ def test_blur2():
 # test blur 3
 @pytest.mark.order(++order)
 def test_blur3():
-    run_single("b3", "O283PA68")
+    run_single("b3", "3281KX4", type=TYPE_BY)
 
 # test blur 4
 @pytest.mark.order(++order)
@@ -761,7 +762,7 @@ def test_blur5():
 # test blur 6
 @pytest.mark.order(++order)
 def test_blur6():
-    run_single("b6", "O887XB68")
+    run_single("b6", "1279EX5", type=TYPE_BY)
 
 # test dirty 1
 @pytest.mark.order(++order)
@@ -831,7 +832,7 @@ def test_rain3():
 # test rain 4
 @pytest.mark.order(++order)
 def test_rain4():
-    run_double("r4", "C059AX68", "O590EE68")
+    run_single("r4", "3109MK9", type=TYPE_BY)
 
 # test rain 5
 @pytest.mark.order(++order)
@@ -856,7 +857,7 @@ def test_rain8():
 # test rain 9
 @pytest.mark.order(++order)
 def test_rain9():
-    run_double("r9", "C253BH68", "O590EE68")
+    run_single("r9", "3344PA7", type=TYPE_BY)
 
 # test rain 10
 @pytest.mark.order(++order)

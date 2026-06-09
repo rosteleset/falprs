@@ -941,7 +941,7 @@ properties:
 
             if (task_data.task_type == TASK_TEST)
               AsyncNoSpan(fs_task_processor_,
-                [&]
+                [&face_data, &aligned_face]
                 {
                   cv::imwrite(absl::Substitute("$0/aligned_face_$1.jpg", std::filesystem::current_path().string(), face_data.size()), aligned_face);
                 })
@@ -984,7 +984,7 @@ properties:
             }
             if (task_data.task_type == TASK_TEST)
               AsyncNoSpan(fs_task_processor_,
-                [&]
+                [&face_data, &aligned_face_class]
                 {
                   cv::imwrite(absl::Substitute("$0/aligned_face_class_$1.jpg", std::filesystem::current_path().string(), face_data.size()), aligned_face_class);
                 })
@@ -1295,7 +1295,7 @@ properties:
 
             // write event's data to files
             AsyncNoSpan(fs_task_processor_,
-              [&]
+              [&path_prefix, &s_uuid, &face_data, &common_config, &config, &log_date, best_face_index]
               {
                 std::ofstream ff(absl::StrCat(path_prefix, s_uuid, DATA_FILE_SUFFIX), std::ios::binary);
                 userver::formats::json::ValueBuilder json_faces;
@@ -1485,7 +1485,7 @@ properties:
 
             auto frame_indx = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now().time_since_epoch()).count();
             AsyncNoSpan(fs_task_processor_,
-              [&]
+              [&frame, frame_indx]
               {
                 cv::imwrite(absl::Substitute("$0/frame_$1.jpg", std::filesystem::current_path().string(), frame_indx), frame);
               })
@@ -1915,7 +1915,7 @@ properties:
         "vstream_key = {};  before inference face detection",
         task_data.vstream_key);
     userver::engine::AsyncNoSpan(fs_task_processor_,
-      [&]
+      [&err, &triton_client, &result, &options, &inputs, &outputs]
       {
         err = triton_client->Infer(&result, options, inputs, outputs);
       }).Get();
@@ -2098,7 +2098,7 @@ properties:
         "vstream_key = {};  before inference face class",
         task_data.vstream_key);
     userver::engine::AsyncNoSpan(fs_task_processor_,
-      [&]
+      [&err, &triton_client, &result, &options, &inputs, &outputs]
       {
         err = triton_client->Infer(&result, options, inputs, outputs);
       }).Get();
@@ -2232,7 +2232,7 @@ properties:
         "vstream_key = {};  before inference for extracting descriptor",
         task_data.vstream_key);
     userver::engine::AsyncNoSpan(fs_task_processor_,
-      [&]
+      [&err, &triton_client, &result, &options, &inputs, &outputs]
       {
         err = triton_client->Infer(&result, options, inputs, outputs);
       }).Get();
@@ -2471,19 +2471,21 @@ properties:
     options.client_timeout_ = std::chrono::duration_cast<std::chrono::microseconds>(config.inference_timeout).count();
     tc::InferResult* result;
 
+    if (config.logs_level <= userver::logging::Level::kTrace)
+      USERVER_IMPL_LOG_TO(logger_, userver::logging::Level::kTrace,
+        "vstream_key = {};  before inference barcode detection",
+        task_data.vstream_key);
+
     AsyncNoSpan(fs_task_processor_,
-      [&]
+      [&err, &triton_client, &result, &options, &inputs, &outputs]
       {
-        if (config.logs_level <= userver::logging::Level::kTrace)
-          USERVER_IMPL_LOG_TO(logger_, userver::logging::Level::kTrace,
-            "vstream_key = {};  before inference barcode detection",
-            task_data.vstream_key);
         err = triton_client->Infer(&result, options, inputs, outputs);
-        if (config.logs_level <= userver::logging::Level::kTrace)
-          USERVER_IMPL_LOG_TO(logger_, userver::logging::Level::kTrace,
-            "vstream_key = {};  after inference barcode detection",
-            task_data.vstream_key);
       }).Get();
+
+    if (config.logs_level <= userver::logging::Level::kTrace)
+      USERVER_IMPL_LOG_TO(logger_, userver::logging::Level::kTrace,
+        "vstream_key = {};  after inference barcode detection",
+        task_data.vstream_key);
 
     if (!err.IsOk())
     {
