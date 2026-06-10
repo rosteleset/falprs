@@ -63,7 +63,7 @@ if arcface_sha1 == '4fd7dce20b6987ba89910eda8614a33eb3593216':
     arcface_id = '102F98ufVggXyXbWKXCF6tWdIk21FIvhS'
     arcface_onnx = 'glint_r50.onnx'
 try:
-    subprocess.run(['wget', '--content-disposition', '--no-clobber',
+    subprocess.run(['wget', '--content-disposition',
                     f"https://drive.usercontent.google.com/download?id={arcface_id}&confirm=y",
                     '-O',
                     tmp_dir + "/" + arcface_onnx])
@@ -73,17 +73,17 @@ except:
 
 # barcode_detection - barcode_detection.onnx
 try:
-    subprocess.run(['wget', '--content-disposition', '--no-clobber',
+    subprocess.run(['wget', '--content-disposition',
                     'https://drive.usercontent.google.com/download?id=19Lf1lXFUgLGtsZLjLkcTfyQC38KyI20n&confirm=y',
                     '-O',
                     tmp_dir + '/barcode_detection.onnx'])
 except:
-    print("Error downloading genet model.")
+    print("Error downloading barcode_detection model.")
     exit(-1)
 
 # genet - genet_small_custom_ft.onnx
 try:
-    subprocess.run(['wget', '--content-disposition', '--no-clobber',
+    subprocess.run(['wget', '--content-disposition',
                     'https://drive.usercontent.google.com/download?id=1tIBqGBPb5Pgss0b2wIOqNv9BpcSar76-&confirm=y',
                     '-O',
                     tmp_dir + '/genet_small_custom_ft.onnx'])
@@ -93,8 +93,8 @@ except:
 
 # lpcnet_vit - lpcnet_vit.onnx
 try:
-    subprocess.run(['wget', '--content-disposition', '--no-clobber',
-                    'https://drive.usercontent.google.com/download?id=1xAz9tQfBJsKXuJVoNE9EYfwrtBP_2Yvk&confirm=y',
+    subprocess.run(['wget', '--content-disposition',
+                    'https://drive.usercontent.google.com/download?id=14aaFuG6y_26SJt7F-4OM9FeVMoEmk1yW&confirm=y',
                     '-O',
                     tmp_dir + '/lpcnet_vit.onnx'])
 except:
@@ -103,8 +103,8 @@ except:
 
 # lpdnet_yolo - lpdnet_yolo_v2.onnx
 try:
-    subprocess.run(['wget', '--content-disposition', '--no-clobber',
-                    'https://drive.usercontent.google.com/download?id=1oLQc2vBQtmxa2PRpF7DHcD1I9EKPkWw-&confirm=y',
+    subprocess.run(['wget', '--content-disposition',
+                    'https://drive.usercontent.google.com/download?id=1o--KonChXshsxMSVaEn6VX9pE0I4TxRA&confirm=y',
                     '-O',
                     tmp_dir + '/lpdnet_yolo_v2.onnx'])
 except:
@@ -113,8 +113,8 @@ except:
 
 # lprnet_yolo - lprnet_yolo_v2.onnx
 try:
-    subprocess.run(['wget', '--content-disposition', '--no-clobber',
-                    'https://drive.usercontent.google.com/download?id=1ESgh3LMctXaGwBK9A_cO3G5demaP7G_y&confirm=y',
+    subprocess.run(['wget', '--content-disposition',
+                    'https://drive.usercontent.google.com/download?id=1-uUaYmLQM8CHN6IYIDXKZqGwvraTkKU1&confirm=y',
                     '-O',
                     tmp_dir + '/lprnet_yolo_v2.onnx'])
 except:
@@ -123,7 +123,7 @@ except:
 
 # scrfd - scrfd_10g_bnkps.onnx
 try:
-    subprocess.run(['wget', '--content-disposition', '--no-clobber',
+    subprocess.run(['wget', '--content-disposition',
                     'https://drive.usercontent.google.com/download?id=1ug1uimJzuwDqbxQPYCWEDAYumDXaj1f2&confirm=y',
                     '-O',
                     tmp_dir + '/scrfd_10g_bnkps.onnx'])
@@ -133,7 +133,7 @@ except:
 
 # vcnet_vit - vcnet_vit.onnx
 try:
-    subprocess.run(['wget', '--content-disposition', '--no-clobber',
+    subprocess.run(['wget', '--content-disposition',
                     'https://drive.usercontent.google.com/download?id=178NdNvKhOSAURJg8bTP5IlNRyzBigr3v&confirm=y',
                     '-O',
                     tmp_dir + '/vcnet_vit.onnx'])
@@ -143,7 +143,7 @@ except:
 
 # vdnet_yolo - vdnet_yolo.onnx
 try:
-    subprocess.run(['wget', '--content-disposition', '--no-clobber',
+    subprocess.run(['wget', '--content-disposition',
                     'https://drive.usercontent.google.com/download?id=1BPwVSvI1qytIO2WlCzdz6lGXVo_IiQ2E&confirm=y',
                     '-O',
                     tmp_dir + '/vdnet_yolo.onnx'])
@@ -153,6 +153,7 @@ except:
 
 model_templates = {
     'arcface': "model_{suffix}.plan",
+    'barcode_detection': "barcode_detection_{suffix}.engine",
     'genet': "model_{suffix}.plan",
     'lpdnet_yolo': "lpdnet_yolo_{suffix}.engine",
     'lpcnet_vit': "lpcnet_vit_{suffix}.engine",

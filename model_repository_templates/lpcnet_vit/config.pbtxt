@@ -1,7 +1,7 @@
 name: "lpcnet_vit"
 platform: "tensorrt_plan"
 default_model_filename: "lpcnet_vit.engine"
-
+%cc_model_filenames%
 max_batch_size: 8
 dynamic_batching { }
 instance_group [
