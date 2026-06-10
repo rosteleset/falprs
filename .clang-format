@@ -1,6 +1,6 @@
 ﻿---
 BasedOnStyle: Microsoft
-AccessModifierOffset: '-2'
+AccessModifierOffset: -2
 BreakBeforeBinaryOperators: NonAssignment
 BreakBeforeBraces: Custom
 BraceWrapping:
@@ -17,17 +17,17 @@ BraceWrapping:
     BeforeElse: false
     BeforeLambdaBody: true
     BeforeWhile: false
-AlignAfterOpenBracket: DontAlign
+AlignAfterOpenBracket: false
 AlignOperands: Align
 AllowShortLambdasOnASingleLine: Inline
-ColumnLimit: '0'
-ConstructorInitializerIndentWidth: '2'
-ContinuationIndentWidth: '2'
-IndentWidth: '2'
-MaxEmptyLinesToKeep: '2'
+ColumnLimit: 0
+ConstructorInitializerIndentWidth: 2
+ContinuationIndentWidth: 2
+IndentWidth: 2
+MaxEmptyLinesToKeep: 2
 NamespaceIndentation: All
 PointerAlignment: Left
-SpacesBeforeTrailingComments: '2'
-TabWidth: '2'
+SpacesBeforeTrailingComments: 2
+TabWidth: 2
 UseTab: Never
 ...

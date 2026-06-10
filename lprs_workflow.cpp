@@ -782,9 +782,9 @@ properties:
           {
             auto& [bbox, confidence, kpts, plate_class_common, plate_numbers] = *plate_ptr;
             std::vector<cv::Point> p = {{static_cast<int>(kpts[0]), static_cast<int>(kpts[1])},
-                {static_cast<int>(kpts[2]), static_cast<int>(kpts[3])},
-                {static_cast<int>(kpts[4]), static_cast<int>(kpts[5])},
-                {static_cast<int>(kpts[6]), static_cast<int>(kpts[7])}};
+              {static_cast<int>(kpts[2]), static_cast<int>(kpts[3])},
+              {static_cast<int>(kpts[4]), static_cast<int>(kpts[5])},
+              {static_cast<int>(kpts[6]), static_cast<int>(kpts[7])}};
             if (plate_ptr->plate_numbers.empty())
               plate_polygons_failed.push_back(p);
             else
@@ -1458,7 +1458,7 @@ properties:
             detected_plates.back().kpts[l] = delta + static_cast<float>((data[kpts_start_index + l + num_cols * i] - sh) / scales[vindex]);
           }
           plate.confidence = data[conf_index + num_cols * i];
-          plate.plate_class_common = - 1;
+          plate.plate_class_common = -1;
         }
 
       if (config.logs_level <= userver::logging::Level::kTrace)
@@ -1536,58 +1536,58 @@ properties:
       for (size_t j = i + 1; j < detected_vehicles.size(); ++j)
         if (hasIntersection(detected_vehicles[i].bbox, detected_vehicles[j].bbox))
         {
-           for (auto m = detected_vehicles[i].license_plates.begin(); m != detected_vehicles[i].license_plates.end(); ++m)
-             for (auto n = detected_vehicles[j].license_plates.begin(); n != detected_vehicles[j].license_plates.end(); ++n)
-             {
-               auto r1 = cv::Rect2f(cv::Point2f{m->bbox[0], m->bbox[1]}, cv::Point2f{m->bbox[2], m->bbox[3]});
-               auto r2 = cv::Rect2f(cv::Point2f{n->bbox[0], n->bbox[1]}, cv::Point2f{n->bbox[2], n->bbox[3]});
-               if (iou(r1, r2) > 0.7)  // the intersection is large enough
-               {
-                 if (detected_vehicles[i].license_plates.size() == detected_vehicles[j].license_plates.size())
-                 {
-                   // remove plate from a vehicle with the largest area
-                   auto b1 = cv::Rect2f(cv::Point2f{detected_vehicles[i].bbox[0], detected_vehicles[i].bbox[1]}, cv::Point2f{detected_vehicles[i].bbox[2], detected_vehicles[i].bbox[3]});
-                   auto b2 = cv::Rect2f(cv::Point2f{detected_vehicles[j].bbox[0], detected_vehicles[j].bbox[1]}, cv::Point2f{detected_vehicles[j].bbox[2], detected_vehicles[j].bbox[3]});
-                   if (b1.area() > b2.area())
-                   {
-                     if (config.logs_level <= userver::logging::Level::kTrace)
-                       USERVER_IMPL_LOG_TO(logger_, userver::logging::Level::kTrace,
-                         "vstream_key = {}_{};  remove duplicate plate number from vehicle {}",
-                         config.id_group, config.ext_id, i);
-                     m = detected_vehicles[i].license_plates.erase(m);
-                     --m;
-                   } else
-                   {
-                     if (config.logs_level <= userver::logging::Level::kTrace)
-                       USERVER_IMPL_LOG_TO(logger_, userver::logging::Level::kTrace,
-                         "vstream_key = {}_{};  remove duplicate plate number from vehicle {}",
-                         config.id_group, config.ext_id, j);
-                     n = detected_vehicles[j].license_plates.erase(n);
-                     --n;
-                   }
-                 } else
-                 {
-                   // remove plate from a vehicle with most elements
-                   if (detected_vehicles[i].license_plates.size() > detected_vehicles[j].license_plates.size())
-                   {
-                     if (config.logs_level <= userver::logging::Level::kTrace)
-                       USERVER_IMPL_LOG_TO(logger_, userver::logging::Level::kTrace,
-                         "vstream_key = {}_{};  remove duplicate plate number from vehicle {}",
-                         config.id_group, config.ext_id, i);
-                     m = detected_vehicles[i].license_plates.erase(m);
-                     --m;
-                   } else
-                   {
-                     if (config.logs_level <= userver::logging::Level::kTrace)
-                       USERVER_IMPL_LOG_TO(logger_, userver::logging::Level::kTrace,
-                         "vstream_key = {}_{};  remove duplicate plate number from vehicle {}",
-                         config.id_group, config.ext_id, j);
-                     n = detected_vehicles[j].license_plates.erase(n);
-                     --n;
-                   }
-                 }
-               }
-             }
+          for (auto m = detected_vehicles[i].license_plates.begin(); m != detected_vehicles[i].license_plates.end(); ++m)
+            for (auto n = detected_vehicles[j].license_plates.begin(); n != detected_vehicles[j].license_plates.end(); ++n)
+            {
+              auto r1 = cv::Rect2f(cv::Point2f{m->bbox[0], m->bbox[1]}, cv::Point2f{m->bbox[2], m->bbox[3]});
+              auto r2 = cv::Rect2f(cv::Point2f{n->bbox[0], n->bbox[1]}, cv::Point2f{n->bbox[2], n->bbox[3]});
+              if (iou(r1, r2) > 0.7)  // the intersection is large enough
+              {
+                if (detected_vehicles[i].license_plates.size() == detected_vehicles[j].license_plates.size())
+                {
+                  // remove plate from a vehicle with the largest area
+                  auto b1 = cv::Rect2f(cv::Point2f{detected_vehicles[i].bbox[0], detected_vehicles[i].bbox[1]}, cv::Point2f{detected_vehicles[i].bbox[2], detected_vehicles[i].bbox[3]});
+                  auto b2 = cv::Rect2f(cv::Point2f{detected_vehicles[j].bbox[0], detected_vehicles[j].bbox[1]}, cv::Point2f{detected_vehicles[j].bbox[2], detected_vehicles[j].bbox[3]});
+                  if (b1.area() > b2.area())
+                  {
+                    if (config.logs_level <= userver::logging::Level::kTrace)
+                      USERVER_IMPL_LOG_TO(logger_, userver::logging::Level::kTrace,
+                        "vstream_key = {}_{};  remove duplicate plate number from vehicle {}",
+                        config.id_group, config.ext_id, i);
+                    m = detected_vehicles[i].license_plates.erase(m);
+                    --m;
+                  } else
+                  {
+                    if (config.logs_level <= userver::logging::Level::kTrace)
+                      USERVER_IMPL_LOG_TO(logger_, userver::logging::Level::kTrace,
+                        "vstream_key = {}_{};  remove duplicate plate number from vehicle {}",
+                        config.id_group, config.ext_id, j);
+                    n = detected_vehicles[j].license_plates.erase(n);
+                    --n;
+                  }
+                } else
+                {
+                  // remove plate from a vehicle with most elements
+                  if (detected_vehicles[i].license_plates.size() > detected_vehicles[j].license_plates.size())
+                  {
+                    if (config.logs_level <= userver::logging::Level::kTrace)
+                      USERVER_IMPL_LOG_TO(logger_, userver::logging::Level::kTrace,
+                        "vstream_key = {}_{};  remove duplicate plate number from vehicle {}",
+                        config.id_group, config.ext_id, i);
+                    m = detected_vehicles[i].license_plates.erase(m);
+                    --m;
+                  } else
+                  {
+                    if (config.logs_level <= userver::logging::Level::kTrace)
+                      USERVER_IMPL_LOG_TO(logger_, userver::logging::Level::kTrace,
+                        "vstream_key = {}_{};  remove duplicate plate number from vehicle {}",
+                        config.id_group, config.ext_id, j);
+                    n = detected_vehicles[j].license_plates.erase(n);
+                    --n;
+                  }
+                }
+              }
+            }
         }
     std::erase_if(detected_vehicles, [&config, img_width = width, img_height = height](const auto& vehicle)
       {
