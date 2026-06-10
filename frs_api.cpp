@@ -790,17 +790,26 @@ namespace Frs
     requireArrayThrow(json, P_FACE_IDS);
     requireMemberThrow(json, P_SIMILARITY);
 
-    const float similarity_threshold = json[P_SIMILARITY].As<float>();
-    std::vector<int32_t> faces;
-    try
+    const auto similarity_threshold = convertToNumber<float>(json[P_SIMILARITY], std::numeric_limits<float>::quiet_NaN());
+    if (similarity_threshold < -1.0f || similarity_threshold > 1.0f || std::isnan(similarity_threshold))
     {
-      for (const auto& item : json[P_FACE_IDS].As<std::vector<userver::formats::json::Value>>())
-        if (auto id_d = convertToNumber<int32_t>(item, 0); id_d > 0)
-          faces.emplace_back(id_d);
-    } catch (const std::exception& e)
-    {
-      throw userver::server::handlers::ClientError(ExternalBody{e.what()});
+      throw userver::server::handlers::ClientError(ExternalBody{
+        absl::Substitute("Member `$0` must be a number within the range [-1.0, 1.0].", P_SIMILARITY)});
     }
+
+    std::vector<int32_t> faces;
+    if (json.HasMember(P_FACE_IDS))
+      try
+      {
+        HashSet<int32_t> seen;
+        for (const auto& item : json[P_FACE_IDS].As<std::vector<userver::formats::json::Value>>())
+          if (auto id_d = convertToNumber<int32_t>(item, 0); id_d > 0)
+            if (seen.insert(id_d).second)
+              faces.emplace_back(id_d);
+      } catch (const std::exception& e)
+      {
+        throw userver::server::handlers::ClientError(ExternalBody{e.what()});
+      }
 
     if (faces.empty())
       return userver::formats::json::MakeArray();
