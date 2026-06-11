@@ -374,7 +374,7 @@ properties:
     return local_config_;
   }
 
-  void Workflow::startWorkflow(std::string&& vstream_key)
+  void Workflow::startWorkflow(std::string&& vstream_key, std::chrono::milliseconds duration)
   {
     int32_t id_group = -1;
     std::chrono::milliseconds workflow_timeout{std::chrono::seconds{0}};
@@ -398,6 +398,8 @@ properties:
       (*data_ptr)[vstream_key] = true;
     }
 
+    if (duration.count() > 0)
+      workflow_timeout = duration;
     if (workflow_timeout.count() > 0)
     {
       auto data_ptr = vstream_timeouts.Lock();

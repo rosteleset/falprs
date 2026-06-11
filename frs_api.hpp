@@ -175,6 +175,8 @@ namespace Frs
     static constexpr auto P_SEARCH_IN_EVENTS = "useEvents";
     static constexpr auto P_SIMILARITY = "similarity";
     static constexpr auto P_SIMILARITY_THRESHOLD = "similarityThreshold";
+    static constexpr auto P_TOKEN = "token";
+    static constexpr auto P_DURATION = "duration";
 
     // messages
     static constexpr auto MESSAGE_REQUEST_COMPLETED = "Request completed successfully";

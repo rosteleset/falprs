@@ -263,7 +263,7 @@ namespace Frs
     static userver::yaml_config::Schema GetStaticConfigSchema();
     [[nodiscard]] const userver::logging::LoggerPtr& getLogger() const;
     [[nodiscard]] const LocalConfig& getLocalConfig() const;
-    void startWorkflow(std::string&& vstream_key);
+    void startWorkflow(std::string&& vstream_key, std::chrono::milliseconds duration = std::chrono::seconds{0});
     void stopWorkflow(std::string&& vstream_key, bool is_internal = true);
     DescriptorRegistrationResult processPipeline(TaskData&& task_data);
     void loadDNNStatsData();

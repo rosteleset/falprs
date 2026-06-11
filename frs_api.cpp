@@ -25,11 +25,47 @@ namespace Frs
     const userver::formats::json::Value& json,
     userver::server::request::RequestContext&) const
   {
-    const auto& auth_value = request.GetHeader("Authorization");
     const auto& api_method = request.GetPathArg(0);
+    if (request.GetMethod() == userver::server::http::HttpMethod::kGet)
+    {
+      if (api_method == METHOD_MOTION_DETECTION)
+      {
+        const auto& token = request.GetArg(P_TOKEN);
+        int32_t id_group = workflow_.getLocalConfig().allow_group_id_without_auth;
+        if (token.empty() && id_group <= 0)
+          throw userver::server::handlers::ClientError(HandlerErrorCode::kUnauthorized);
+
+        if (!token.empty())
+          id_group = checkToken(token);
+        if (id_group <= 0)
+          throw userver::server::handlers::ClientError(HandlerErrorCode::kUnauthorized);
+
+        userver::formats::json::ValueBuilder json_params;
+        json_params[P_STREAM_ID] = request.GetArg(P_STREAM_ID);
+        json_params[P_START] = request.GetArg(P_START);
+        if (!request.GetArg(P_DURATION).empty())
+          json_params[P_DURATION] = request.GetArg(P_DURATION);
+
+        LOG_INFO_TO(workflow_.getLogger(),
+          "API call from: {};  method: {};  {} = {};  {} = {};  {} = {}",
+          request.GetRemoteAddress(), api_method, P_STREAM_ID, request.GetArg(P_STREAM_ID), P_START, request.GetArg(P_START), P_DURATION, request.GetArg(P_DURATION));
+
+        motionDetection(id_group, json_params.ExtractValue());
+
+        userver::formats::json::ValueBuilder response;
+        response[P_CODE] = std::to_string(userver::server::http::HttpStatus::kOk);
+        response[P_MESSAGE] = MESSAGE_REQUEST_COMPLETED;
+
+        return response.ExtractValue();
+      }
+
+      throw userver::server::handlers::ClientError(ExternalBody{ERROR_UNKNOWN_METHOD});
+    }
+
     LOG_INFO_TO(workflow_.getLogger(),
       "API call from: {};  method: {};  body: {}",
       request.GetRemoteAddress(), api_method, absl::ClippedSubstr(ToStableString(json), 0, 300));
+    const auto& auth_value = request.GetHeader("Authorization");
     if (api_method.starts_with(SG_METHOD_PREFIX))
     {
       // check special group authorization
@@ -519,8 +555,9 @@ namespace Frs
     requireMemberThrow(json, P_STREAM_ID);
     requireMemberThrow(json, P_START);
     auto vstream_key = absl::Substitute("$0_$1", id_group, convertToString(json[P_STREAM_ID]));
+    const auto duration = convertToDuration(json[P_DURATION], std::chrono::seconds(0));
     if (json[P_START].IsBool() ? json[P_START].As<bool>() : json[P_START].As<std::string>() == "t")
-      workflow_.startWorkflow(std::move(vstream_key));
+      workflow_.startWorkflow(std::move(vstream_key), duration);
     else
       workflow_.stopWorkflow(std::move(vstream_key), false);
   }
