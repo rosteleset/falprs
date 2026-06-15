@@ -1453,7 +1453,7 @@ namespace Frs
               if (fr_data.gcount() == sizeof(data))
                 for (auto& [fst, snd] : descriptors)
                 {
-                  if (double cosine_distance = cosineSimilaritySIMD(snd.data, data.data); cosine_distance > similarity_threshold)
+                  if (double cosine_similarity = cosineSimilaritySIMD(snd.data, data.data); cosine_similarity > similarity_threshold)
                   {
                     auto event_id = std::string(data.event_id, sizeof(data.event_id));
                     event_ids.insert(event_id);
@@ -1484,7 +1484,7 @@ namespace Frs
                         uuid,
                         image_url,
                         fst,
-                        cosine_distance});
+                        cosine_similarity});
                     }
                   }
                 }
