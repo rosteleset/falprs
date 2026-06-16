@@ -265,6 +265,10 @@ namespace Frs
         {
           return getBarcodeEvent(id_group, json);
         }},
+      {METHOD_GET_ADDITIONAL_FEATURES, [](auto&&, auto&&)
+        {
+          return getAdditionalFeatures();
+        }},
     };
 
     if (with_content_methods.contains(api_method))
@@ -1629,5 +1633,14 @@ namespace Frs
     }
 
     return {};
+  }
+
+  userver::formats::json::Value Api::getAdditionalFeatures()
+  {
+    userver::formats::json::ValueBuilder v;
+    v[FEATURE_QR_CODE_RECOGNITION] = true;
+    v[FEATURE_FACE_CLUSTERING] = true;
+
+    return v.ExtractValue();
   }
 }  // namespace Frs

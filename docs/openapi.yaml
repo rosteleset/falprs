@@ -53,7 +53,7 @@ paths:
             schema:
               type: object
               required:
-              - streamId
+                - streamId
               properties:
                 streamId:
                   $ref: '#/components/schemas/streamId'
@@ -108,6 +108,8 @@ paths:
                 allOf:
                   - $ref: '#/components/schemas/ResponseBase'
                   - type: object
+                    required:
+                      - data
                     properties:
                       data:
                         type: array
@@ -287,6 +289,8 @@ paths:
                 allOf:
                   - $ref: '#/components/schemas/ResponseBase'
                   - type: object
+                    required:
+                      - data
                     properties:
                       data:
                         type: array
@@ -340,6 +344,8 @@ paths:
                 allOf:
                   - $ref: '#/components/schemas/ResponseBase'
                   - type: object
+                    required:
+                      - data
                     properties:
                       data:
                         type: array
@@ -414,6 +420,8 @@ paths:
                 allOf:
                   - $ref: '#/components/schemas/ResponseBase'
                   - type: object
+                    required:
+                      - data
                     properties:
                       data:
                         type: object
@@ -555,6 +563,8 @@ paths:
                 allOf:
                   - $ref: '#/components/schemas/ResponseBase'
                   - type: object
+                    required:
+                      - data
                     properties:
                       data:
                         type: object
@@ -634,6 +644,8 @@ paths:
                 allOf:
                   - $ref: '#/components/schemas/ResponseBase'
                   - type: object
+                    required:
+                      - data
                     properties:
                       data:
                         type: array
@@ -744,6 +756,8 @@ paths:
                 allOf:
                   - $ref: '#/components/schemas/ResponseBase'
                   - type: object
+                    required:
+                      - data
                     properties:
                       data:
                         type: object
@@ -787,6 +801,47 @@ paths:
         '400':
           description: Bad request
 
+  /frs/api/getAdditionalFeatures:
+    post:
+      tags:
+        - Host --> FRS
+      summary: Get Additional Features Info
+      description: |
+        Returns information about additional features.
+      operationId: frs_getAdditionalFeatures
+      responses:
+        '200':
+          description: Successful operation
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ResponseBase'
+                  - type: object
+                    required:
+                      - data
+                    properties:
+                      data:
+                        type: object
+                        required:
+                          - qrCodeRecognition
+                          - faceClustering
+                        properties:
+                          qrCodeRecognition:
+                            description: QR code recognition support
+                            type: boolean
+                          faceClustering:
+                            description: Face clustering support
+                            type: boolean
+              example:
+                code: "200"
+                message: "Ok"
+                data:
+                  qrCodeRecognition: true
+                  faceClustering: true
+        '400':
+          description: Bad request
+
   /frs/api/setCommonConfig:
     post:
       tags:
@@ -825,6 +880,8 @@ paths:
                 allOf:
                   - $ref: '#/components/schemas/ResponseBase'
                   - type: object
+                    required:
+                      - data
                     properties:
                       data:
                         $ref: '#/components/schemas/FRSCommonConfig'
@@ -909,6 +966,8 @@ paths:
                 allOf:
                   - $ref: '#/components/schemas/ResponseBase'
                   - type: object
+                    required:
+                      - data
                     properties:
                       data:
                         $ref: '#/components/schemas/FRSDefaultVStreamConfig'
@@ -984,6 +1043,8 @@ paths:
                 allOf:
                   - $ref: '#/components/schemas/ResponseBase'
                   - type: object
+                    required:
+                      - data
                     properties:
                       data:
                         type: object
@@ -1081,6 +1142,8 @@ paths:
                 allOf:
                   - $ref: '#/components/schemas/ResponseBase'
                   - type: object
+                    required:
+                      - data
                     properties:
                       data:
                         type: array
@@ -1173,6 +1236,8 @@ paths:
                 allOf:
                   - $ref: '#/components/schemas/ResponseBase'
                   - type: object
+                    required:
+                      - data
                     properties:
                       data:
                         type: object
@@ -1258,6 +1323,8 @@ paths:
                 allOf:
                   - $ref: '#/components/schemas/ResponseBase'
                   - type: object
+                    required:
+                      - data
                     properties:
                       data:
                         type: array
@@ -1347,6 +1414,8 @@ paths:
                 allOf:
                   - $ref: '#/components/schemas/ResponseBase'
                   - type: object
+                    required:
+                      - data
                     properties:
                       data:
                         type: array
@@ -1441,6 +1510,8 @@ paths:
                 allOf:
                   - $ref: '#/components/schemas/ResponseBase'
                   - type: object
+                    required:
+                      - data
                     properties:
                       data:
                         type: object
@@ -1657,6 +1728,8 @@ paths:
                 allOf:
                   - $ref: '#/components/schemas/ResponseBase'
                   - type: object
+                    required:
+                      - data
                     properties:
                       data:
                         type: array
@@ -1773,6 +1846,8 @@ paths:
                 allOf:
                   - $ref: '#/components/schemas/ResponseBase'
                   - type: object
+                    required:
+                      - data
                     properties:
                       data:
                         type: object
@@ -1888,6 +1963,8 @@ paths:
                 allOf:
                   - $ref: '#/components/schemas/ResponseBase'
                   - type: object
+                    required:
+                      - data
                     properties:
                       data:
                         $ref: '#/components/schemas/LPRSDefaultVStreamConfig'

@@ -1,6 +1,5 @@
 #pragma once
 
-#include <absl/strings/string_view.h>
 #include <absl/strings/substitute.h>
 #include <immintrin.h>
 #include <userver/server/handlers/http_handler_json_base.hpp>
@@ -143,6 +142,7 @@ namespace Frs
     static constexpr auto METHOD_SET_STREAM_DEFAULT_CONFIG = "setStreamDefaultConfig";      // set stream default configuration parameters
     static constexpr auto METHOD_GET_STREAM_DEFAULT_CONFIG = "getStreamDefaultConfig";      // get stream default configuration parameters
     static constexpr auto METHOD_GET_BARCODE_EVENT = "getBarcodeEvent";                     // get barcode event info
+    static constexpr auto METHOD_GET_ADDITIONAL_FEATURES = "getAdditionalFeatures";         // get additional features info
 
     // parameters
     static constexpr auto P_CODE = "code";
@@ -184,6 +184,10 @@ namespace Frs
     static constexpr auto P_FORMAT = "format";
     static constexpr auto P_POSITION = "position";
     static constexpr auto P_BARCODES = "barcodes";
+
+    // additional features
+    static constexpr auto FEATURE_QR_CODE_RECOGNITION = "qrCodeRecognition";
+    static constexpr auto FEATURE_FACE_CLUSTERING = "faceClustering";
 
     // messages
     static constexpr auto MESSAGE_REQUEST_COMPLETED = "Ok";
@@ -606,5 +610,8 @@ namespace Frs
 
     // member functions for barcodes
     userver::formats::json::Value getBarcodeEvent(int32_t id_group, const userver::formats::json::Value& json) const;
+
+    // additional features
+    static userver::formats::json::Value getAdditionalFeatures();
   };
 }  // namespace Frs
