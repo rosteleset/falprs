@@ -10,6 +10,10 @@
 #include <userver/server/handlers/ping.hpp>
 #include <userver/testsuite/testsuite_support.hpp>
 #include <userver/utils/daemon_run.hpp>
+#include <boost/program_options.hpp>
+
+#include <iostream>
+#include <string_view>
 
 // clang-format off
 #ifdef BUILD_LPRS
@@ -23,6 +27,30 @@
 
 int main(const int argc, char* argv[])
 {
+  namespace po = boost::program_options;
+
+  auto desc = userver::utils::BaseRunOptions();
+  desc.add_options()("version,v", "print version")(
+      "config,c", po::value<std::string>()->required(), "path to server config");
+
+  po::variables_map vm;
+  try {
+    po::store(po::parse_command_line(argc, argv, desc), vm);
+    if (vm.count("help")) {
+      std::cerr << desc << std::endl;
+      return 0;
+    }
+    if (vm.count("version")) {
+      std::cout << FALPRS_VERSION << std::endl;
+      return 0;
+    }
+    po::notify(vm);
+  } catch (const std::exception& ex) {
+    std::cerr << "Error: " << ex.what() << std::endl;
+    std::cerr << "Try --help for usage" << std::endl;
+    return 1;
+  }
+
   // clang-format off
   const auto component_list = userver::components::MinimalServerComponentList()
     .Append<userver::server::handlers::Ping>()
@@ -58,5 +86,5 @@ int main(const int argc, char* argv[])
     .Append<userver::clients::dns::Component>();
   // clang-format on
 
-  return userver::utils::DaemonMain(argc, argv, component_list);
+  return userver::utils::DaemonMain(vm, component_list);
 }
