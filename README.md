@@ -259,7 +259,7 @@ sudo systemctl start falprs.service
 
 <a id="update_falprs"></a>
 ### Project Update
-Before updating, make sure you have an up-to-date backup of the project's databases. To update, use the **scripts/update_falprs.sh** script:
+Before updating, make sure you have an up-to-date backup of the project's databases. Environment variables are loaded from the aforementioned *.env* file. To update, use the **scripts/update_falprs.sh** script:
 ```bash
 sudo ~/falprs/scripts/update_falprs.sh
 ```
