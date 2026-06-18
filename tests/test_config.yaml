@@ -219,3 +219,7 @@ components_manager:
                 copy-events-maintenance-interval: 30s                             # Event data copy maintenance period
                 clear-old-events: 1d                                              # Period for launching cleaning of outdated events
                 events-ttl: 2h                                                    # TTL of the copied events
+                barcodes-path: '/tmp/falprs/static/frs/barcodes/'                 # Local path for saving barcode screenshots
+                barcodes-url-prefix: 'http://localhost:9071/frs/barcodes/'        # Web URL prefix for barcode screenshots. Replace localhost with IP address if you need access to barcode screenshots from outside
+                clear-old-log-barcodes: 1h                                        # Period for launching cleaning of outdated logs from the log_barcodes table
+                log-barcodes-ttl: 4h                                              # TTL of logs from the log_barcodes table

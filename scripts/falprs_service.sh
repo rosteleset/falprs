@@ -14,10 +14,9 @@ elif [ -f "$BASEDIR/../.env" ]; then
 fi
 
 # External variables used in the script
-
 # FALPRS_WORKDIR - FALPRS working directory
 
-FALPRS_WORKDIR="${FALPRS_WORKDIR:=/opt/falprs}"
+export FALPRS_WORKDIR="${FALPRS_WORKDIR:-/opt/falprs}"
 
 cp $BASEDIR/../falprs.service.example /etc/systemd/system/falprs.service
 cp $BASEDIR/../logrotate.example /etc/logrotate.d/falprs

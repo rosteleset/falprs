@@ -36,11 +36,11 @@ int main(const int argc, char* argv[])
   po::variables_map vm;
   try {
     po::store(po::parse_command_line(argc, argv, desc), vm);
-    if (vm.count("help")) {
+    if (vm.contains("help")) {
       std::cerr << desc << std::endl;
       return 0;
     }
-    if (vm.count("version")) {
+    if (vm.contains("version")) {
       std::cout << FALPRS_VERSION << std::endl;
       return 0;
     }

@@ -11,6 +11,12 @@ BASEDIR=$(realpath `dirname $0`)
 # PG_PORT_FRS - PostgreSQL port
 # PG_DB_FRS - PostgreSQL database
 
+export PG_USER_FRS="${PG_USER_FRS:-falprs}"
+export PG_PASSWD_FRS="${PG_PASSWD_FRS:-123}"
+export PG_HOST_FRS="${PG_HOST_FRS:-localhost}"
+export PG_PORT_FRS="${PG_PORT_FRS:-5432}"
+export PG_DB_FRS="${PG_DB_FRS:-frs}"
+
 psql postgresql://$PG_USER_FRS:$PG_PASSWD_FRS@$PG_HOST_FRS:$PG_PORT_FRS/$PG_DB_FRS < $BASEDIR/../sql/frs/01_vstream_groups.sql
 psql postgresql://$PG_USER_FRS:$PG_PASSWD_FRS@$PG_HOST_FRS:$PG_PORT_FRS/$PG_DB_FRS < $BASEDIR/../sql/frs/02_video_streams.sql
 psql postgresql://$PG_USER_FRS:$PG_PASSWD_FRS@$PG_HOST_FRS:$PG_PORT_FRS/$PG_DB_FRS < $BASEDIR/../sql/frs/03_face_descriptors.sql

@@ -15,7 +15,6 @@ elif [ -f "$BASEDIR/../.env" ]; then
 fi
 
 # External variables used in the script
-
 # PG_VERSION - PostgreSQL database system version
 # TRITON_VERSION - NVIDIA Triton Inference Server version
 # FALPRS_WORKDIR - FALPRS working directory

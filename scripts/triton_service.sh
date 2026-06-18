@@ -1,7 +1,6 @@
 #!/bin/bash
 
 # External variables used in the script
-
 # TRITON_VERSION - NVIDIA Triton Inference Server version
 # FALPRS_WORKDIR - FALPRS working directory
 
@@ -14,7 +13,7 @@ elif [ -f "$BASEDIR/../.env" ]; then
     source $BASEDIR/../.env
 fi
 
-TRITON_VERSION="${TRITON_VERSION:=24.09}"
-FALPRS_WORKDIR="${FALPRS_WORKDIR:=/opt/falprs}"
+export TRITON_VERSION="${TRITON_VERSION:-24.09}"
+export FALPRS_WORKDIR="${FALPRS_WORKDIR:-/opt/falprs}"
 
 sudo docker run --gpus all -d --restart unless-stopped --net=host -v $FALPRS_WORKDIR/model_repository:/models nvcr.io/nvidia/tritonserver:$TRITON_VERSION-py3 sh -c "tritonserver --model-repository=/models"

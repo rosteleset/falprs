@@ -461,7 +461,7 @@ properties:
                 type: string
                 description: Local path for saving barcode screenshots
                 defaultDescription: '/opt/falprs/static/frs/barcodes/'
-            barcode-url-prefix:
+            barcodes-url-prefix:
                 type: string
                 description: Web URL prefix for barcode screenshots
                 defaultDescription: 'http://localhost:9051/frs/barcodes/'
