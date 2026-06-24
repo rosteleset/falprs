@@ -44,7 +44,7 @@ export TRITON_VERSION="${TRITON_VERSION:-24.09}"
 export FALPRS_WORKDIR="${FALPRS_WORKDIR:-/opt/falprs}"
 
 apt-get update
-apt-get install -y build-essential ccache cmake git libboost-dev libboost-context-dev libboost-coroutine-dev libboost-filesystem-dev libboost-iostreams-dev libboost-locale-dev libboost-program-options-dev libboost-regex-dev libboost-stacktrace-dev zlib1g-dev nasm clang-format libssl-dev libyaml-cpp-dev libjemalloc-dev libpq-dev postgresql-server-dev-$PG_VERSION rapidjson-dev python3-dev python3-jinja2 python3-protobuf python3-venv python3-voluptuous python3-yaml libgtest-dev libnghttp2-dev libev-dev libldap2-dev libkrb5-dev libzstd-dev libopencv-dev libbz2-dev libre2-dev libcrypto++-dev libfmt-dev libc-ares-dev libcurl4-openssl-dev
+apt-get install -y build-essential ccache cmake git libboost-dev libboost-context-dev libboost-coroutine-dev libboost-filesystem-dev libboost-iostreams-dev libboost-locale-dev libboost-program-options-dev libboost-regex-dev libboost-stacktrace-dev zlib1g-dev nasm clang-format libssl-dev libyaml-cpp-dev libjemalloc-dev libpq-dev postgresql-server-dev-$PG_VERSION rapidjson-dev python3-dev python3-jinja2 python3-protobuf python3-venv python3-voluptuous python3-yaml libgtest-dev libnghttp2-dev libev-dev libldap2-dev libkrb5-dev libzstd-dev libopencv-dev libbz2-dev libre2-dev libcrypto++-dev libfmt-dev libc-ares-dev libcurl4-openssl-dev libcctz-dev
 
 cd ~
 if [ ! -d "triton-client" ]; then
