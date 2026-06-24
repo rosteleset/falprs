@@ -1,4 +1,3 @@
-
 ## [![Generic badge](https://img.shields.io/badge/LANG-EN-blue.svg)](https://github.com/rosteleset/falprs/blob/main/README.md) Описание проекта FALPRS
 Этот проект является заменой [старого](https://github.com/rosteleset/frs). Основные отличия:
 * В качестве СУБД используется PostgreSQL.
@@ -242,8 +241,7 @@ sudo ~/falprs/scripts/tensorrt_plans.sh
 ~/falprs/scripts/sql_frs.sh
 ~/falprs/scripts/sql_lprs.sh
 ```
-Конфигурация проекта находится в файле **/opt/falprs/config.yaml**
-У основных параметров есть описание в комментариях. Для выполнения API методов с обязательной авторизацией, необходимо значение атрибута *allow-group-id-without-auth* сделать равным нулю в секциях *lprs-workflow* и *frs-workflow*. Также возможна работа совместно с отдельным HTTP сервером. В этом случае необходимо заменить значения соответствующих атрибутов локальных путей и префиксов URL в секциях *lprs-workflow* и *frs-workflow*.
+В файле **/opt/falprs/config.yaml** находится конфигурация проекта. У основных параметров есть описание в комментариях. Для выполнения API методов с обязательной авторизацией, необходимо значение атрибута *allow-group-id-without-auth* сделать равным нулю в секциях *lprs-workflow* и *frs-workflow*. Также возможна работа совместно с отдельным HTTP сервером. В этом случае необходимо заменить значения соответствующих атрибутов локальных путей и префиксов URL в секциях *lprs-workflow* и *frs-workflow*.
 
 Для запуска контейнера с **Triton Inference Server** выполните команду:
 ```bash

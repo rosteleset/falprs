@@ -306,7 +306,7 @@ def test_add_more_streams():
             [0, 800 / h * 100]
         ]
     ])
-    add_stream("a1", FALPRS_URL + "/test_angle_001.jpg", plate_confidence=0.2)
+    add_stream("a1", FALPRS_URL + "/test_angle_001.jpg", plate_confidence=0.2, char_score=0.29)
     add_stream("a2", FALPRS_URL + "/test_angle_002.jpg")
     add_stream("a3", FALPRS_URL + "/test_angle_003.jpg", min_plate_height=30)
     add_stream("a4", FALPRS_URL + "/test_angle_004.jpg")

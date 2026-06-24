@@ -1,4 +1,4 @@
-## [![Generic badge](https://img.shields.io/badge/LANG-EN-blue.svg)](https://github.com/rosteleset/falprs/blob/main/README.md) FALPRS Project Description
+## [![Generic badge](https://img.shields.io/badge/LANG-RU-blue.svg)](https://github.com/rosteleset/falprs/blob/main/README.md) FALPRS Project Description
 This project is a replacement for the [old one](https://github.com/rosteleset/frs). Key differences:
 * PostgreSQL is used as the DBMS.
 * The project uses [userver](https://github.com/userver-framework/userver) — an open-source asynchronous framework.
@@ -241,8 +241,7 @@ To initially populate the databases, execute the commands:
 ~/falprs/scripts/sql_frs.sh
 ~/falprs/scripts/sql_lprs.sh
 ```
-The project configuration is in the **/opt/falprs/config.yaml** file
-Main parameters have descriptions in comments. To perform API methods with mandatory authorization, set the *allow-group-id-without-auth* attribute value to zero in the *lprs-workflow* and *frs-workflow* sections. Operation with a separate HTTP server is also possible. In this case, replace the values of the corresponding local path attributes and URL prefixes in the *lprs-workflow* and *frs-workflow* sections.
+The project configuration is in the **/opt/falprs/config.yaml** file. Main parameters have descriptions in comments. To perform API methods with mandatory authorization, set the *allow-group-id-without-auth* attribute value to zero in the *lprs-workflow* and *frs-workflow* sections. Operation with a separate HTTP server is also possible. In this case, replace the values of the corresponding local path attributes and URL prefixes in the *lprs-workflow* and *frs-workflow* sections.
 
 To start the container with **Triton Inference Server**, execute the command:
 ```bash
