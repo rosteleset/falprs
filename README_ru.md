@@ -210,6 +210,7 @@ nvidia-smi --query-gpu=compute_cap --format=csv
 |6.x|Pascal|24.04|
 |7.0|Volta|24.09|
 |>= 7.5|Turing, Ampere, Ada Lovelace, Blackwell, Hopper|Самая [последняя](https://catalog.ngc.nvidia.com/orgs/nvidia/containers/tritonserver/tags)|
+
 Например, у GPU GTX 1080 Ti архитектура Pascal, значит, *TRITON_VERSION=24.04*
 
 Рабочая директория проекта задаётся переменной **FALPRS_WORKDIR** (значение по-умолчанию */opt/falprs*).
@@ -276,7 +277,8 @@ sudo ~/falprs/scripts/update_falprs.sh
 
 <a id="vstream_groups"></a>
 ### Управление группами видео потоков
-Каждый видео поток принадлежит какой-то одной группе. При заполнении первоначальными данными автоматически создаётся группа с названием *default*. При вызове API методов для этой группы можно не указывать токен авторизации. Для просмотра, добавления и удаления групп можно использовать скрипт **utils/vstream_groups.py**
+Каждый видео поток принадлежит какой-то одной группе. При заполнении первоначальными данными автоматически создаётся группа с названием *default*. При вызове API методов для этой группы можно не указывать токен авторизации. Для просмотра, добавления и удаления групп можно использовать скрипт **utils/vstream_groups.py**.
+
 Устанавливаем зависимости:
 ```bash
 sudo apt-get install -y python3-psycopg2 python3-prettytable

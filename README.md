@@ -210,6 +210,7 @@ nvidia-smi --query-gpu=compute_cap --format=csv
 |6.x|Pascal|24.04|
 |7.0|Volta|24.09|
 |>= 7.5|Turing, Ampere, Ada Lovelace, Blackwell, Hopper|The [latest](https://catalog.ngc.nvidia.com/orgs/nvidia/containers/tritonserver/tags)|
+
 For example, the GPU GTX 1080 Ti has the Pascal architecture, so *TRITON_VERSION=24.04*
 
 The project working directory is set by the **FALPRS_WORKDIR** variable (default value is */opt/falprs*).
@@ -276,7 +277,8 @@ What the script does:
 
 <a id="vstream_groups"></a>
 ### Managing Video Stream Groups
-Each video stream belongs to one group. When populating with initial data, a group named *default* is automatically created. When calling API methods for this group, an authorization token can be omitted. To view, add, and remove groups, you can use the **utils/vstream_groups.py** script
+Each video stream belongs to one group. When populating with initial data, a group named *default* is automatically created. When calling API methods for this group, an authorization token can be omitted. To view, add, and remove groups, you can use the **utils/vstream_groups.py** script.
+
 Install dependencies:
 ```bash
 sudo apt-get install -y python3-psycopg2 python3-prettytable
