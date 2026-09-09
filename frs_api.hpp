@@ -498,7 +498,7 @@ namespace Frs
       update
         special_groups
       set
-        set callback_url = $2
+        callback_url = $2
       where
         id_special_group = $1
     )_SQL_";
