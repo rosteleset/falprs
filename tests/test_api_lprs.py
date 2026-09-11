@@ -196,6 +196,13 @@ def test_get_supported_plate_number_formats():
     data = response.json()
     assert DATA in data
     formats = data[DATA]
+    assert isinstance(formats, list)
+    for item in formats:
+        assert COUNTRY_CODE in item
+        assert REGEX in item
+        assert isinstance(item[COUNTRY_CODE], str)
+        assert isinstance(item[REGEX], str)
+
     expected = [
         {
             COUNTRY_CODE: "ru",
@@ -1002,3 +1009,31 @@ def test_special9():
 @pytest.mark.order(++order)
 def test_special10():
     run_special("s10")
+
+# setStreamDefaultConfig: invalid body (not a JSON object) -> 400
+@pytest.mark.order(++order)
+def test_set_stream_default_config_invalid():
+    url = API_URL + "setStreamDefaultConfig"
+    response = requests.post(url, data="invalid json string", headers={"Content-Type": "application/json"})
+    assert response.status_code == 400
+
+# setStreamDefaultConfig: successful configuration -> 204
+@pytest.mark.order(++order)
+def test_set_stream_default_config():
+    url = API_URL + "setStreamDefaultConfig"
+    config = {CONF_SCREENSHOT_URL: "http://localhost:9071/test_001.jpg", CONF_MIN_PLATE_HEIGHT: 25, LOGS_LEVEL: "trace"}
+    response = requests.post(url, json=config)
+    assert response.status_code == 204
+
+# getStreamDefaultConfig: get default configuration
+@pytest.mark.order(++order)
+def test_get_stream_default_config():
+    url = API_URL + "getStreamDefaultConfig"
+    response = requests.post(url, json={})
+    assert response.status_code == 200
+
+    data = response.json()
+    assert DATA in data
+    assert isinstance(data[DATA], dict)
+    assert data[DATA].get(CONF_MIN_PLATE_HEIGHT) == 25
+    assert data[DATA].get(LOGS_LEVEL) == "trace"

@@ -31,6 +31,10 @@ SIMILARITY = "similarity"
 CONFIG = "config"
 LOGS_LEVEL = "logs-level"
 
+CALLBACK = "callback"
+QUALITY = "quality"
+QR_CODE_RECOGNITION = "qrCodeRecognition"
+FACE_CLUSTERING = "faceClustering"
 CALLBACK_URL_BARCODES = "callbackBarcodes"
 LOG_EVENT_ID = "eventId"
 BARCODES = "barcodes"
@@ -55,6 +59,73 @@ def test_ping():
     url = FALPRS_URL + "/ping"
     response = requests.get(url)
     assert response.status_code == 200
+
+# getAdditionalFeatures
+@pytest.mark.order(++order)
+def test_get_additional_features():
+    url = API_URL + "getAdditionalFeatures"
+    response = requests.post(url, json={})
+    assert response.status_code == 200
+
+    data = response.json()
+    assert DATA in data
+    assert isinstance(data[DATA], dict)
+    assert data[DATA].get(QR_CODE_RECOGNITION) is True
+    assert data[DATA].get(FACE_CLUSTERING) is True
+
+# setCommonConfig: invalid body (not a JSON object) -> 400
+@pytest.mark.order(++order)
+def test_set_common_config_invalid():
+    url = API_URL + "setCommonConfig"
+    response = requests.post(url, data="invalid json string", headers={"Content-Type": "application/json"})
+    assert response.status_code == 400
+
+# setCommonConfig: valid call -> 204
+@pytest.mark.order(++order)
+def test_set_common_config():
+    url = API_URL + "setCommonConfig"
+    config = {LOGS_LEVEL: "trace"}
+    response = requests.post(url, json=config)
+    assert response.status_code == 204
+
+# getCommonConfig: get common config parameters -> 200
+@pytest.mark.order(++order)
+def test_get_common_config():
+    url = API_URL + "getCommonConfig"
+    response = requests.post(url, json={})
+    assert response.status_code == 200
+
+    data = response.json()
+    assert DATA in data
+    assert isinstance(data[DATA], dict)
+    assert data[DATA].get(LOGS_LEVEL) == "trace"
+
+# setStreamDefaultConfig: invalid body (not a JSON object) -> 400
+@pytest.mark.order(++order)
+def test_set_stream_default_config_invalid():
+    url = API_URL + "setStreamDefaultConfig"
+    response = requests.post(url, data="invalid json string", headers={"Content-Type": "application/json"})
+    assert response.status_code == 400
+
+# setStreamDefaultConfig: valid call -> 204
+@pytest.mark.order(++order)
+def test_set_stream_default_config():
+    url = API_URL + "setStreamDefaultConfig"
+    config = {LOGS_LEVEL: "trace", "min-face-size": 30}
+    response = requests.post(url, json=config)
+    assert response.status_code == 204
+
+# getStreamDefaultConfig: get default stream config parameters -> 200
+@pytest.mark.order(++order)
+def test_get_stream_default_config():
+    url = API_URL + "getStreamDefaultConfig"
+    response = requests.post(url, json={})
+    assert response.status_code == 200
+
+    data = response.json()
+    assert DATA in data
+    assert isinstance(data[DATA], dict)
+    assert data[DATA].get(LOGS_LEVEL) == "trace"
 
 # listStreams: should be empty
 @pytest.mark.order(++order)
@@ -110,6 +181,43 @@ def test_list_streams2():
     for item in data[DATA]:
         ids.add(item[STREAM_ID])
     assert ids == set(["1", "2"])
+
+# doorIsOpen: missing streamId -> 400
+@pytest.mark.order(++order)
+def test_door_is_open_missing_stream():
+    url = API_URL + "doorIsOpen"
+    response = requests.post(url, json={})
+    assert response.status_code == 400
+
+# doorIsOpen: valid call -> 204
+@pytest.mark.order(++order)
+def test_door_is_open():
+    url = API_URL + "doorIsOpen"
+    data = {STREAM_ID: "1"}
+    response = requests.post(url, json=data)
+    assert response.status_code == 204
+
+# testImage: missing params -> 400
+@pytest.mark.order(++order)
+def test_test_image_missing_params():
+    url = API_URL + "testImage"
+    response = requests.post(url, json={})
+    assert response.status_code == 400
+
+# testImage: missing url -> 400
+@pytest.mark.order(++order)
+def test_test_image_missing_url():
+    url = API_URL + "testImage"
+    response = requests.post(url, json={STREAM_ID: "1"})
+    assert response.status_code == 400
+
+# testImage: valid call -> 204
+@pytest.mark.order(++order)
+def test_test_image():
+    url = API_URL + "testImage"
+    data = {STREAM_ID: "1", URL: FALPRS_URL + "/einstein_001.jpg"}
+    response = requests.post(url, json=data)
+    assert response.status_code == 204
 
 # removeStream
 @pytest.mark.order(++order)
@@ -176,6 +284,62 @@ def test_list_all_faces():
     assert len(data[DATA]) == 1
     global face_id1
     assert data[DATA][0] == face_id1
+
+# processFrame: missing params -> 400
+@pytest.mark.order(++order)
+def test_process_frame_missing_params():
+    url = API_URL + "processFrame"
+    response = requests.post(url, json={})
+    assert response.status_code == 400
+
+# processFrame: valid call with streamId
+@pytest.mark.order(++order)
+def test_process_frame_stream():
+    url = API_URL + "processFrame"
+    data = {STREAM_ID: "1", URL: FALPRS_URL + "/einstein_001.jpg"}
+    response = requests.post(url, json=data)
+    assert response.status_code in [200, 204]
+    if response.status_code == 200:
+        data = response.json()
+        assert DATA in data
+        assert isinstance(data[DATA], list)
+
+# clusterFacesBySimilarity: missing params -> 400
+@pytest.mark.order(++order)
+def test_cluster_faces_missing_params():
+    url = API_URL + "clusterFacesBySimilarity"
+    response = requests.post(url, json={})
+    assert response.status_code == 400
+
+# clusterFacesBySimilarity: invalid similarity threshold -> 400
+@pytest.mark.order(++order)
+def test_cluster_faces_invalid_similarity():
+    url = API_URL + "clusterFacesBySimilarity"
+    data = {FACES: [1], SIMILARITY: 2.5}
+    response = requests.post(url, json=data)
+    assert response.status_code == 400
+
+# clusterFacesBySimilarity: empty faces list -> 200 with empty list
+@pytest.mark.order(++order)
+def test_cluster_faces_empty():
+    url = API_URL + "clusterFacesBySimilarity"
+    data = {FACES: [], SIMILARITY: 0.5}
+    response = requests.post(url, json=data)
+    assert response.status_code == 400
+
+# clusterFacesBySimilarity: with registered face -> 200
+@pytest.mark.order(++order)
+def test_cluster_faces():
+    url = API_URL + "clusterFacesBySimilarity"
+    global face_id1
+    data = {FACES: [face_id1], SIMILARITY: 0.5}
+    response = requests.post(url, json=data)
+    assert response.status_code == 200
+    data = response.json()
+    assert DATA in data
+    assert isinstance(data[DATA], list)
+    assert len(data[DATA]) == 1
+    assert data[DATA][0] == [face_id1]
 
 # listStreams 5
 @pytest.mark.order(++order)
@@ -545,6 +709,37 @@ def test_best_quality_iso2():
     assert WIDTH in data[DATA]
     assert HEIGHT in data[DATA]
 
+# getEvents: missing required params -> 400
+@pytest.mark.order(++order)
+def test_get_events_missing_params():
+    url = API_URL + "getEvents"
+    response = requests.post(url, json={})
+    assert response.status_code == 400
+
+# getEvents: interval with no events -> 204
+@pytest.mark.order(++order)
+def test_get_events_empty():
+    url = API_URL + "getEvents"
+    data = {STREAM_ID: "1", DATE_START: "2000-01-01", DATE_END: "2000-01-02"}
+    response = requests.post(url, json=data)
+    assert response.status_code == 204
+
+# getEvents: query interval -> 200 or 204
+@pytest.mark.order(++order)
+def test_get_events():
+    url = API_URL + "getEvents"
+    data = {STREAM_ID: "1", DATE_START: "2020-01-01", DATE_END: "2030-01-01"}
+    response = requests.post(url, json=data)
+    assert response.status_code in [200, 204]
+    if response.status_code == 200:
+        data = response.json()
+        assert DATA in data
+        assert isinstance(data[DATA], list)
+        for item in data[DATA]:
+            assert DATE in item
+            assert QUALITY in item
+            assert SCREENSHOT_URL in item
+
 # addSpecialGroup
 @pytest.mark.order(++order)
 def test_add_special_group():
@@ -640,6 +835,47 @@ def test_list_special_groups3():
     assert sg_api_token == data[DATA][0][ACCESS_API_TOKEN]
     assert "Group 1" == data[DATA][0][GROUP_NAME]
     assert 500 == data[DATA][0][MAX_DESCRIPTOR_COUNT]
+
+# sgUpdateGroup: unauthorized without token -> 401
+@pytest.mark.order(++order)
+def test_sg_update_group_no_auth():
+    print("[Wait 6 seconds for cache...]")
+    time.sleep(6)
+    url = API_URL + "sgUpdateGroup"
+    response = requests.post(url, json={CALLBACK: "http://localhost:9999/callback"})
+    assert response.status_code == 401
+
+# sgUpdateGroup: missing callback -> 400
+@pytest.mark.order(++order)
+def test_sg_update_group_missing_callback():
+    url = API_URL + "sgUpdateGroup"
+    global sg_api_token
+    headers = {"Authorization": "Bearer " + sg_api_token}
+    response = requests.post(url, headers=headers, json={})
+    assert response.status_code == 400
+
+# sgUpdateGroup: valid update -> 204
+@pytest.mark.order(++order)
+def test_sg_update_group():
+    url = API_URL + "sgUpdateGroup"
+    global sg_api_token
+    headers = {"Authorization": "Bearer " + sg_api_token}
+    data = {CALLBACK: "http://localhost:9999/new_callback"}
+    response = requests.post(url, headers=headers, json=data)
+    assert response.status_code == 204
+
+# processFrame with groupId (special group)
+@pytest.mark.order(++order)
+def test_process_frame_special_group():
+    url = API_URL + "processFrame"
+    global sg_id
+    data = {GROUP_ID: sg_id, URL: FALPRS_URL + "/einstein_001.jpg"}
+    response = requests.post(url, json=data)
+    assert response.status_code in [200, 204]
+    if response.status_code == 200:
+        data = response.json()
+        assert DATA in data
+        assert isinstance(data[DATA], list)
 
 # sgRenewToken
 @pytest.mark.order(++order)
@@ -1048,3 +1284,10 @@ def test_list_streams_barcode3():
     response = requests.post(url)
     # could be 204 (empty) or 200 depending on other streams
     assert response.status_code in [200, 204]
+
+# saveDnnStatsData
+@pytest.mark.order(++order)
+def test_save_dnn_stats_data():
+    url = API_URL + "saveDnnStatsData"
+    response = requests.post(url, json={})
+    assert response.status_code == 204
