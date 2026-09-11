@@ -2030,6 +2030,51 @@ paths:
         '400':
           description: Bad request
 
+  /lprs/api/getSupportedPlateNumberFormats:
+    post:
+      tags:
+        - Host --> LPRS
+      summary: Get Supported Plate Number Formats
+      description: |
+        Returns a list of supported vehicle plate number recognition formats
+      operationId: lprs_getSupportedPlateNumberFormats
+      responses:
+        '200':
+          description: Successful operation
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ResponseBase'
+                  - type: object
+                    required:
+                      - data
+                    properties:
+                      data:
+                        type: array
+                        items:
+                          type: object
+                          required:
+                            - countryCode
+                            - regex
+                          properties:
+                            countryCode:
+                              description: Two-letter country code
+                              type: string
+                              example: ru
+                            regex:
+                              description: Regular expression describing the supported plate number format
+                              type: string
+                              example: '^[ABCEHKMOPTXY][0-9]{3}[ABCEHKMOPTXY]{2}[0-9]{2,3}$'
+              example:
+                code: "200"
+                message: "Ok"
+                data:
+                  - countryCode: "ru"
+                    regex: "^[ABCEHKMOPTXY][0-9]{3}[ABCEHKMOPTXY]{2}[0-9]{2,3}$"
+        '400':
+          description: Bad request
+
   /lprs_callback:
     post:
       security: []

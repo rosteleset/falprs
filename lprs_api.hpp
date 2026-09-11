@@ -24,6 +24,7 @@ namespace Lprs
     static constexpr auto METHOD_GET_EVENT_DATA = "getEventData";                       // get a list of events from a time interval
     static constexpr auto METHOD_SET_STREAM_DEFAULT_CONFIG = "setStreamDefaultConfig";  // set the default video stream configuration parameters
     static constexpr auto METHOD_GET_STREAM_DEFAULT_CONFIG = "getStreamDefaultConfig";  // get the default video stream configuration parameters
+    static constexpr auto METHOD_GET_SUPPORTED_PLATE_NUMBER_FORMATS = "getSupportedPlateNumberFormats";  // get supported plate number formats
 
     // parameters
     static constexpr auto PARAM_STREAM_ID = "streamId";
@@ -44,6 +45,8 @@ namespace Lprs
     static constexpr auto PARAM_CONFIDENCE = "confidence";
     static constexpr auto PARAM_SCORE = "score";
     static constexpr auto PARAM_PLATE_TYPE = "type";
+    static constexpr auto PARAM_COUNTRY_CODE = "countryCode";
+    static constexpr auto PARAM_REGEX = "regex";
 
     // messages
     static constexpr auto MESSAGE_OK = "Ok";
@@ -149,5 +152,8 @@ namespace Lprs
     userver::formats::json::Value getEventData(int32_t id_group, const userver::formats::json::Value& json) const;
     void setStreamDefaultConfigParams(int32_t id_group, const userver::formats::json::Value& json) const;
     userver::formats::json::Value getStreamDefaultConfigParams(int32_t id_group) const;
+
+    // supported plate number formats
+    static userver::formats::json::Value getSupportedPlateNumberFormats();
   };
 }  // namespace Lprs

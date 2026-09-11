@@ -21,6 +21,8 @@ TYPE = "type"
 SCORE = "score"
 NUMBER = "number"
 KPTS = "kpts"
+COUNTRY_CODE = "countryCode"
+REGEX = "regex"
 
 CONF_SCREENSHOT_URL = "screenshot-url"
 CONF_WORK_AREA = "work-area"
@@ -183,6 +185,32 @@ def test_ping():
     url = FALPRS_URL + "/ping"
     response = requests.get(url)
     assert response.status_code == 200
+
+# getSupportedPlateNumberFormats
+@pytest.mark.order(++order)
+def test_get_supported_plate_number_formats():
+    url = API_URL + "getSupportedPlateNumberFormats"
+    response = requests.post(url)
+    assert response.status_code == 200
+
+    data = response.json()
+    assert DATA in data
+    formats = data[DATA]
+    expected = [
+        {
+            COUNTRY_CODE: "ru",
+            REGEX: "^[ABCEHKMOPTXY][0-9]{3}[ABCEHKMOPTXY]{2}[0-9]{2,3}$"
+        },
+        #{
+        #    COUNTRY_CODE: "by",
+        #    REGEX: "^[0-9]{4}[ABCEHIKMOPTX]{2}[0-9]$"
+        #},
+        #{
+        #    COUNTRY_CODE: "am",
+        #    REGEX: "^[0-9]{2,3}[A-Z]{2}[0-9]{2,3}$"
+        #}
+    ]
+    assert formats == expected
 
 # listStreams: should be empty
 @pytest.mark.order(++order)

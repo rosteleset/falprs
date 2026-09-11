@@ -89,6 +89,10 @@ namespace Lprs
         {
           return getStreamDefaultConfigParams(id_group);
         }},
+      {METHOD_GET_SUPPORTED_PLATE_NUMBER_FORMATS, [](auto&&, auto&&)
+        {
+          return getSupportedPlateNumberFormats();
+        }},
     };
 
     if (with_content_methods.contains(api_method))
@@ -322,5 +326,27 @@ namespace Lprs
     }
 
     return data.ExtractValue();
+  }
+
+  userver::formats::json::Value Api::getSupportedPlateNumberFormats()
+  {
+    userver::formats::json::ValueBuilder formats;
+
+    userver::formats::json::ValueBuilder ru;
+    ru[PARAM_COUNTRY_CODE] = "ru";
+    ru[PARAM_REGEX] = "^[ABCEHKMOPTXY][0-9]{3}[ABCEHKMOPTXY]{2}[0-9]{2,3}$";
+    formats.PushBack(std::move(ru));
+
+    /*userver::formats::json::ValueBuilder by;
+    by[PARAM_COUNTRY_CODE] = "by";
+    by[PARAM_REGEX] = "^[0-9]{4}[ABCEHIKMOPTX]{2}[0-9]$";
+    formats.PushBack(std::move(by));
+
+    userver::formats::json::ValueBuilder am;
+    am[PARAM_COUNTRY_CODE] = "am";
+    am[PARAM_REGEX] = "^[0-9]{2,3}[A-Z]{2}[0-9]{2,3}$";
+    formats.PushBack(std::move(am));*/
+
+    return formats.ExtractValue();
   }
 }  // namespace Lprs
