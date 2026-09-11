@@ -73,8 +73,9 @@ paths:
                   format: url
                   example: https://my.host/callback_barcodes?streamId=1
                 faces:
-                  description: List of registered face descriptors
+                  description: Non-empty list of registered face descriptors
                   type: array
+                  minItems: 1
                   items:
                     type: integer
                 config:
