@@ -259,21 +259,24 @@ sudo systemctl start falprs.service
 
 <a id="update_falprs"></a>
 ### Project Update
-Before updating, make sure you have an up-to-date backup of the project's databases. Environment variables are loaded from the aforementioned *.env* file. Update the repository and use the **scripts/update_falprs.sh** script:
+Before updating, make sure you have an up-to-date backup of the project's databases. Environment variables are loaded from the aforementioned *.env* file.
+Update the repository and run the **scripts/update_falprs.sh** script:
 ```bash
 cd ~/falprs
 git pull
 git submodule update --init --recursive
 sudo ~/falprs/scripts/update_falprs.sh
 ```
-What the script does:
-* stops the falprs service
-* stops the Triton Inference Server container
-* builds the project using the *scripts/build_falprs.sh* script
-* creates TensorRT plans for neural network models using the *scripts/build_falprs.sh* script
-* starts the Triton Inference Server container
+The script:
+* checks whether the installed FALPRS executable needs to be rebuilt and rebuilds it only if the installed version differs from the project version or cannot be determined
+* performs TensorRT planning before stopping any services and determines whether any TensorRT plans need to be regenerated
+* downloads and checks the required neural network models and calculates their SHA1 hashes
+* regenerates TensorRT plans only for changed models or missing plans
+* stops the `falprs` service and the Triton Inference Server container only when TensorRT plans need to be regenerated
+* starts the Triton Inference Server container again after successful TensorRT plan generation when it was running before the update
+* restores the `falprs` service to its previous state after the update
 * updates schemas and data in the DB (old data is not overwritten)
-* starts the falprs service
+If the FALPRS executable is up to date and all TensorRT plans are current, neither the `falprs` service nor the Triton Inference Server container is stopped during the update.
 
 <a id="vstream_groups"></a>
 ### Managing Video Stream Groups
