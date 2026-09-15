@@ -2,7 +2,6 @@ import os
 import sys
 import subprocess
 import hashlib
-import json
 import shutil
 from pathlib import Path
 
@@ -10,6 +9,7 @@ REGULAR_MODELS = [
     {
         'key': 'barcode_detection',
         'onnx': 'barcode_detection.onnx',
+        'sha1': 'a114dc0a69aface32041d69f86c1ced13169f974',
         'id': '19Lf1lXFUgLGtsZLjLkcTfyQC38KyI20n',
         'template': 'barcode_detection_{suffix}.engine',
         'shape_args': '--minShapes=images:1x3x320x320 --optShapes=images:8x3x320x320 --maxShapes=images:8x3x320x320',
@@ -18,6 +18,7 @@ REGULAR_MODELS = [
     {
         'key': 'genet',
         'onnx': 'genet_small_custom_ft.onnx',
+        'sha1': '4c31a127efd1c7b13a925fbae93785019be3e473',
         'id': '1tIBqGBPb5Pgss0b2wIOqNv9BpcSar76-',
         'template': 'model_{suffix}.plan',
         'shape_args': '',
@@ -26,6 +27,7 @@ REGULAR_MODELS = [
     {
         'key': 'lpcnet_vit',
         'onnx': 'lpcnet_vit.onnx',
+        'sha1': 'c2d226380502d384786300884d368a026666815d',
         'id': '14aaFuG6y_26SJt7F-4OM9FeVMoEmk1yW',
         'template': 'lpcnet_vit_{suffix}.engine',
         'shape_args': '--minShapes=input:1x3x224x224 --optShapes=input:8x3x224x224 --maxShapes=input:8x3x224x224',
@@ -34,6 +36,7 @@ REGULAR_MODELS = [
     {
         'key': 'lpdnet_yolo',
         'onnx': 'lpdnet_yolo_v2.onnx',
+        'sha1': 'e81fd42d26d0e1e9c9e66c6e259c61c29fc50d05',
         'id': '1o--KonChXshsxMSVaEn6VX9pE0I4TxRA',
         'template': 'lpdnet_yolo_{suffix}.engine',
         'shape_args': '--minShapes=images:1x3x640x640 --optShapes=images:8x3x640x640 --maxShapes=images:8x3x640x640',
@@ -42,6 +45,7 @@ REGULAR_MODELS = [
     {
         'key': 'lprnet_yolo',
         'onnx': 'lprnet_yolo_v2.onnx',
+        'sha1': 'c66ffb13f5bfaf30a5b37733c26419206011bb33',
         'id': '1-uUaYmLQM8CHN6IYIDXKZqGwvraTkKU1',
         'template': 'lprnet_yolo_{suffix}.engine',
         'shape_args': '--minShapes=images:1x3x320x320 --optShapes=images:8x3x320x320 --maxShapes=images:8x3x320x320',
@@ -50,6 +54,7 @@ REGULAR_MODELS = [
     {
         'key': 'scrfd',
         'onnx': 'scrfd_10g_bnkps.onnx',
+        'sha1': 'e94f6c810fcf5b17602b10c6dc24bd39fd568a52',
         'id': '1ug1uimJzuwDqbxQPYCWEDAYumDXaj1f2',
         'template': 'model_{suffix}.plan',
         'shape_args': '--shapes=input.1:1x3x320x320',
@@ -58,6 +63,7 @@ REGULAR_MODELS = [
     {
         'key': 'vcnet_vit',
         'onnx': 'vcnet_vit.onnx',
+        'sha1': 'd16db48bf83c111a501a6bc3279897dd8822257e',
         'id': '178NdNvKhOSAURJg8bTP5IlNRyzBigr3v',
         'template': 'vcnet_vit_{suffix}.engine',
         'shape_args': '--minShapes=input:1x3x224x224 --optShapes=input:8x3x224x224 --maxShapes=input:8x3x224x224',
@@ -66,6 +72,7 @@ REGULAR_MODELS = [
     {
         'key': 'vdnet_yolo',
         'onnx': 'vdnet_yolo.onnx',
+        'sha1': 'a5a7a8701818c565bebbc9b2288da2b8130a864e',
         'id': '1BPwVSvI1qytIO2WlCzdz6lGXVo_IiQ2E',
         'template': 'vdnet_yolo_{suffix}.engine',
         'shape_args': '--minShapes=images:1x3x640x640 --optShapes=images:8x3x640x640 --maxShapes=images:8x3x640x640',
@@ -149,49 +156,7 @@ def calc_sha1(filepath):
     return h.hexdigest()
 
 
-def load_onnx_sha1(workdir):
-    sha1_file = os.path.join(workdir, '.onnx_sha1')
-    if not os.path.isfile(sha1_file):
-        return {}
-    res = {}
-    with open(sha1_file, 'r') as f:
-        for line in f:
-            parts = line.strip().split()
-            if len(parts) >= 2:
-                res[parts[0]] = parts[1]
-    return res
-
-
-def plan():
-    triton_version = os.environ.get('TRITON_VERSION', '24.09')
-    falprs_workdir = os.environ.get('FALPRS_WORKDIR', '/opt/falprs')
-    arcface_sha1 = os.environ.get('ARCFACE_SHA1', '3642b396053aa5e9cd4518de66baf0d26c9e1467')
-
-    gpu_info = get_gpu_info()
-    if not gpu_info:
-        manifest = {
-            'needs_generation': False,
-            'models_to_regenerate': [],
-            'current_onnx_sha1': {},
-            'arcface_sha1': arcface_sha1,
-            'triton_version': triton_version,
-            'gpu_info': {},
-            'commands': [],
-            'tmp_dir': '',
-        }
-        manifest_path = os.path.join(falprs_workdir, '.tensorrt_generation_plan.json')
-        Path(falprs_workdir).mkdir(parents=True, exist_ok=True)
-        with open(manifest_path + '.tmp', 'w') as f:
-            json.dump(manifest, f, indent=2)
-        os.replace(manifest_path + '.tmp', manifest_path)
-        return
-
-    try:
-        subprocess.run(['docker', 'pull', f"nvcr.io/nvidia/tritonserver:{triton_version}-py3"], check=True)
-    except Exception:
-        print("Error executing docker.")
-        sys.exit(1)
-
+def ensure_wget():
     if not shutil.which('wget'):
         try:
             subprocess.run(['apt-get', 'install', '-y', 'wget'], check=True)
@@ -199,129 +164,93 @@ def plan():
             print("Error installing wget.")
             sys.exit(1)
 
+
+def ensure_model_onnx(model, tmp_dir):
+    dest_path = os.path.join(tmp_dir, model['onnx'])
+    expected_sha1 = model.get('sha1')
+
+    if os.path.isfile(dest_path):
+        if expected_sha1:
+            curr_sha1 = calc_sha1(dest_path)
+            if curr_sha1 == expected_sha1:
+                return False
+        else:
+            return False
+
+    ensure_wget()
+    download_url = f"https://drive.usercontent.google.com/download?id={model['id']}&confirm=y"
+    try:
+        subprocess.run(
+            ['wget', '--content-disposition', download_url, '-O', dest_path],
+            check=True
+        )
+    except Exception:
+        print(f"Error downloading {model['key']} model.")
+        sys.exit(1)
+
+    return True
+
+
+def prepare_and_check(triton_version, falprs_workdir, arcface_sha1, forced_models=None):
+    gpu_info = get_gpu_info()
+    if not gpu_info:
+        return False, [], set(), {}, ""
+
+    try:
+        subprocess.run(['docker', 'pull', f"nvcr.io/nvidia/tritonserver:{triton_version}-py3"], check=True)
+    except Exception:
+        print("Error executing docker.")
+        sys.exit(1)
+
     tmp_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'temp'))
     Path(tmp_dir).mkdir(parents=True, exist_ok=True)
 
     arcface_info = get_arcface_info(arcface_sha1)
-    all_models_to_download = [arcface_info] + REGULAR_MODELS
+    arcface_onnx_updated = ensure_model_onnx(arcface_info, tmp_dir)
 
-    calculated_sha1 = {}
-    for model in all_models_to_download:
-        dest_path = os.path.join(tmp_dir, model['onnx'])
-        try:
-            subprocess.run(
-                ['wget', '--content-disposition',
-                 f"https://drive.usercontent.google.com/download?id={model['id']}&confirm=y",
-                 '-O', dest_path],
-                check=True
-            )
-        except Exception:
-            print(f"Error downloading {model['key']} model.")
-            sys.exit(1)
-
-        calculated_sha1[model['onnx']] = calc_sha1(dest_path)
-
-    old_onnx_sha1 = load_onnx_sha1(falprs_workdir)
-
-    print("Planning TensorRT plans...")
-    models_to_regenerate = set()
-    commands = []
-
-    # Check regular models
+    regular_onnx_updated = {}
     for model in REGULAR_MODELS:
-        onnx_name = model['onnx']
-        curr_sha1 = calculated_sha1[onnx_name]
-        sha1_changed = (onnx_name not in old_onnx_sha1) or (old_onnx_sha1[onnx_name] != curr_sha1)
+        regular_onnx_updated[model['key']] = ensure_model_onnx(model, tmp_dir)
 
-        status_str = "changed" if sha1_changed else "unchanged"
-        print(f"{onnx_name}: {status_str}")
+    commands = []
+    models_to_regenerate = set()
+    forced_set = set(forced_models) if forced_models else None
 
-        for i, gpu in gpu_info.items():
-            suffix = "" if len(gpu_info) == 1 else f"_{gpu[0]}"
-            plan_filename = model['output_pattern'].format(suffix=suffix)
-            plan_path = os.path.join(falprs_workdir, 'model_repository', model['key'], '1', plan_filename)
-            plan_exists = os.path.isfile(plan_path)
-
-            if sha1_changed or not plan_exists:
-                models_to_regenerate.add(model['key'])
-                shape_part = f" {model['shape_args']}" if model['shape_args'] else ""
-                cmd = f"CUDA_DEVICE_ORDER=PCI_BUS_ID /usr/src/tensorrt/bin/trtexec --device={i} --onnx=/source/{model['onnx']}{shape_part} --saveEngine=/destination/{model['key']}/1/{plan_filename}"
-                commands.append(cmd)
-
-    # Check ArcFace
-    arcface_sha1_file = os.path.join(falprs_workdir, '.arcface_sha1')
-    saved_arcface_sha1 = None
-    if os.path.isfile(arcface_sha1_file):
-        try:
-            with open(arcface_sha1_file, 'r') as f:
-                saved_arcface_sha1 = f.read().strip()
-        except Exception:
-            pass
-
-    arcface_changed = (saved_arcface_sha1 != arcface_sha1)
+    # Check ArcFace plans
     for i, gpu in gpu_info.items():
         suffix = "" if len(gpu_info) == 1 else f"_{gpu[0]}"
         plan_filename = arcface_info['output_pattern'].format(suffix=suffix)
         plan_path = os.path.join(falprs_workdir, 'model_repository', 'arcface', '1', plan_filename)
         plan_exists = os.path.isfile(plan_path)
 
-        if arcface_changed or not plan_exists:
+        force_this = forced_set is not None and 'arcface' in forced_set
+        if force_this or arcface_onnx_updated or not plan_exists:
             models_to_regenerate.add('arcface')
             shape_part = f" {arcface_info['shape_args']}" if arcface_info['shape_args'] else ""
             cmd = f"CUDA_DEVICE_ORDER=PCI_BUS_ID /usr/src/tensorrt/bin/trtexec --device={i} --onnx=/source/{arcface_info['onnx']}{shape_part} --saveEngine=/destination/arcface/1/{plan_filename}"
             commands.append(cmd)
 
-    needs_generation = len(models_to_regenerate) > 0
+    # Check regular model plans
+    for model in REGULAR_MODELS:
+        onnx_updated = regular_onnx_updated[model['key']]
+        force_this = forced_set is not None and model['key'] in forced_set
+        for i, gpu in gpu_info.items():
+            suffix = "" if len(gpu_info) == 1 else f"_{gpu[0]}"
+            plan_filename = model['output_pattern'].format(suffix=suffix)
+            plan_path = os.path.join(falprs_workdir, 'model_repository', model['key'], '1', plan_filename)
+            plan_exists = os.path.isfile(plan_path)
 
-    if not needs_generation:
-        print("All TensorRT plans are up to date.")
-        print("Triton Inference Server does not need to be restarted.")
-    else:
-        print("TensorRT plans need to be regenerated for:")
-        for key in sorted(models_to_regenerate):
-            print(f"  {key}")
+            if force_this or onnx_updated or not plan_exists:
+                models_to_regenerate.add(model['key'])
+                shape_part = f" {model['shape_args']}" if model['shape_args'] else ""
+                cmd = f"CUDA_DEVICE_ORDER=PCI_BUS_ID /usr/src/tensorrt/bin/trtexec --device={i} --onnx=/source/{model['onnx']}{shape_part} --saveEngine=/destination/{model['key']}/1/{plan_filename}"
+                commands.append(cmd)
 
-    manifest = {
-        'needs_generation': needs_generation,
-        'models_to_regenerate': sorted(list(models_to_regenerate)),
-        'current_onnx_sha1': {
-            m['onnx']: calculated_sha1[m['onnx']] for m in REGULAR_MODELS
-        },
-        'arcface_sha1': arcface_sha1,
-        'triton_version': triton_version,
-        'gpu_info': {str(k): v for k, v in gpu_info.items()},
-        'commands': commands,
-        'tmp_dir': tmp_dir,
-    }
-
-    manifest_path = os.path.join(falprs_workdir, '.tensorrt_generation_plan.json')
-    Path(falprs_workdir).mkdir(parents=True, exist_ok=True)
-    with open(manifest_path + '.tmp', 'w') as f:
-        json.dump(manifest, f, indent=2)
-    os.replace(manifest_path + '.tmp', manifest_path)
+    needs_generation = len(commands) > 0
+    return needs_generation, commands, models_to_regenerate, gpu_info, tmp_dir
 
 
-def generate():
-    falprs_workdir = os.environ.get('FALPRS_WORKDIR', '/opt/falprs')
-    manifest_path = os.path.join(falprs_workdir, '.tensorrt_generation_plan.json')
-
-    if not os.path.isfile(manifest_path):
-        print(f"Manifest file {manifest_path} not found. Run planning first.")
-        sys.exit(1)
-
-    with open(manifest_path, 'r') as f:
-        manifest = json.load(f)
-
-    if not manifest.get('needs_generation', False):
-        print("No TensorRT plans generation required.")
-        return
-
-    triton_version = manifest['triton_version']
-    tmp_dir = manifest['tmp_dir']
-    gpu_info = manifest['gpu_info']  # keys are str device index
-    commands = manifest['commands']
-
-    # Update config.pbtxt for model repository
+def update_configs(falprs_workdir, gpu_info):
     cc_model_filenames = {}
     if len(gpu_info) > 1:
         for i, gpu in gpu_info.items():
@@ -369,13 +298,56 @@ def generate():
             print(f"Error saving file {dst_config_file}")
             sys.exit(1)
 
+
+def plan():
+    triton_version = os.environ.get('TRITON_VERSION', '24.09')
+    falprs_workdir = os.environ.get('FALPRS_WORKDIR', '/opt/falprs')
+    arcface_sha1 = os.environ.get('ARCFACE_SHA1', '3642b396053aa5e9cd4518de66baf0d26c9e1467')
+
+    needs_generation, _, models_to_regenerate, gpu_info, _ = prepare_and_check(triton_version, falprs_workdir, arcface_sha1)
+    if not gpu_info:
+        sys.exit(0)
+
+    if not needs_generation:
+        print("All TensorRT plans are up to date.")
+        print("Triton Inference Server does not need to be restarted.")
+        sys.exit(0)
+    else:
+        print("TensorRT plans need to be regenerated for:")
+        model_list = sorted(list(models_to_regenerate))
+        for key in model_list:
+            print(f"  {key}")
+        model_str = ' '.join(model_list)
+        print(f"MODELS_LIST: {model_str}")
+        try:
+            with open('/tmp/falprs_models_to_gen', 'w') as f:
+                f.write(model_str)
+        except Exception:
+            pass
+        sys.exit(10)
+
+
+def generate():
+    triton_version = os.environ.get('TRITON_VERSION', '24.09')
+    falprs_workdir = os.environ.get('FALPRS_WORKDIR', '/opt/falprs')
+    arcface_sha1 = os.environ.get('ARCFACE_SHA1', '3642b396053aa5e9cd4518de66baf0d26c9e1467')
+
+    forced_models = sys.argv[2:] if len(sys.argv) > 2 else None
+
+    needs_generation, commands, _, gpu_info, tmp_dir = prepare_and_check(triton_version, falprs_workdir, arcface_sha1, forced_models=forced_models)
+    if not gpu_info or not needs_generation:
+        print("No TensorRT plans generation required.")
+        return
+
+    update_configs(falprs_workdir, gpu_info)
+
     if commands:
         cmd_script = "\n".join(commands)
         try:
             subprocess.run([
                 'docker', 'run', '--gpus', 'all', '--rm',
                 '-v', f"{tmp_dir}:/source",
-                '-v', f"{rep_dir}:/destination",
+                '-v', f"{falprs_workdir}/model_repository:/destination",
                 '--entrypoint=bash',
                 f"nvcr.io/nvidia/tritonserver:{triton_version}-py3",
                 '-c', cmd_script
@@ -384,22 +356,36 @@ def generate():
             print("Error creating TensorRT plans.")
             sys.exit(1)
 
-    # Atomic update of .onnx_sha1
-    sha1_lines = [f"{k} {manifest['current_onnx_sha1'][k]}\n" for k in sorted(manifest['current_onnx_sha1'].keys())]
-    tmp_sha1_path = os.path.join(falprs_workdir, '.onnx_sha1.tmp')
-    with open(tmp_sha1_path, 'w') as f:
-        f.writelines(sha1_lines)
-    os.replace(tmp_sha1_path, os.path.join(falprs_workdir, '.onnx_sha1'))
 
-    # Atomic update of .arcface_sha1
-    tmp_arcface_path = os.path.join(falprs_workdir, '.arcface_sha1.tmp')
-    with open(tmp_arcface_path, 'w') as f:
-        f.write(manifest['arcface_sha1'] + '\n')
-    os.replace(tmp_arcface_path, os.path.join(falprs_workdir, '.arcface_sha1'))
+def run_all():
+    triton_version = os.environ.get('TRITON_VERSION', '24.09')
+    falprs_workdir = os.environ.get('FALPRS_WORKDIR', '/opt/falprs')
+    arcface_sha1 = os.environ.get('ARCFACE_SHA1', '3642b396053aa5e9cd4518de66baf0d26c9e1467')
 
-    # Remove temporary manifest
-    if os.path.isfile(manifest_path):
-        os.remove(manifest_path)
+    needs_generation, commands, _, gpu_info, tmp_dir = prepare_and_check(triton_version, falprs_workdir, arcface_sha1)
+    if not gpu_info:
+        return
+
+    if not needs_generation:
+        print("All TensorRT plans are up to date.")
+        return
+
+    update_configs(falprs_workdir, gpu_info)
+
+    if commands:
+        cmd_script = "\n".join(commands)
+        try:
+            subprocess.run([
+                'docker', 'run', '--gpus', 'all', '--rm',
+                '-v', f"{tmp_dir}:/source",
+                '-v', f"{falprs_workdir}/model_repository:/destination",
+                '--entrypoint=bash',
+                f"nvcr.io/nvidia/tritonserver:{triton_version}-py3",
+                '-c', cmd_script
+            ], check=True)
+        except Exception:
+            print("Error creating TensorRT plans.")
+            sys.exit(1)
 
 
 def main():
@@ -409,14 +395,7 @@ def main():
     elif mode == 'generate':
         generate()
     elif mode == 'all':
-        plan()
-        falprs_workdir = os.environ.get('FALPRS_WORKDIR', '/opt/falprs')
-        manifest_path = os.path.join(falprs_workdir, '.tensorrt_generation_plan.json')
-        if os.path.isfile(manifest_path):
-            with open(manifest_path, 'r') as f:
-                manifest = json.load(f)
-            if manifest.get('needs_generation', False):
-                generate()
+        run_all()
     else:
         print(f"Unknown mode: {mode}. Use 'plan', 'generate', or 'all'.")
         sys.exit(1)

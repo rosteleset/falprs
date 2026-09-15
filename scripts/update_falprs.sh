@@ -89,19 +89,30 @@ fi
 # TensorRT Planning phase (before stopping services)
 echo "Planning TensorRT plans..."
 cd $BASEDIR/..
+
+PLAN_STATUS=0
 if [ -n "$ARCFACE_SHA1" ]; then
-    sudo TRITON_VERSION=$TRITON_VERSION FALPRS_WORKDIR=$FALPRS_WORKDIR ARCFACE_SHA1=$ARCFACE_SHA1 python3 ./scripts/tensorrt_plans.py plan
+    sudo TRITON_VERSION=$TRITON_VERSION FALPRS_WORKDIR=$FALPRS_WORKDIR ARCFACE_SHA1=$ARCFACE_SHA1 python3 ./scripts/tensorrt_plans.py plan || PLAN_STATUS=$?
 else
-    sudo TRITON_VERSION=$TRITON_VERSION FALPRS_WORKDIR=$FALPRS_WORKDIR python3 ./scripts/tensorrt_plans.py plan
+    sudo TRITON_VERSION=$TRITON_VERSION FALPRS_WORKDIR=$FALPRS_WORKDIR python3 ./scripts/tensorrt_plans.py plan || PLAN_STATUS=$?
 fi
 
-MANIFEST_FILE="$FALPRS_WORKDIR/.tensorrt_generation_plan.json"
-NEEDS_GEN="false"
-if [ -f "$MANIFEST_FILE" ]; then
-    NEEDS_GEN=$(python3 -c "import json; print(str(json.load(open('$MANIFEST_FILE')).get('needs_generation', False)).lower())" 2>/dev/null || echo "false")
+NEEDS_GEN=false
+MODELS_TO_GEN=""
+if [ $PLAN_STATUS -eq 0 ]; then
+    NEEDS_GEN=false
+elif [ $PLAN_STATUS -eq 10 ]; then
+    NEEDS_GEN=true
+    if [ -f "/tmp/falprs_models_to_gen" ]; then
+        MODELS_TO_GEN=$(cat /tmp/falprs_models_to_gen)
+        rm -f /tmp/falprs_models_to_gen
+    fi
+else
+    echo "Error during TensorRT planning."
+    exit $PLAN_STATUS
 fi
 
-if [ "$NEEDS_GEN" = "true" ]; then
+if [ "$NEEDS_GEN" = true ]; then
     FALPRS_WAS_ACTIVE=false
     if systemctl is-active --quiet falprs.service; then
         FALPRS_WAS_ACTIVE=true
@@ -122,9 +133,9 @@ if [ "$NEEDS_GEN" = "true" ]; then
     echo "Creating TensorRT neural network model plans..."
     GEN_ERROR=0
     if [ -n "$ARCFACE_SHA1" ]; then
-        sudo TRITON_VERSION=$TRITON_VERSION FALPRS_WORKDIR=$FALPRS_WORKDIR ARCFACE_SHA1=$ARCFACE_SHA1 python3 ./scripts/tensorrt_plans.py generate || GEN_ERROR=$?
+        sudo TRITON_VERSION=$TRITON_VERSION FALPRS_WORKDIR=$FALPRS_WORKDIR ARCFACE_SHA1=$ARCFACE_SHA1 python3 ./scripts/tensorrt_plans.py generate $MODELS_TO_GEN || GEN_ERROR=$?
     else
-        sudo TRITON_VERSION=$TRITON_VERSION FALPRS_WORKDIR=$FALPRS_WORKDIR python3 ./scripts/tensorrt_plans.py generate || GEN_ERROR=$?
+        sudo TRITON_VERSION=$TRITON_VERSION FALPRS_WORKDIR=$FALPRS_WORKDIR python3 ./scripts/tensorrt_plans.py generate $MODELS_TO_GEN || GEN_ERROR=$?
     fi
 
     # Restore services to their initial state

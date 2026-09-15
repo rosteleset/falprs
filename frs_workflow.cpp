@@ -1406,7 +1406,7 @@ properties:
                         task_data.vstream_key, fst, config.id_vstream, snd.id_descriptor);
                   } else
                     LOG_ERROR_TO(logger_,
-                      "vstream_key = {};  failed to send face recognition event data to special group by callback ",
+                      "vstream_key = {};  failed to send face recognition event data to special group by callback {}",
                       task_data.vstream_key, sg_group_callback_url);
                 }
               }

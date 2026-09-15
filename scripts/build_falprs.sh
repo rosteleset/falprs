@@ -7,6 +7,16 @@ set -e
 
 BASEDIR=$(realpath `dirname $0`)
 
+# Determine the user that invoked sudo.
+# Build artifacts must belong to the regular user, not root.
+if [ -n "${SUDO_USER:-}" ] && [ "$SUDO_USER" != "root" ]; then
+    BUILD_USER="$SUDO_USER"
+    BUILD_HOME="$(getent passwd "$BUILD_USER" | cut -d: -f6)"
+else
+    BUILD_USER="$(id -un)"
+    BUILD_HOME="$HOME"
+fi
+
 # Load configuration from file if exists
 if [ -f "$BASEDIR/.env" ]; then
     source $BASEDIR/.env
@@ -43,31 +53,56 @@ fi
 export TRITON_VERSION="${TRITON_VERSION:-24.09}"
 export FALPRS_WORKDIR="${FALPRS_WORKDIR:-/opt/falprs}"
 
+# These operations require root privileges.
 apt-get update
 apt-get install -y build-essential ccache cmake git libboost-dev libboost-context-dev libboost-coroutine-dev libboost-filesystem-dev libboost-iostreams-dev libboost-locale-dev libboost-program-options-dev libboost-regex-dev libboost-stacktrace-dev zlib1g-dev nasm clang-format libssl-dev libyaml-cpp-dev libjemalloc-dev libpq-dev postgresql-server-dev-$PG_VERSION rapidjson-dev python3-dev python3-jinja2 python3-protobuf python3-venv python3-voluptuous python3-yaml libgtest-dev libnghttp2-dev libev-dev libldap2-dev libkrb5-dev libzstd-dev libopencv-dev libbz2-dev libre2-dev libcrypto++-dev libfmt-dev libc-ares-dev libcurl4-openssl-dev libcctz-dev
 
-cd ~
-if [ ! -d "triton-client" ]; then
-  git clone https://github.com/triton-inference-server/client.git triton-client
+TRITON_CLIENT_DIR="$BUILD_HOME/triton-client"
+
+# Build Triton client and FALPRS as the regular user.
+# runuser does not request another password when the script is already running as root.
+runuser -u "$BUILD_USER" -- env \
+    HOME="$BUILD_HOME" \
+    USER="$BUILD_USER" \
+    LOGNAME="$BUILD_USER" \
+    BASEDIR="$BASEDIR" \
+    BUILD_HOME="$BUILD_HOME" \
+    TRITON_CLIENT_DIR="$TRITON_CLIENT_DIR" \
+    TRITON_VERSION="$TRITON_VERSION" \
+    FALPRS_WORKDIR="$FALPRS_WORKDIR" \
+    PG_VERSION="$PG_VERSION" \
+    UBUNTU_VERSION="$UBUNTU_VERSION" \
+    bash -c '
+set -e
+
+cd "$BUILD_HOME"
+
+if [ ! -d "$TRITON_CLIENT_DIR" ]; then
+    git clone https://github.com/triton-inference-server/client.git "$TRITON_CLIENT_DIR"
 fi
 
-cd triton-client
+cd "$TRITON_CLIENT_DIR"
+
 git checkout .
 
 ver_le() {
-  [[ "$(printf '%s\n%s\n' "$1" "$2" | sort -V | head -n1)" == "$1" ]]
+    [[ "$(printf "%s\n%s\n" "$1" "$2" | sort -V | head -n1)" == "$1" ]]
 }
 
 TRITON_TAG="r$TRITON_VERSION"
+
 if [[ "$TRITON_TAG" > "r25.07" ]] && ver_le "$UBUNTU_VERSION" "24.04"; then
-  TRITON_TAG="r25.07"
+    TRITON_TAG="r25.07"
 fi
 
-rm -rf build && mkdir -p build && cd build
+rm -rf build
+mkdir -p build
+cd build
+
 cmake \
     -DCMAKE_BUILD_TYPE=Release \
     -DCMAKE_CXX_STANDARD=20 \
-    -DCMAKE_INSTALL_PREFIX:PATH=~/triton-client/build/install \
+    -DCMAKE_INSTALL_PREFIX:PATH="$TRITON_CLIENT_DIR/build/install" \
     -DTRITON_ENABLE_CC_HTTP=ON \
     -DTRITON_ENABLE_CC_GRPC=OFF \
     -DTRITON_ENABLE_PYTHON_HTTP=OFF \
@@ -75,33 +110,48 @@ cmake \
     -DTRITON_ENABLE_GPU=OFF \
     -DTRITON_ENABLE_EXAMPLES=OFF \
     -DTRITON_ENABLE_TESTS=OFF \
-    -DTRITON_COMMON_REPO_TAG=$TRITON_TAG \
-    -DTRITON_THIRD_PARTY_REPO_TAG=$TRITON_TAG \
+    -DTRITON_COMMON_REPO_TAG="$TRITON_TAG" \
+    -DTRITON_THIRD_PARTY_REPO_TAG="$TRITON_TAG" \
     ..
+
 make cc-clients -j`nproc`
 
-cd $BASEDIR/..
-rm -rf build && mkdir -p build && cd build
-cmake  \
+cd "$BASEDIR/.."
+
+rm -rf build
+mkdir -p build
+cd build
+
+cmake \
     -DCMAKE_BUILD_TYPE=Release \
-    -DUSERVER_PG_SERVER_INCLUDE_DIR=/usr/include/postgresql/$PG_VERSION/server \
-    -DUSERVER_PG_SERVER_LIBRARY_DIR=/usr/lib/postgresql/$PG_VERSION/lib \
-    -DUSERVER_PG_LIBRARY_DIR=/usr/lib/postgresql/$PG_VERSION/lib \
+    -DTRITON_CLIENT_DIR="$TRITON_CLIENT_DIR/build/install" \
+    -DUSERVER_PG_SERVER_INCLUDE_DIR="/usr/include/postgresql/$PG_VERSION/server" \
+    -DUSERVER_PG_SERVER_LIBRARY_DIR="/usr/lib/postgresql/$PG_VERSION/lib" \
+    -DUSERVER_PG_LIBRARY_DIR="/usr/lib/postgresql/$PG_VERSION/lib" \
     ..
+
 make -j`nproc`
+'
 
-# Copy files to the working directory
-mkdir -p $FALPRS_WORKDIR
-mkdir -p $FALPRS_WORKDIR/static
-cp falprs $FALPRS_WORKDIR
-cd $BASEDIR/..
-cp --update=none ./examples/lprs/test001.jpg $FALPRS_WORKDIR/static/
-cp --update=none ./examples/frs/einstein_001.jpg $FALPRS_WORKDIR/static/
-cp --update=none ./examples/frs/einstein_002.jpg $FALPRS_WORKDIR/static/
+# Everything below this point is deployment/configuration and requires root.
+# The executable was built by BUILD_USER and is copied to the root-owned
+# FALPRS working directory.
 
-python3 $BASEDIR/merge_yaml.py config.yaml.example $FALPRS_WORKDIR/config.yaml
+mkdir -p "$FALPRS_WORKDIR"
+mkdir -p "$FALPRS_WORKDIR/static"
+
+cp "$BASEDIR/../build/falprs" "$FALPRS_WORKDIR"
+
+cd "$BASEDIR/.."
+
+cp --update=none ./examples/lprs/test001.jpg "$FALPRS_WORKDIR/static/"
+cp --update=none ./examples/frs/einstein_001.jpg "$FALPRS_WORKDIR/static/"
+cp --update=none ./examples/frs/einstein_002.jpg "$FALPRS_WORKDIR/static/"
+
+python3 "$BASEDIR/merge_yaml.py" config.yaml.example "$FALPRS_WORKDIR/config.yaml"
 
 CPU=$(nproc)
+
 awk -v u_lprs="$PG_USER_LPRS" -v p_lprs="$PG_PASSWD_LPRS" -v h_lprs="$PG_HOST_LPRS" -v pt_lprs="$PG_PORT_LPRS" -v d_lprs="$PG_DB_LPRS" \
     -v u_frs="$PG_USER_FRS" -v p_frs="$PG_PASSWD_FRS" -v h_frs="$PG_HOST_FRS" -v pt_frs="$PG_PORT_FRS" -v d_frs="$PG_DB_FRS" \
     -v cpu="$CPU" '
@@ -141,4 +191,4 @@ section=="frs" && /^[[:space:]]*dbconnection:/ {
 /^[^[:space:]]/ { section="" }
 
 { print }
-' $FALPRS_WORKDIR/config.yaml > /tmp/config.yaml.new && mv /tmp/config.yaml.new $FALPRS_WORKDIR/config.yaml
+' "$FALPRS_WORKDIR/config.yaml" > /tmp/config.yaml.new && mv /tmp/config.yaml.new "$FALPRS_WORKDIR/config.yaml"
