@@ -144,6 +144,11 @@ if [ "$NEEDS_GEN" = true ]; then
         sudo docker start $TRITON_CONTAINER_ID
     fi
 
+    if [ "$NEED_BUILD" = true ]; then
+        echo "Copying new executable..."
+        cp "$BASEDIR/../build/falprs" "$FALPRS_WORKDIR"
+    fi
+
     if [ "$FALPRS_WAS_ACTIVE" = true ]; then
         echo "Starting falprs service..."
         sudo systemctl start falprs.service
