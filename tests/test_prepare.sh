@@ -8,8 +8,8 @@ pg_port="${pg_port:=5432}"
 
 BASEDIR=$(realpath `dirname $0`)
 sudo -u postgres psql < $BASEDIR/prepare_data.sql
-PG_USER_FRS=test_falprs PG_PASSWD_FRS=123 PG_HOST_FRS=localhost PG_PORT_FRS=$pg_port PG_DB_FRS=test_frs $BASEDIR/../scripts/sql_frs.sh
-PG_USER_LPRS=test_falprs PG_PASSWD_LPRS=123 PG_HOST_LPRS=localhost PG_PORT_LPRS=$pg_port PG_DB_LPRS=test_lprs $BASEDIR/../scripts/sql_lprs.sh
+$BASEDIR/../scripts/sql_frs.sh $BASEDIR/.env.tests
+$BASEDIR/../scripts/sql_lprs.sh $BASEDIR/.env.tests
 mkdir -p /tmp/test_falprs/static
 cp --update=none $BASEDIR/images/* /tmp/test_falprs/static/
 

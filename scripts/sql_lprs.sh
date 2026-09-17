@@ -4,11 +4,19 @@ set -e
 
 BASEDIR=$(realpath "$(dirname "$0")")
 
-# Load configuration from file if exists
-if [ -f "$BASEDIR/.env" ]; then
-    source $BASEDIR/.env
+# Load configuration from file if exists.
+# An env file can be specified as the first argument.
+if [ -n "$1" ]; then
+    if [ -f "$1" ]; then
+        source "$1"
+    else
+        echo "Error: env file not found: $1" >&2
+        exit 1
+    fi
+elif [ -f "$BASEDIR/.env" ]; then
+    source "$BASEDIR/.env"
 elif [ -f "$BASEDIR/../.env" ]; then
-    source $BASEDIR/../.env
+    source "$BASEDIR/../.env"
 fi
 
 # External variables used in the script

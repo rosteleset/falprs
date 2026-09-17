@@ -4,11 +4,19 @@ set -e
 
 BASEDIR=$(realpath "$(dirname "$0")")
 
-# Load configuration from file if exists
-if [ -f "$BASEDIR/.env" ]; then
-    source $BASEDIR/.env
+# Load configuration from file if exists.
+# An env file can be specified as the first argument.
+if [ -n "$1" ]; then
+    if [ -f "$1" ]; then
+        source "$1"
+    else
+        echo "Error: env file not found: $1" >&2
+        exit 1
+    fi
+elif [ -f "$BASEDIR/.env" ]; then
+    source "$BASEDIR/.env"
 elif [ -f "$BASEDIR/../.env" ]; then
-    source $BASEDIR/../.env
+    source "$BASEDIR/../.env"
 fi
 
 # External variables used in the script
@@ -24,16 +32,16 @@ export PG_HOST_FRS="${PG_HOST_FRS:-localhost}"
 export PG_PORT_FRS="${PG_PORT_FRS:-5432}"
 export PG_DB_FRS="${PG_DB_FRS:-frs}"
 
-psql postgresql://$PG_USER_FRS:$PG_PASSWD_FRS@$PG_HOST_FRS:$PG_PORT_FRS/$PG_DB_FRS < $BASEDIR/../sql/frs/01_vstream_groups.sql
-psql postgresql://$PG_USER_FRS:$PG_PASSWD_FRS@$PG_HOST_FRS:$PG_PORT_FRS/$PG_DB_FRS < $BASEDIR/../sql/frs/02_video_streams.sql
-psql postgresql://$PG_USER_FRS:$PG_PASSWD_FRS@$PG_HOST_FRS:$PG_PORT_FRS/$PG_DB_FRS < $BASEDIR/../sql/frs/03_face_descriptors.sql
-psql postgresql://$PG_USER_FRS:$PG_PASSWD_FRS@$PG_HOST_FRS:$PG_PORT_FRS/$PG_DB_FRS < $BASEDIR/../sql/frs/04_descriptor_images.sql
-psql postgresql://$PG_USER_FRS:$PG_PASSWD_FRS@$PG_HOST_FRS:$PG_PORT_FRS/$PG_DB_FRS < $BASEDIR/../sql/frs/05_link_descriptor_vstream.sql
-psql postgresql://$PG_USER_FRS:$PG_PASSWD_FRS@$PG_HOST_FRS:$PG_PORT_FRS/$PG_DB_FRS < $BASEDIR/../sql/frs/06_log_faces.sql
-psql postgresql://$PG_USER_FRS:$PG_PASSWD_FRS@$PG_HOST_FRS:$PG_PORT_FRS/$PG_DB_FRS < $BASEDIR/../sql/frs/07_special_groups.sql
-psql postgresql://$PG_USER_FRS:$PG_PASSWD_FRS@$PG_HOST_FRS:$PG_PORT_FRS/$PG_DB_FRS < $BASEDIR/../sql/frs/08_link_descriptor_sgroup.sql
-psql postgresql://$PG_USER_FRS:$PG_PASSWD_FRS@$PG_HOST_FRS:$PG_PORT_FRS/$PG_DB_FRS < $BASEDIR/../sql/frs/09_common_config.sql
-psql postgresql://$PG_USER_FRS:$PG_PASSWD_FRS@$PG_HOST_FRS:$PG_PORT_FRS/$PG_DB_FRS < $BASEDIR/../sql/frs/10_default_vstream_config.sql
-psql postgresql://$PG_USER_FRS:$PG_PASSWD_FRS@$PG_HOST_FRS:$PG_PORT_FRS/$PG_DB_FRS < $BASEDIR/../sql/frs/11_face_descriptors_new_column.sql
-psql postgresql://$PG_USER_FRS:$PG_PASSWD_FRS@$PG_HOST_FRS:$PG_PORT_FRS/$PG_DB_FRS < $BASEDIR/../sql/frs/12_video_streams_new_column.sql
-psql postgresql://$PG_USER_FRS:$PG_PASSWD_FRS@$PG_HOST_FRS:$PG_PORT_FRS/$PG_DB_FRS < $BASEDIR/../sql/frs/13_log_barcodes.sql
+psql postgresql://$PG_USER_FRS:$PG_PASSWD_FRS@$PG_HOST_FRS:$PG_PORT_FRS/$PG_DB_FRS < "$BASEDIR/../sql/frs/01_vstream_groups.sql"
+psql postgresql://$PG_USER_FRS:$PG_PASSWD_FRS@$PG_HOST_FRS:$PG_PORT_FRS/$PG_DB_FRS < "$BASEDIR/../sql/frs/02_video_streams.sql"
+psql postgresql://$PG_USER_FRS:$PG_PASSWD_FRS@$PG_HOST_FRS:$PG_PORT_FRS/$PG_DB_FRS < "$BASEDIR/../sql/frs/03_face_descriptors.sql"
+psql postgresql://$PG_USER_FRS:$PG_PASSWD_FRS@$PG_HOST_FRS:$PG_PORT_FRS/$PG_DB_FRS < "$BASEDIR/../sql/frs/04_descriptor_images.sql"
+psql postgresql://$PG_USER_FRS:$PG_PASSWD_FRS@$PG_HOST_FRS:$PG_PORT_FRS/$PG_DB_FRS < "$BASEDIR/../sql/frs/05_link_descriptor_vstream.sql"
+psql postgresql://$PG_USER_FRS:$PG_PASSWD_FRS@$PG_HOST_FRS:$PG_PORT_FRS/$PG_DB_FRS < "$BASEDIR/../sql/frs/06_log_faces.sql"
+psql postgresql://$PG_USER_FRS:$PG_PASSWD_FRS@$PG_HOST_FRS:$PG_PORT_FRS/$PG_DB_FRS < "$BASEDIR/../sql/frs/07_special_groups.sql"
+psql postgresql://$PG_USER_FRS:$PG_PASSWD_FRS@$PG_HOST_FRS:$PG_PORT_FRS/$PG_DB_FRS < "$BASEDIR/../sql/frs/08_link_descriptor_sgroup.sql"
+psql postgresql://$PG_USER_FRS:$PG_PASSWD_FRS@$PG_HOST_FRS:$PG_PORT_FRS/$PG_DB_FRS < "$BASEDIR/../sql/frs/09_common_config.sql"
+psql postgresql://$PG_USER_FRS:$PG_PASSWD_FRS@$PG_HOST_FRS:$PG_PORT_FRS/$PG_DB_FRS < "$BASEDIR/../sql/frs/10_default_vstream_config.sql"
+psql postgresql://$PG_USER_FRS:$PG_PASSWD_FRS@$PG_HOST_FRS:$PG_PORT_FRS/$PG_DB_FRS < "$BASEDIR/../sql/frs/11_face_descriptors_new_column.sql"
+psql postgresql://$PG_USER_FRS:$PG_PASSWD_FRS@$PG_HOST_FRS:$PG_PORT_FRS/$PG_DB_FRS < "$BASEDIR/../sql/frs/12_video_streams_new_column.sql"
+psql postgresql://$PG_USER_FRS:$PG_PASSWD_FRS@$PG_HOST_FRS:$PG_PORT_FRS/$PG_DB_FRS < "$BASEDIR/../sql/frs/13_log_barcodes.sql"
