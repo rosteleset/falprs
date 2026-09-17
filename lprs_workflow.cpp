@@ -298,7 +298,7 @@ properties:
     }
 
     if (do_pipeline)
-      tasks_.Detach(AsyncNoSpan(task_processor_, &Workflow::processPipeline, this, std::move(vstream_key)));
+      tasks_.Detach(AsyncNoTracing(task_processor_, &Workflow::processPipeline, this, std::move(vstream_key)));
   }
 
   void Workflow::stopWorkflow(std::string&& vstream_key, const bool is_internal)
@@ -943,7 +943,7 @@ properties:
         vstream_key);
 
     if (do_next)
-      tasks_.Detach(AsyncNoSpan(task_processor_, &Workflow::processPipeline, this, std::move(vstream_key)));
+      tasks_.Detach(AsyncNoTracing(task_processor_, &Workflow::processPipeline, this, std::move(vstream_key)));
   }
 
   // Inference pipeline methods
@@ -1022,7 +1022,7 @@ properties:
         "vstream_key = {}_{};  before inference VDNet",
         config.id_group, config.ext_id);
 
-    AsyncNoSpan(fs_task_processor_,
+    AsyncNoTracing(fs_task_processor_,
       [&err, &triton_client, &result, &options, &inputs, &outputs]
       {
         err = triton_client->Infer(&result, options, inputs, outputs);
@@ -1206,7 +1206,7 @@ properties:
       // inference timeout in microseconds
       options.back().client_timeout_ = std::chrono::duration_cast<std::chrono::microseconds>(config.inference_timeout).count();
 
-      tasks.emplace_back(AsyncNoSpan(fs_task_processor_,
+      tasks.emplace_back(AsyncNoTracing(fs_task_processor_,
         [&triton_clients, &results, &options, &input_ptrs, &output_ptrs, vindex]
         {
           return triton_clients[vindex]->Infer(&results[vindex], options[vindex], {input_ptrs[vindex].get()}, {output_ptrs[vindex].get()});
@@ -1372,7 +1372,7 @@ properties:
       // inference timeout in microseconds
       options.back().client_timeout_ = std::chrono::duration_cast<std::chrono::microseconds>(config.inference_timeout).count();
 
-      tasks.emplace_back(AsyncNoSpan(fs_task_processor_,
+      tasks.emplace_back(AsyncNoTracing(fs_task_processor_,
         [&triton_clients, &results, &options, &input_ptrs, &output_ptrs, vindex]
         {
           return triton_clients[vindex]->Infer(&results[vindex], options[vindex], {input_ptrs[vindex].get()}, {output_ptrs[vindex].get()});
@@ -1836,7 +1836,7 @@ properties:
       // inference timeout in microseconds
       options.back().client_timeout_ = std::chrono::duration_cast<std::chrono::microseconds>(config.inference_timeout).count();
 
-      tasks.emplace_back(AsyncNoSpan(fs_task_processor_,
+      tasks.emplace_back(AsyncNoTracing(fs_task_processor_,
         [&triton_clients, &results, &options, &input_ptrs, &output_ptrs, pindex]
         {
           return triton_clients[pindex]->Infer(&results[pindex], options[pindex], {input_ptrs[pindex].get()}, {output_ptrs[pindex].get()});
@@ -2028,7 +2028,7 @@ properties:
       // inference timeout in microseconds
       options.back().client_timeout_ = std::chrono::duration_cast<std::chrono::microseconds>(config.inference_timeout).count();
 
-      tasks.emplace_back(AsyncNoSpan(fs_task_processor_,
+      tasks.emplace_back(AsyncNoTracing(fs_task_processor_,
         [&triton_clients, &results, &options, &input_ptrs, &output_ptrs, pindex]
         {
           return triton_clients[pindex]->Infer(&results[pindex], options[pindex], {input_ptrs[pindex].get()}, {output_ptrs[pindex].get()});

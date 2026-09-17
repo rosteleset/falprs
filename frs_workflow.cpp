@@ -526,7 +526,7 @@ properties:
         .task_type = TASK_RECOGNIZE,
         .frame_url = {}
       };
-      tasks_.Detach(AsyncNoSpan(task_processor_, &Workflow::processPipeline, this, std::move(task_data)));
+      tasks_.Detach(AsyncNoTracing(task_processor_, &Workflow::processPipeline, this, std::move(task_data)));
     }
   }
 
@@ -940,7 +940,7 @@ properties:
             }
 
             if (task_data.task_type == TASK_TEST)
-              AsyncNoSpan(fs_task_processor_,
+              AsyncNoTracing(fs_task_processor_,
                 [&face_data, &aligned_face]
                 {
                   cv::imwrite(absl::Substitute("$0/aligned_face_$1.jpg", std::filesystem::current_path().string(), face_data.size()), aligned_face);
@@ -983,7 +983,7 @@ properties:
               continue;
             }
             if (task_data.task_type == TASK_TEST)
-              AsyncNoSpan(fs_task_processor_,
+              AsyncNoTracing(fs_task_processor_,
                 [&face_data, &aligned_face_class]
                 {
                   cv::imwrite(absl::Substitute("$0/aligned_face_class_$1.jpg", std::filesystem::current_path().string(), face_data.size()), aligned_face_class);
@@ -1294,7 +1294,7 @@ properties:
             }
 
             // write event's data to files
-            AsyncNoSpan(fs_task_processor_,
+            AsyncNoTracing(fs_task_processor_,
               [&path_prefix, &s_uuid, &face_data, &common_config, &config, &log_date, best_face_index]
               {
                 std::ofstream ff(absl::StrCat(path_prefix, s_uuid, DATA_FILE_SUFFIX), std::ios::binary);
@@ -1484,7 +1484,7 @@ properties:
             }
 
             auto frame_indx = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now().time_since_epoch()).count();
-            AsyncNoSpan(fs_task_processor_,
+            AsyncNoTracing(fs_task_processor_,
               [&frame, frame_indx]
               {
                 cv::imwrite(absl::Substitute("$0/frame_$1.jpg", std::filesystem::current_path().string(), frame_indx), frame);
@@ -1813,7 +1813,7 @@ properties:
         task_data.vstream_key);
 
     if (do_next)
-      tasks_.Detach(AsyncNoSpan(task_processor_, &Workflow::processPipeline, this, std::move(task_data)));
+      tasks_.Detach(AsyncNoTracing(task_processor_, &Workflow::processPipeline, this, std::move(task_data)));
   }
 
   // Inference pipeline functions
@@ -1914,7 +1914,7 @@ properties:
       USERVER_IMPL_LOG_TO(logger_, userver::logging::Level::kTrace,
         "vstream_key = {};  before inference face detection",
         task_data.vstream_key);
-    userver::engine::AsyncNoSpan(fs_task_processor_,
+    userver::engine::AsyncNoTracing(fs_task_processor_,
       [&err, &triton_client, &result, &options, &inputs, &outputs]
       {
         err = triton_client->Infer(&result, options, inputs, outputs);
@@ -2097,7 +2097,7 @@ properties:
       USERVER_IMPL_LOG_TO(logger_, userver::logging::Level::kTrace,
         "vstream_key = {};  before inference face class",
         task_data.vstream_key);
-    userver::engine::AsyncNoSpan(fs_task_processor_,
+    userver::engine::AsyncNoTracing(fs_task_processor_,
       [&err, &triton_client, &result, &options, &inputs, &outputs]
       {
         err = triton_client->Infer(&result, options, inputs, outputs);
@@ -2231,7 +2231,7 @@ properties:
       USERVER_IMPL_LOG_TO(logger_, userver::logging::Level::kTrace,
         "vstream_key = {};  before inference for extracting descriptor",
         task_data.vstream_key);
-    userver::engine::AsyncNoSpan(fs_task_processor_,
+    userver::engine::AsyncNoTracing(fs_task_processor_,
       [&err, &triton_client, &result, &options, &inputs, &outputs]
       {
         err = triton_client->Infer(&result, options, inputs, outputs);
@@ -2476,7 +2476,7 @@ properties:
         "vstream_key = {};  before inference barcode detection",
         task_data.vstream_key);
 
-    AsyncNoSpan(fs_task_processor_,
+    AsyncNoTracing(fs_task_processor_,
       [&err, &triton_client, &result, &options, &inputs, &outputs]
       {
         err = triton_client->Infer(&result, options, inputs, outputs);

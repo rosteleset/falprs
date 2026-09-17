@@ -1,9 +1,11 @@
 cmake_minimum_required(VERSION 3.12)
 cmake_policy(SET CMP0077 NEW)
-project(falprs VERSION 1.1.2)
+project(falprs VERSION 1.1.3)
 set(TARGET_NAME "${PROJECT_NAME}")
 add_compile_definitions(FALPRS_VERSION="${PROJECT_VERSION}")
-set(CMAKE_CXX_STANDARD 20)
+set(CMAKE_CXX_STANDARD 23)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+set(CMAKE_CXX_EXTENSIONS OFF)
 
 option(BUILD_LPRS "Build with LPRS components." ON)
 option(BUILD_FRS "Build with FRS components." ON)
