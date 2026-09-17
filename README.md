@@ -20,6 +20,7 @@ This project is a replacement for the [old one](https://github.com/rosteleset/fr
    * [NVIDIA Container Toolkit Installation](#install_ct)
    * [PostgreSQL Installation](#install_pg)
    * [Environment Variables](#env_vars)
+   * [Initializing PostgreSQL](#init_postgresql)
    * [Building the Project](#build_falprs)
    * [Creating TensorRT Plans for Neural Network Models](#create_models)
    * [Project Configuration](#config_falprs)
@@ -171,26 +172,10 @@ If PostgreSQL is not installed, run the command:
 ```bash
 sudo apt-get install -y postgresql
 ```
-Start psql:
-```bash
-sudo -u postgres psql
-```
-Execute SQL commands, specifying your password instead of "123":
-```sql
-drop user if exists falprs;
-create user falprs with encrypted password '123';
-create database frs;
-grant all on database frs to falprs;
-alter database frs owner to falprs;
-create database lprs;
-grant all on database lprs to falprs;
-alter database lprs owner to falprs;
-\q
-```
 
 <a id="env_vars"></a>
 ### Environment Variables
-In the *scripts* directory, make a copy of the *.env.example* file and name it *.env*
+Most repository scripts use environment variables. In the *scripts* directory, make a copy of the *.env.example* file and name it *.env*
 Specify actual values for your system.
 The major version of PostgreSQL is set by the **PG_VERSION** variable. You can find the installed PostgreSQL version with the command:
 ```bash
@@ -198,7 +183,7 @@ psql --version
 psql (PostgreSQL) 16.14 (Ubuntu 16.14-0ubuntu0.24.04.1)
 ```
 This means *PG_VERSION=16*
-Other variables with the **PG_** prefix define the connection to PostgreSQL. Don't forget to specify the password you used when executing the SQL commands in the previous step.
+Other variables with the **PG_** prefix define the connection to PostgreSQL. Don't forget to specify your password.
 The version of the Triton Inference Server container is set by the **TRITON_VERSION** variable. It is determined by the **Compute Capability** — the NVIDIA GPU hardware architecture version that determines the available instruction set, supported technologies (e.g., **Tensor cores**), and physical limitations of the GPU. It is needed for the **CUDA compiler** and software to understand how to efficiently execute code on the graphics card. You can find out the Compute Capability with the command:
 ```bash
 nvidia-smi --query-gpu=compute_cap --format=csv
@@ -221,9 +206,17 @@ sha1sum glint_r50.onnx
 ```
 Then *ARCFACE_SHA1=4fd7dce20b6987ba89910eda8614a33eb3593216*
 
+<a id="init_postgresql"></a>
+### Initializing PostgreSQL
+Use the **scripts/init_postgresql.sh** script:
+```bash
+sudo ~/falprs/scripts/init_postgresql.sh
+```
+The script creates databases, users, and assigns roles.
+
 <a id="build_falprs"></a>
 ### Building the Project
-To build the project, use the **scripts/build_falprs.sh** script:
+Use the **scripts/build_falprs.sh** script:
 ```bash
 sudo ~/falprs/scripts/build_falprs.sh
 ```
@@ -242,7 +235,7 @@ To initially populate the databases, execute the commands:
 ~/falprs/scripts/sql_frs.sh
 ~/falprs/scripts/sql_lprs.sh
 ```
-The project configuration is in the **/opt/falprs/config.yaml** file. Main parameters have descriptions in comments. To perform API methods with mandatory authorization, set the *allow-group-id-without-auth* attribute value to zero in the *lprs-workflow* and *frs-workflow* sections. Operation with a separate HTTP server is also possible. In this case, replace the values of the corresponding local path attributes and URL prefixes in the *lprs-workflow* and *frs-workflow* sections.
+The project configuration is in the *config.yaml* file in the working directory (by default **/opt/falprs**). Main parameters have descriptions in comments. To perform API methods with mandatory authorization, set the *allow-group-id-without-auth* attribute value to zero in the *lprs-workflow* and *frs-workflow* sections. Operation with a separate HTTP server is also possible. In this case, replace the values of the corresponding local path attributes and URL prefixes in the *lprs-workflow* and *frs-workflow* sections.
 
 To start the container with **Triton Inference Server**, execute the command:
 ```bash
@@ -260,6 +253,9 @@ sudo systemctl start falprs.service
 <a id="update_falprs"></a>
 ### Project Update
 Before updating, make sure you have an up-to-date backup of the project's databases. Environment variables are loaded from the aforementioned *.env* file.
+
+**Important:** if you are updating from an older version that did not use the *.env* file, first read the [Environment Variables](#env_vars) section. Set **TRITON_VERSION** according to the working version you are currently using.
+
 Update the repository and run the **scripts/update_falprs.sh** script:
 ```bash
 cd ~/falprs
@@ -274,8 +270,9 @@ The script:
 * regenerates TensorRT plans only for changed models or missing plans
 * stops the `falprs` service and the Triton Inference Server container only when TensorRT plans need to be regenerated
 * starts the Triton Inference Server container again after successful TensorRT plan generation when it was running before the update
-* restores the `falprs` service to its previous state after the update
 * updates schemas and data in the DB (old data is not overwritten)
+* restores the `falprs` service to its previous state after the update
+
 If the FALPRS executable is up to date and all TensorRT plans are current, neither the `falprs` service nor the Triton Inference Server container is stopped during the update.
 
 <a id="vstream_groups"></a>

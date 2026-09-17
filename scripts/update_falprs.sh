@@ -5,7 +5,7 @@
 
 set -e
 
-BASEDIR=$(realpath `dirname $0`)
+BASEDIR=$(realpath "$(dirname "$0")")
 
 # Load configuration from file if exists
 if [ -f "$BASEDIR/.env" ]; then
@@ -82,8 +82,7 @@ fi
 # Build project if needed without stopping service
 if [ "$NEED_BUILD" = true ]; then
     echo "Building the project..."
-    cd $BASEDIR/..
-    sudo PG_VERSION=$PG_VERSION TRITON_VERSION=$TRITON_VERSION FALPRS_WORKDIR=$FALPRS_WORKDIR ./scripts/build_falprs.sh
+    $BASEDIR/build_falprs.sh
 fi
 
 # TensorRT Planning phase (before stopping services)
@@ -112,19 +111,23 @@ else
     exit $PLAN_STATUS
 fi
 
-if [ "$NEEDS_GEN" = true ]; then
+if [[ "$NEED_BUILD" == true || "$NEEDS_GEN" == true ]]; then
     FALPRS_WAS_ACTIVE=false
     if systemctl is-active --quiet falprs.service; then
         FALPRS_WAS_ACTIVE=true
     fi
-
-    TRITON_CONTAINER_ID=$(sudo docker ps -q --filter "ancestor=nvcr.io/nvidia/tritonserver:$TRITON_VERSION-py3")
-
     if [ "$FALPRS_WAS_ACTIVE" = true ]; then
         echo "Stopping falprs service..."
         sudo systemctl stop falprs.service
     fi
+    if [ "$NEED_BUILD" = true ]; then
+        echo "Copying new executable..."
+        cp "$BASEDIR/../build/falprs" "$FALPRS_WORKDIR"
+    fi
+fi
 
+if [ "$NEEDS_GEN" = true ]; then
+    TRITON_CONTAINER_ID=$(sudo docker ps -q --filter "ancestor=nvcr.io/nvidia/tritonserver:$TRITON_VERSION-py3")
     if [ -n "$TRITON_CONTAINER_ID" ]; then
         echo "Stopping Triton Inference Server container..."
         sudo docker stop $TRITON_CONTAINER_ID
@@ -138,31 +141,27 @@ if [ "$NEEDS_GEN" = true ]; then
         sudo TRITON_VERSION=$TRITON_VERSION FALPRS_WORKDIR=$FALPRS_WORKDIR python3 ./scripts/tensorrt_plans.py generate $MODELS_TO_GEN || GEN_ERROR=$?
     fi
 
-    # Restore services to their initial state
-    if [ -n "$TRITON_CONTAINER_ID" ]; then
-        echo "Starting Triton Inference Server container..."
-        sudo docker start $TRITON_CONTAINER_ID
-    fi
-
-    if [ "$NEED_BUILD" = true ]; then
-        echo "Copying new executable..."
-        cp "$BASEDIR/../build/falprs" "$FALPRS_WORKDIR"
-    fi
-
-    if [ "$FALPRS_WAS_ACTIVE" = true ]; then
-        echo "Starting falprs service..."
-        sudo systemctl start falprs.service
-    fi
-
     if [ "$GEN_ERROR" -ne 0 ]; then
         echo "Error: TensorRT generation failed."
         exit $GEN_ERROR
+    fi
+
+    # Restore Triton Inference Server to its initial state
+    if [ -n "$TRITON_CONTAINER_ID" ]; then
+        echo "Starting Triton Inference Server container..."
+        sudo docker start $TRITON_CONTAINER_ID
     fi
 fi
 
 # Update DB schema
 echo "Updating database schema..."
-PG_USER_FRS=$PG_USER_FRS PG_PASSWD_FRS=$PG_PASSWD_FRS PG_HOST_FRS=$PG_HOST_FRS PG_PORT_FRS=$PG_PORT_FRS PG_DB_FRS=$PG_DB_FRS ./scripts/sql_frs.sh
-PG_USER_LPRS=$PG_USER_LPRS PG_PASSWD_LPRS=$PG_PASSWD_LPRS PG_HOST_LPRS=$PG_HOST_LPRS PG_PORT_LPRS=$PG_PORT_LPRS PG_DB_LPRS=$PG_DB_LPRS ./scripts/sql_lprs.sh
+$BASEDIR/sql_frs.sh
+$BASEDIR/sql_lprs.sh
+
+# Restore FALPRS to its initial state
+if [ "$FALPRS_WAS_ACTIVE" = true ]; then
+    echo "Starting falprs service..."
+    sudo systemctl start falprs.service
+fi
 
 echo "Project updated successfully."

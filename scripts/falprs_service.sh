@@ -4,7 +4,7 @@
 
 set -e
 
-BASEDIR=$(realpath `dirname $0`)
+BASEDIR=$(realpath "$(dirname "$0")")
 
 # Load configuration from file if exists
 if [ -f "$BASEDIR/.env" ]; then

@@ -5,7 +5,7 @@
 
 set -e
 
-BASEDIR=$(realpath `dirname $0`)
+BASEDIR=$(realpath "$(dirname "$0")")
 
 # Determine the user that invoked sudo.
 # Build artifacts must belong to the regular user, not root.
@@ -95,6 +95,11 @@ if [[ "$TRITON_TAG" > "r25.07" ]] && ver_le "$UBUNTU_VERSION" "24.04"; then
     TRITON_TAG="r25.07"
 fi
 
+git checkout $TRITON_TAG
+
+# Get rid of re2 dependency (we do not need GRPC)
+sed -i "s/set(_cc_client_depends re2)/set(_cc_client_depends)/" CMakeLists.txt
+
 rm -rf build
 mkdir -p build
 cd build
@@ -140,7 +145,9 @@ make -j`nproc`
 mkdir -p "$FALPRS_WORKDIR"
 mkdir -p "$FALPRS_WORKDIR/static"
 
-cp "$BASEDIR/../build/falprs" "$FALPRS_WORKDIR"
+if ! cp "$BASEDIR/../build/falprs" "$FALPRS_WORKDIR"; then
+    echo "Warning: failed to copy falprs, continuing..."
+fi
 
 cd "$BASEDIR/.."
 
