@@ -2,7 +2,7 @@
 This project is a replacement for the [old one](https://github.com/rosteleset/frs). Key differences:
 * PostgreSQL is used as the DBMS.
 * The project uses [userver](https://github.com/userver-framework/userver) — an open-source asynchronous framework.
-* Strict data type compliance in API requests. For example, if a numeric field is expected, it must not be enclosed in quotes.
+* Strict data type compliance in [API](https://rosteleset.github.io/falprs/) requests. For example, if a numeric field is expected, it must not be enclosed in quotes.
 * Added license plate recognition system (LPRS).
 
 ### Table of Contents
