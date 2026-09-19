@@ -126,7 +126,8 @@ Using the **bestQuality** method, you can request the "best" frame from the FRS 
 ### System Requirements
 * CPU with AVX instructions.
 * NVIDIA GPU with Compute Capability greater than or equal to 6.0 and 4 GB memory or more. Details can be found, for example, [here](https://developer.nvidia.com/cuda-gpus).
-* PostgreSQL 14 or higher DBMS.
+* Ubuntu 24.04 LTS or Ubuntu 26.04 LTS.
+* PostgreSQL 16 or higher.
 
 Git is needed to obtain the source code. If not installed, execute the command:
 ```bash
