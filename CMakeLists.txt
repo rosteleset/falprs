@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.12)
 cmake_policy(SET CMP0077 NEW)
-project(falprs VERSION 1.1.3)
+project(falprs VERSION 1.1.4)
 set(TARGET_NAME "${PROJECT_NAME}")
 add_compile_definitions(FALPRS_VERSION="${PROJECT_VERSION}")
 set(CMAKE_CXX_STANDARD 23)
