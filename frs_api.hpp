@@ -569,12 +569,12 @@ namespace Frs
     const SGConfigCache& sg_config_cache_;
     Workflow& workflow_;
 
-    int32_t checkToken(absl::string_view token) const;
-    int32_t checkSGToken(absl::string_view token) const;
-    int32_t getVStreamId(int32_t id_group, absl::string_view vstream_ext) const;
+    int32_t checkToken(std::string_view token) const;
+    int32_t checkSGToken(std::string_view token) const;
+    int32_t getVStreamId(int32_t id_group, std::string_view vstream_ext) const;
     std::string getVStreamExt(int32_t id_group, int32_t id_vstream) const;
-    static void requireMemberThrow(const userver::formats::json::Value& json, absl::string_view member);
-    static void requireArrayThrow(const userver::formats::json::Value& json, absl::string_view member);
+    static void requireMemberThrow(const userver::formats::json::Value& json, std::string_view member);
+    static void requireArrayThrow(const userver::formats::json::Value& json, std::string_view member);
     void addStream(int32_t id_group, const userver::formats::json::Value& json) const;
     userver::formats::json::Value listStreams(int32_t id_group) const;
     void motionDetection(int32_t id_group, const userver::formats::json::Value& json) const;

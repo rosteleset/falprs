@@ -291,23 +291,23 @@ namespace Frs
     throw userver::server::handlers::ClientError(ExternalBody{ERROR_UNKNOWN_METHOD});
   }
 
-  int32_t Api::checkToken(const absl::string_view token) const
+  int32_t Api::checkToken(const std::string_view token) const
   {
-    if (const auto g_cache = groups_cache_.Get(); g_cache->contains(token))
-      return g_cache->at(token).id_group;
+    if (const auto g_cache = groups_cache_.Get(); g_cache->contains(absl::string_view(token.data(), token.size())))
+      return g_cache->at(absl::string_view(token.data(), token.size())).id_group;
 
     return -1;
   }
 
-  int32_t Api::checkSGToken(const absl::string_view token) const
+  int32_t Api::checkSGToken(const std::string_view token) const
   {
-    if (const auto sg_config_cache = sg_config_cache_.Get(); sg_config_cache->getData().contains(token))
-      return sg_config_cache->getData().at(token).id_special_group;
+    if (const auto sg_config_cache = sg_config_cache_.Get(); sg_config_cache->getData().contains(absl::string_view(token.data(), token.size())))
+      return sg_config_cache->getData().at(absl::string_view(token.data(), token.size())).id_special_group;
 
     return -1;
   }
 
-  int32_t Api::getVStreamId(const int32_t id_group, const absl::string_view vstream_ext) const
+  int32_t Api::getVStreamId(const int32_t id_group, const std::string_view vstream_ext) const
   {
     try
     {
@@ -337,40 +337,40 @@ namespace Frs
     return {};
   }
 
-  void Api::requireMemberThrow(const userver::formats::json::Value& json, const absl::string_view member)
+  void Api::requireMemberThrow(const userver::formats::json::Value& json, const std::string_view member)
   {
     if (!json.HasMember(member))
-      throw userver::server::handlers::ClientError(ExternalBody{absl::Substitute("Required member `$0` not found.", member)});
+      throw userver::server::handlers::ClientError(ExternalBody{absl::Substitute("Required member `$0` not found.", absl::string_view(member.data(), member.size()))});
 
     if (json[member].IsNull())
-      throw userver::server::handlers::ClientError(ExternalBody{absl::Substitute("Member `$0` must not be null.", member)});
+      throw userver::server::handlers::ClientError(ExternalBody{absl::Substitute("Member `$0` must not be null.", absl::string_view(member.data(), member.size()))});
 
     if (json[member].IsArray())
-      throw userver::server::handlers::ClientError(ExternalBody{absl::Substitute("Member `$0` must not be an array.", member)});
+      throw userver::server::handlers::ClientError(ExternalBody{absl::Substitute("Member `$0` must not be an array.", absl::string_view(member.data(), member.size()))});
 
     if (json[member].IsObject())
-      throw userver::server::handlers::ClientError(ExternalBody{absl::Substitute("Member `$0` must not be an object.", member)});
+      throw userver::server::handlers::ClientError(ExternalBody{absl::Substitute("Member `$0` must not be an object.", absl::string_view(member.data(), member.size()))});
 
     if (json[member].IsString() && json[member].As<std::string>().empty())
-      throw userver::server::handlers::ClientError(ExternalBody{absl::Substitute("Member `$0` must not be empty.", member)});
+      throw userver::server::handlers::ClientError(ExternalBody{absl::Substitute("Member `$0` must not be empty.", absl::string_view(member.data(), member.size()))});
   }
 
-  void Api::requireArrayThrow(const userver::formats::json::Value& json, const absl::string_view member)
+  void Api::requireArrayThrow(const userver::formats::json::Value& json, const std::string_view member)
   {
     if (!json.HasMember(member))
-      throw userver::server::handlers::ClientError(ExternalBody{absl::Substitute("Required array member `$0` not found.", member)});
+      throw userver::server::handlers::ClientError(ExternalBody{absl::Substitute("Required array member `$0` not found.", absl::string_view(member.data(), member.size()))});
 
     if (json[member].IsNull())
-      throw userver::server::handlers::ClientError(ExternalBody{absl::Substitute("Member `$0` must not be null.", member)});
+      throw userver::server::handlers::ClientError(ExternalBody{absl::Substitute("Member `$0` must not be null.", absl::string_view(member.data(), member.size()))});
 
     if (json[member].IsObject())
-      throw userver::server::handlers::ClientError(ExternalBody{absl::Substitute("Member `$0` must not be an object.", member)});
+      throw userver::server::handlers::ClientError(ExternalBody{absl::Substitute("Member `$0` must not be an object.", absl::string_view(member.data(), member.size()))});
 
     if (!json[member].IsArray())
-      throw userver::server::handlers::ClientError(ExternalBody{absl::Substitute("Member `$0` must be an array.", member)});
+      throw userver::server::handlers::ClientError(ExternalBody{absl::Substitute("Member `$0` must be an array.", absl::string_view(member.data(), member.size()))});
 
     if (json[member].IsEmpty())
-      throw userver::server::handlers::ClientError(ExternalBody{absl::Substitute("Array member `$0` must not be empty.", member)});
+      throw userver::server::handlers::ClientError(ExternalBody{absl::Substitute("Array member `$0` must not be empty.", absl::string_view(member.data(), member.size()))});
   }
 
   void Api::addStream(const int32_t id_group, const userver::formats::json::Value& json) const
@@ -994,7 +994,7 @@ namespace Frs
       data[P_FACE_TOP] = face_top;
       data[P_FACE_WIDTH] = face_width;
       data[P_FACE_HEIGHT] = face_height;
-      data[P_FACE_IMAGE] = absl::Substitute("data:$0;base64,$1", Workflow::MIME_IMAGE,
+      data[P_FACE_IMAGE] = absl::Substitute("data:$0;base64,$1", absl::string_view(Workflow::MIME_IMAGE.data(), Workflow::MIME_IMAGE.size()),
         absl::Base64Escape(std::string(reinterpret_cast<const char*>(buff.data()), buff.size())));
     } else
       throw userver::server::handlers::ClientError(ExternalBody{comments});
@@ -1260,7 +1260,7 @@ namespace Frs
       data[P_FACE_TOP] = face_top;
       data[P_FACE_WIDTH] = face_width;
       data[P_FACE_HEIGHT] = face_height;
-      data[P_FACE_IMAGE] = absl::Substitute("data:$0;base64,$1", Workflow::MIME_IMAGE,
+      data[P_FACE_IMAGE] = absl::Substitute("data:$0;base64,$1", absl::string_view(Workflow::MIME_IMAGE.data(), Workflow::MIME_IMAGE.size()),
         absl::Base64Escape(std::string(reinterpret_cast<const char*>(buff.data()), buff.size())));
     } else
       throw userver::server::handlers::ClientError(ExternalBody{comments});
@@ -1389,10 +1389,10 @@ namespace Frs
 
     std::string err;
     absl::Time date_start;
-    if (!absl::ParseTime(Workflow::DATE_FORMAT, json[P_DATE_START].As<std::string>(), &date_start, &err))
+    if (!absl::ParseTime(absl::string_view(Workflow::DATE_FORMAT.data(), Workflow::DATE_FORMAT.size()), json[P_DATE_START].As<std::string>(), &date_start, &err))
       throw userver::server::handlers::ClientError(ExternalBody{absl::Substitute("Required member `$0` is invalid.", P_DATE_START)});
     absl::Time date_end;
-    if (!absl::ParseTime(Workflow::DATE_FORMAT, json[P_DATE_END].As<std::string>(), &date_end, &err))
+    if (!absl::ParseTime(absl::string_view(Workflow::DATE_FORMAT.data(), Workflow::DATE_FORMAT.size()), json[P_DATE_END].As<std::string>(), &date_end, &err))
       throw userver::server::handlers::ClientError(ExternalBody{absl::Substitute("Required member `$0` is invalid.", P_DATE_END)});
     date_end += absl::Hours(24);
     std::vector<int32_t> faces;
@@ -1434,12 +1434,12 @@ namespace Frs
 
     if (const auto search_path = absl::Substitute("$0group_$1/", workflow_.getLocalConfig().events_path, id_group); flag_events && std::filesystem::exists(search_path))
     {
-      auto search_start_date = absl::FormatTime(Workflow::DATE_FORMAT, date_start, absl::LocalTimeZone());
-      auto search_end_date = absl::FormatTime(Workflow::DATE_FORMAT, date_end, absl::LocalTimeZone());
+      auto search_start_date = absl::FormatTime(absl::string_view(Workflow::DATE_FORMAT.data(), Workflow::DATE_FORMAT.size()), date_start, absl::LocalTimeZone());
+      auto search_end_date = absl::FormatTime(absl::string_view(Workflow::DATE_FORMAT.data(), Workflow::DATE_FORMAT.size()), date_end, absl::LocalTimeZone());
       for (const auto& dir_entry : std::filesystem::recursive_directory_iterator(search_path))
         if (dir_entry.is_regular_file() && dir_entry.path().extension().string() == Workflow::DATA_FILE_SUFFIX
-            && dir_entry.path().filename() >= absl::StrCat(search_start_date, Workflow::DATA_FILE_SUFFIX)
-            && dir_entry.path().filename() <= absl::StrCat(search_end_date, Workflow::DATA_FILE_SUFFIX))
+            && dir_entry.path().filename() >= absl::StrCat(search_start_date, absl::string_view(Workflow::DATA_FILE_SUFFIX.data(), Workflow::DATA_FILE_SUFFIX.size()))
+            && dir_entry.path().filename() <= absl::StrCat(search_end_date, absl::string_view(Workflow::DATA_FILE_SUFFIX.data(), Workflow::DATA_FILE_SUFFIX.size())))
         {
           // for test
           // cout << dir_entry.path().filename().string() << "\n";

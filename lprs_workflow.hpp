@@ -1,6 +1,6 @@
 #pragma once
 
-#include <absl/strings/string_view.h>
+#include <string_view>
 #include <userver/clients/http/component.hpp>
 #include <userver/concurrent/background_task_storage.hpp>
 #include <userver/concurrent/variable.hpp>

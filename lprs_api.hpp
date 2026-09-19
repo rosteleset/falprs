@@ -1,6 +1,6 @@
 #pragma once
 
-#include <absl/strings/string_view.h>
+#include <string_view>
 #include <userver/server/handlers/http_handler_json_base.hpp>
 #include <userver/storages/postgres/cluster.hpp>
 #include <userver/storages/postgres/component.hpp>
@@ -142,8 +142,8 @@ namespace Lprs
     const VStreamsConfigCache& vstreams_config_cache_;
     const VStreamGroupCache& vstream_group_cache_;
 
-    int32_t checkToken(absl::string_view token) const;
-    static void requireMemberThrow(const userver::formats::json::Value& json, absl::string_view member);
+    int32_t checkToken(std::string_view token) const;
+    static void requireMemberThrow(const userver::formats::json::Value& json, std::string_view member);
     void addStream(int32_t id_group, const userver::formats::json::Value& json) const;
     void removeStream(int32_t id_group, const userver::formats::json::Value& json) const;
     userver::formats::json::Value listStreams(int32_t id_group) const;

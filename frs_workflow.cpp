@@ -151,24 +151,34 @@ namespace Frs
     return inter_box_s / (larea + rarea - inter_box_s + 1e-6f);
   }
 
-  // non-maximum suppression algorithm
-  inline void nms_faces(std::vector<FaceDetection>& dets, const float nms_thresh = 0.4)
+  inline float area(const float bbox[4])
   {
-    std::vector<float> areas(dets.size());
-    for (size_t i = 0; i < dets.size(); ++i) {
-        areas[i] = (dets[i].bbox[2] - dets[i].bbox[0]) * (dets[i].bbox[3] - dets[i].bbox[1]);
-    }
+    return (bbox[2] - bbox[0]) * (bbox[3] - bbox[1]);
+  }
 
-    std::ranges::sort(dets, [](const auto& a, const auto& b)
-      { return a.face_confidence > b.face_confidence; });
+  // non-maximum suppression algorithm
+  inline void nms_faces(
+      std::vector<FaceDetection>& dets,
+      const float nms_thresh = 0.4)
+  {
+    std::ranges::sort(
+        dets,
+        [](const auto& a, const auto& b)
+        {
+          return a.face_confidence > b.face_confidence;
+        });
+
     for (size_t m = 0; m < dets.size(); ++m)
     {
       for (size_t n = m + 1; n < dets.size(); ++n)
       {
-        if (iou(dets[m].bbox, dets[n].bbox, areas[m], areas[n]) > nms_thresh)
+        if (iou(
+                dets[m].bbox,
+                dets[n].bbox,
+                area(dets[m].bbox),
+                area(dets[n].bbox)) > nms_thresh)
         {
           dets.erase(dets.begin() + static_cast<int>(n));
-          areas.erase(areas.begin() + static_cast<int>(n));
           --n;
         }
       }
@@ -1297,7 +1307,7 @@ properties:
             AsyncNoTracing(fs_task_processor_,
               [&path_prefix, &s_uuid, &face_data, &common_config, &config, &log_date, best_face_index]
               {
-                std::ofstream ff(absl::StrCat(path_prefix, s_uuid, DATA_FILE_SUFFIX), std::ios::binary);
+                std::ofstream ff(absl::StrCat(path_prefix, s_uuid, absl::string_view(DATA_FILE_SUFFIX.data(), DATA_FILE_SUFFIX.size())), std::ios::binary);
                 userver::formats::json::ValueBuilder json_faces;
                 for (size_t i = 0; i < face_data.size(); ++i)
                 {
@@ -1338,7 +1348,7 @@ properties:
                 json_data["event_date"] = log_date;
                 json_data["best_face_index"] = best_face_index;
                 json_data["faces"] = std::move(json_faces);
-                std::ofstream f_json(absl::StrCat(path_prefix, s_uuid, JSON_SUFFIX));
+                std::ofstream f_json(absl::StrCat(path_prefix, s_uuid, absl::string_view(JSON_SUFFIX.data(), JSON_SUFFIX.size())));
                 f_json << ToString(json_data.ExtractValue());
               })
               .Get();
@@ -1662,21 +1672,21 @@ properties:
         auto log_date = row[DatabaseFields::LOG_DATE].As<userver::storages::postgres::TimePointTz>();
         auto path_suffix = absl::Substitute("group_$0/$1/$2/$3/$4/", id_group, s_uuid[0], s_uuid[1], s_uuid[2], s_uuid[3]);
         auto orig_path_prefix = absl::StrCat(local_config_.screenshots_path, path_suffix);
-        auto orig_path_json = absl::StrCat(orig_path_prefix, s_uuid, JSON_SUFFIX);
-        auto orig_path_dat = absl::StrCat(orig_path_prefix, s_uuid, DATA_FILE_SUFFIX);
+        auto orig_path_json = absl::StrCat(orig_path_prefix, s_uuid, absl::string_view(JSON_SUFFIX.data(), JSON_SUFFIX.size()));
+        auto orig_path_dat = absl::StrCat(orig_path_prefix, s_uuid, absl::string_view(DATA_FILE_SUFFIX.data(), DATA_FILE_SUFFIX.size()));
         std::error_code ec;
         if (!std::filesystem::exists(orig_path_json, ec))
         {
           // trying the shorter path for compatibility with the old project
           path_suffix = absl::Substitute("group_$0/$1/$2/$3/", id_group, s_uuid[0], s_uuid[1], s_uuid[2]);
           orig_path_prefix = absl::StrCat(local_config_.screenshots_path, path_suffix);
-          orig_path_json = absl::StrCat(orig_path_prefix, s_uuid, JSON_SUFFIX);
-          orig_path_dat = absl::StrCat(orig_path_prefix, s_uuid, DATA_FILE_SUFFIX);
+          orig_path_json = absl::StrCat(orig_path_prefix, s_uuid, absl::string_view(JSON_SUFFIX.data(), JSON_SUFFIX.size()));
+          orig_path_dat = absl::StrCat(orig_path_prefix, s_uuid, absl::string_view(DATA_FILE_SUFFIX.data(), DATA_FILE_SUFFIX.size()));
         }
         if (std::filesystem::exists(orig_path_json, ec))
         {
           auto copy_path_prefix = absl::StrCat(local_config_.events_path, path_suffix);
-          auto copy_path_json = absl::StrCat(copy_path_prefix, s_uuid, JSON_SUFFIX);
+          auto copy_path_json = absl::StrCat(copy_path_prefix, s_uuid, absl::string_view(JSON_SUFFIX.data(), JSON_SUFFIX.size()));
           std::filesystem::create_directories(copy_path_prefix, ec);
           if (ec)
           {
@@ -1704,7 +1714,7 @@ properties:
               auto time = absl::FromChrono(log_date.GetUnderlying());
               auto group_part = absl::StrCat("group_", id_group, "/");
               auto events_file = absl::StrCat(local_config_.events_path, group_part,
-                absl::FormatTime(DATE_FORMAT, time, absl::LocalTimeZone()),
+                absl::FormatTime(absl::string_view(DATE_FORMAT.data(), DATE_FORMAT.size()), time, absl::LocalTimeZone()),
                 ".dat");
               std::ofstream fw_data(events_file, std::ios::app);
               fw_data.write(s_data.data(), static_cast<std::streamsize>(f_size));

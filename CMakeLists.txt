@@ -51,6 +51,7 @@ set(USERVER_FEATURE_ERASE_LOG_WITH_LEVEL OFF)
 set(USERVER_DOWNLOAD_PACKAGES OFF)
 set(USERVER_PIP_USE_SYSTEM_PACKAGES OFF)
 set(USERVER_IS_THE_ROOT_PROJECT OFF)
+set(USERVER_FORCE_DOWNLOAD_FMT ON)
 set(USERVER_PG_SERVER_INCLUDE_DIR "/usr/include/postgresql/16/server")
 set(USERVER_PG_SERVER_LIBRARY_DIR "/usr/lib/postgresql/16/lib")
 set(USERVER_PG_INCLUDE_DIR "/usr/include/postgresql")
@@ -61,12 +62,22 @@ set(ZXING_READERS ON)
 set(ZXING_WRITERS OFF CACHE STRING "")
 
 find_package(OpenCV REQUIRED)
+find_package(absl REQUIRED)
+
+find_package(PkgConfig REQUIRED)
+pkg_check_modules(RE2 REQUIRED IMPORTED_TARGET re2)
+add_library(re2::re2 ALIAS PkgConfig::RE2)
+
 list(APPEND TRITON_CLIENT_INCLUDE_DIRS ${TRITON_CLIENT_DIR}/include)
 list(APPEND TRITON_CLIENT_LIBS ${TRITON_CLIENT_DIR}/lib/libhttpclient_static.a)
 
 add_subdirectory(contrib/userver)
-add_subdirectory(contrib/abseil-cpp)
 add_subdirectory(contrib/zxing-cpp)
+set_target_properties(ZXing PROPERTIES
+  CXX_STANDARD 20
+  CXX_STANDARD_REQUIRED ON
+  CXX_EXTENSIONS OFF
+)
 
 list(APPEND SOURCES main.cpp image_preprocessing.cpp)
 if (BUILD_LPRS)

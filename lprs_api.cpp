@@ -116,30 +116,30 @@ namespace Lprs
       userver::server::handlers::ExternalBody{ERROR_NO_METHOD});
   }
 
-  int32_t Api::checkToken(const absl::string_view token) const
+  int32_t Api::checkToken(const std::string_view token) const
   {
-    if (const auto g_cache = groups_cache_.Get(); g_cache->contains(token))
-      return g_cache->at(token).id_group;
+    if (const auto g_cache = groups_cache_.Get(); g_cache->contains(absl::string_view(token.data(), token.size())))
+      return g_cache->at(absl::string_view(token.data(), token.size())).id_group;
 
     return -1;
   }
 
-  void Api::requireMemberThrow(const userver::formats::json::Value& json, const absl::string_view member)
+  void Api::requireMemberThrow(const userver::formats::json::Value& json, const std::string_view member)
   {
     if (!json.HasMember(member))
-      throw userver::server::handlers::ClientError(ExternalBody{absl::Substitute("Required member `$0` not found.", member)});
+      throw userver::server::handlers::ClientError(ExternalBody{absl::Substitute("Required member `$0` not found.",  absl::string_view(member.data(), member.size()))});
 
     if (json[member].IsNull())
-      throw userver::server::handlers::ClientError(ExternalBody{absl::Substitute("Member `$0` must not be null.", member)});
+      throw userver::server::handlers::ClientError(ExternalBody{absl::Substitute("Member `$0` must not be null.",  absl::string_view(member.data(), member.size()))});
 
     if (json[member].IsArray())
-      throw userver::server::handlers::ClientError(ExternalBody{absl::Substitute("Member `$0` must not be an array.", member)});
+      throw userver::server::handlers::ClientError(ExternalBody{absl::Substitute("Member `$0` must not be an array.",  absl::string_view(member.data(), member.size()))});
 
     if (json[member].IsObject())
-      throw userver::server::handlers::ClientError(ExternalBody{absl::Substitute("Member `$0` must not be an object.", member)});
+      throw userver::server::handlers::ClientError(ExternalBody{absl::Substitute("Member `$0` must not be an object.",  absl::string_view(member.data(), member.size()))});
 
     if (json[member].IsString() && json[member].As<std::string>().empty())
-      throw userver::server::handlers::ClientError(ExternalBody{absl::Substitute("Member `$0` must not be empty.", member)});
+      throw userver::server::handlers::ClientError(ExternalBody{absl::Substitute("Member `$0` must not be empty.",  absl::string_view(member.data(), member.size()))});
   }
 
   void Api::addStream(int32_t id_group, const userver::formats::json::Value& json) const
