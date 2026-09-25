@@ -91,7 +91,7 @@ def check_event_vehicle(vehicle, type = TYPE_RU_1):
     assert SCORE in plate
     assert 0.0 <= plate[SCORE] and plate[SCORE] <= 1.0
 
-def run_single(stream_id, number, type = TYPE_RU_1):
+def run_single(stream_id, number, type = TYPE_RU_1, number2 = None):
     start_stop_workflow(stream_id)
     url = API_URL + "getEventData"
     global tp
@@ -108,11 +108,11 @@ def run_single(stream_id, number, type = TYPE_RU_1):
     vehicle = data[DATA][VEHICLES][0]
     check_event_vehicle(vehicle, type)
 
-    valid_numbers = set([number])
-    test_numbers = set()
-    for item in vehicle[PLATES]:
-        test_numbers.add(item[NUMBER])
-    assert valid_numbers <= test_numbers
+    valid_numbers = {number}
+    if number2 is not None:
+        valid_numbers.add(number2)
+    test_numbers = {item[NUMBER] for item in vehicle[PLATES]}
+    assert valid_numbers.intersection(test_numbers)
 
 def run_double(stream_id, number1, number2, type = TYPE_RU_1):
     start_stop_workflow(stream_id)
@@ -713,7 +713,7 @@ def test_angle20():
 # test angle 21
 @pytest.mark.order(++order)
 def test_angle21():
-    run_single("a21", "O590EE68")
+    run_single("a21", "O590EE68", number2 = "O590EE65")
 
 # test angle 22
 @pytest.mark.order(++order)

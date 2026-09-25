@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.12)
 cmake_policy(SET CMP0077 NEW)
-project(falprs VERSION 1.1.4)
+project(falprs VERSION 1.1.5)
 set(TARGET_NAME "${PROJECT_NAME}")
 add_compile_definitions(FALPRS_VERSION="${PROJECT_VERSION}")
 set(CMAKE_CXX_STANDARD 23)
@@ -14,18 +14,24 @@ if (NOT BUILD_LPRS AND NOT BUILD_FRS)
   message(FATAL_ERROR, "At least one of the options BUILD_LPRS or BUILD_FRS must be turned on")
 endif()
 
-add_compile_options(-Wall -Wextra -Wpedantic -Wno-gcc-compat -mavx)
+add_compile_options(-Wall -Wextra -Wpedantic -mavx)
+if(CMAKE_CXX_COMPILER_ID STREQUAL "Clang")
+  add_compile_options(-Wno-gcc-compat)
+endif()
 
 set(ABSL_PROPAGATE_CXX_STD ON)
-set(TRITON_CLIENT_DIR "$ENV{HOME}/triton-client/build/install" CACHE STRING "Triton client directory")
-set(CURL_ZLIB OFF)
 set(BUILD_SHARED_LIBS OFF)
 set(USERVER_FEATURE_CORE ON)
 set(USERVER_FEATURE_MONGODB OFF)
 set(USERVER_FEATURE_POSTGRESQL ON)
 set(USERVER_FEATURE_REDIS OFF)
 set(USERVER_FEATURE_CLICKHOUSE OFF)
-set(USERVER_FEATURE_GRPC OFF)
+set(USERVER_FEATURE_GRPC ON)
+set(USERVER_DOWNLOAD_PACKAGE_GRPC ON)
+set(USERVER_FORCE_DOWNLOAD_GRPC ON)
+set(USERVER_FORCE_DOWNLOAD_PROTOBUF ON)
+set(USERVER_FORCE_DOWNLOAD_ABSEIL ON)
+set(USERVER_FORCE_DOWNLOAD_FMT ON)
 set(USERVER_FEATURE_KAFKA OFF)
 set(USERVER_FEATURE_RABBITMQ OFF)
 set(USERVER_FEATURE_MYSQL OFF)
@@ -51,7 +57,6 @@ set(USERVER_FEATURE_ERASE_LOG_WITH_LEVEL OFF)
 set(USERVER_DOWNLOAD_PACKAGES OFF)
 set(USERVER_PIP_USE_SYSTEM_PACKAGES OFF)
 set(USERVER_IS_THE_ROOT_PROJECT OFF)
-set(USERVER_FORCE_DOWNLOAD_FMT ON)
 set(USERVER_PG_SERVER_INCLUDE_DIR "/usr/include/postgresql/16/server")
 set(USERVER_PG_SERVER_LIBRARY_DIR "/usr/lib/postgresql/16/lib")
 set(USERVER_PG_INCLUDE_DIR "/usr/include/postgresql")
@@ -62,24 +67,41 @@ set(ZXING_READERS ON)
 set(ZXING_WRITERS OFF CACHE STRING "")
 
 find_package(OpenCV REQUIRED)
-find_package(absl REQUIRED)
 
 find_package(PkgConfig REQUIRED)
 pkg_check_modules(RE2 REQUIRED IMPORTED_TARGET re2)
 add_library(re2::re2 ALIAS PkgConfig::RE2)
 
-list(APPEND TRITON_CLIENT_INCLUDE_DIRS ${TRITON_CLIENT_DIR}/include)
-list(APPEND TRITON_CLIENT_LIBS ${TRITON_CLIENT_DIR}/lib/libhttpclient_static.a)
-
 add_subdirectory(contrib/userver)
-add_subdirectory(contrib/zxing-cpp)
-set_target_properties(ZXing PROPERTIES
-  CXX_STANDARD 20
-  CXX_STANDARD_REQUIRED ON
-  CXX_EXTENSIONS OFF
+
+userver_add_grpc_library(triton_grpc_proto
+  PROTOS
+    grpc_service.proto
+    model_config.proto
+  SOURCE_PATH ${CMAKE_CURRENT_SOURCE_DIR}/proto/triton
 )
 
-list(APPEND SOURCES main.cpp image_preprocessing.cpp)
+# gRPC fails to compile with Clang in C++23 mode.
+if(CMAKE_CXX_COMPILER_ID STREQUAL "Clang")
+  set_target_properties(grpc PROPERTIES
+    CXX_STANDARD 20
+    CXX_STANDARD_REQUIRED ON
+    CXX_EXTENSIONS OFF
+  )
+endif()
+
+add_subdirectory(contrib/zxing-cpp)
+
+# ZXing fails to compile with Clang in C++23 mode.
+if(CMAKE_CXX_COMPILER_ID STREQUAL "Clang")
+  set_target_properties(ZXing PROPERTIES
+    CXX_STANDARD 20
+    CXX_STANDARD_REQUIRED ON
+    CXX_EXTENSIONS OFF
+  )
+endif()
+
+list(APPEND SOURCES main.cpp image_preprocessing.cpp triton_client_service.hpp triton_client_service.cpp)
 if (BUILD_LPRS)
   add_definitions(-DBUILD_LPRS)
   list(APPEND SOURCES
@@ -101,6 +123,6 @@ endif()
 add_executable(${TARGET_NAME} ${SOURCES})
 
 # include directories
-include_directories(${OpenCV_INCLUDE_DIRS} ${TRITON_CLIENT_INCLUDE_DIRS})
+include_directories(${OpenCV_INCLUDE_DIRS})
 
-target_link_libraries(${TARGET_NAME} ${OpenCV_LIBS} ${TRITON_CLIENT_LIBS} userver::core userver::postgresql absl::strings absl::str_format absl::time absl::flat_hash_map absl::flat_hash_set ZXing::ZXing dl)
+target_link_libraries(${TARGET_NAME} ${OpenCV_LIBS} triton_grpc_proto userver::grpc userver::core userver::postgresql absl::strings absl::str_format absl::time absl::flat_hash_map absl::flat_hash_set ZXing::ZXing dl)

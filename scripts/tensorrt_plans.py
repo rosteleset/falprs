@@ -196,12 +196,6 @@ def prepare_and_check(triton_version, falprs_workdir, arcface_sha1, forced_model
     if not gpu_info:
         return False, [], set(), {}, ""
 
-    try:
-        subprocess.run(['docker', 'pull', f"nvcr.io/nvidia/tritonserver:{triton_version}-py3"], check=True)
-    except Exception:
-        print("Error executing docker.")
-        sys.exit(1)
-
     tmp_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'temp'))
     Path(tmp_dir).mkdir(parents=True, exist_ok=True)
 

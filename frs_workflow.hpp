@@ -8,6 +8,7 @@
 #include <userver/storages/postgres/postgres_fwd.hpp>
 
 #include "frs_caches.hpp"
+#include "triton_client_service.hpp"
 
 namespace Frs
 {
@@ -294,11 +295,18 @@ namespace Frs
     void saveDNNStatsData() const;
 
   private:
-    userver::concurrent::BackgroundTaskStorageCore tasks_;
+    userver::concurrent::Variable<HashMap<std::string, bool>> being_processed_vstreams;
+    userver::concurrent::Variable<HashMap<int32_t, DNNStatsData>> dnn_stats_data;
+    userver::concurrent::Variable<HashMap<std::string, std::chrono::time_point<std::chrono::steady_clock>>> vstream_timeouts;
+    userver::concurrent::Variable<HashMap<int32_t, std::vector<UnknownDescriptorData>>> unknown_descriptors;
+    LocalConfig local_config_;
+
+    userver::logging::LoggerPtr logger_;
+
     userver::engine::TaskProcessor& task_processor_;
     userver::engine::TaskProcessor& fs_task_processor_;
     userver::clients::http::Client& http_client_;
-    userver::logging::LoggerPtr logger_;
+
     userver::storages::postgres::ClusterPtr pg_cluster_;
     const ConfigCache& common_config_cache_;
     const VStreamsConfigCache& vstreams_config_cache_;
@@ -306,18 +314,15 @@ namespace Frs
     const VStreamDescriptorsCache& vstream_descriptors_cache_;
     const SGConfigCache& sg_config_cache_;
     const SGDescriptorsCache& sg_descriptors_cache_;
+
+    TritonClientService& triton_client_service_;
+
     userver::utils::PeriodicTask old_log_faces_maintenance_task_;
     userver::utils::PeriodicTask flag_deleted_maintenance_task_;
     userver::utils::PeriodicTask copy_events_maintenance_task_;
     userver::utils::PeriodicTask old_events_maintenance_task_;
     userver::utils::PeriodicTask old_log_barcodes_maintenance_task_;
-
-    LocalConfig local_config_;
-
-    userver::concurrent::Variable<HashMap<std::string, bool>> being_processed_vstreams;
-    userver::concurrent::Variable<HashMap<int32_t, DNNStatsData>> dnn_stats_data;
-    userver::concurrent::Variable<HashMap<std::string, std::chrono::time_point<std::chrono::steady_clock>>> vstream_timeouts;
-    userver::concurrent::Variable<HashMap<int32_t, std::vector<UnknownDescriptorData>>> unknown_descriptors;
+    userver::concurrent::BackgroundTaskStorageCore tasks_;
 
     // Maintenance member functions
     void doOldLogFacesMaintenance() const;

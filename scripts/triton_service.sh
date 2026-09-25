@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # External variables used in the script
-# TRITON_VERSION - NVIDIA Triton Inference Server version
+# TRITON_VERSION - NVIDIA Triton Inference Server container image version
 # FALPRS_WORKDIR - FALPRS working directory
 
 BASEDIR=$(realpath "$(dirname "$0")")

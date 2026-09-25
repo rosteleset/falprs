@@ -9,8 +9,12 @@
 #include <userver/server/handlers/on_log_rotate.hpp>
 #include <userver/server/handlers/ping.hpp>
 #include <userver/testsuite/testsuite_support.hpp>
+#include <userver/ugrpc/client/client_factory_component.hpp>
+#include <userver/ugrpc/client/component_list.hpp>
 #include <userver/utils/daemon_run.hpp>
 #include <boost/program_options.hpp>
+
+#include "triton_client_service.hpp"
 
 #include <iostream>
 #include <string_view>
@@ -54,6 +58,9 @@ int main(const int argc, char* argv[])
   // clang-format off
   const auto component_list = userver::components::MinimalServerComponentList()
     .Append<userver::server::handlers::Ping>()
+    .Append<TritonClientService>()
+    .Append<userver::ugrpc::client::ClientFactoryComponent>()
+    .AppendComponentList(userver::ugrpc::client::MinimalComponentList())
 
 #ifdef BUILD_LPRS
     .Append<Lprs::Api>()

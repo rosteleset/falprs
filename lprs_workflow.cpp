@@ -6,7 +6,6 @@
 #include <absl/strings/substitute.h>
 #include <boost/uuid/uuid_generators.hpp>
 #include <boost/uuid/uuid_io.hpp>
-#include <http_client.h>
 #include <userver/engine/sleep.hpp>
 #include <userver/engine/wait_all_checked.hpp>
 #include <userver/fs/write.hpp>
@@ -18,7 +17,6 @@
 #include "lprs_workflow.hpp"
 #include "image_preprocessing.hpp"
 
-namespace tc = triton::client;
 
 namespace Lprs
 {
@@ -179,12 +177,13 @@ namespace Lprs
   Workflow::Workflow(const userver::components::ComponentConfig& config,
     const userver::components::ComponentContext& context)
     : LoggableComponentBase{config, context},
+      logger_(context.FindComponent<userver::components::Logging>().GetLogger(std::string(kLogger))),
       task_processor_(context.GetTaskProcessor(config["task_processor"].As<std::string>())),
       fs_task_processor_(context.GetTaskProcessor(config["fs-task-processor"].As<std::string>())),
       http_client_(context.FindComponent<userver::components::HttpClient>().GetHttpClient()),
-      vstreams_config_cache_(context.FindComponent<VStreamsConfigCache>()),
       pg_cluster_(context.FindComponent<userver::components::Postgres>(kDatabase).GetCluster()),
-      logger_(context.FindComponent<userver::components::Logging>().GetLogger(std::string(kLogger)))
+      vstreams_config_cache_(context.FindComponent<VStreamsConfigCache>()),
+      triton_client_service_(context.FindComponent<TritonClientService>())
   {
     local_config_.allow_group_id_without_auth = config[ConfigParams::SECTION_NAME][ConfigParams::ALLOW_GROUP_ID_WITHOUT_AUTH].As<decltype(local_config_.allow_group_id_without_auth)>(local_config_.allow_group_id_without_auth);
     local_config_.ban_maintenance_interval = config[ConfigParams::SECTION_NAME][ConfigParams::BAN_MAINTENANCE_INTERVAL].As<decltype(local_config_.ban_maintenance_interval)>(local_config_.ban_maintenance_interval);
@@ -951,16 +950,6 @@ properties:
   {
     detected_vehicles.clear();
 
-    std::unique_ptr<tc::InferenceServerHttpClient> triton_client;
-    auto err = tc::InferenceServerHttpClient::Create(&triton_client, config.vd_net_inference_server, false);
-    if (!err.IsOk())
-    {
-      LOG_ERROR_TO(logger_,
-        "Error! Unable to create inference client: {}",
-        err.Message());
-      return false;
-    }
-
     if (config.logs_level <= userver::logging::Level::kTrace)
       USERVER_IMPL_LOG_TO(logger_, userver::logging::Level::kTrace,
         "vstream_key = {}_{};  before preprocess image for VDNet",
@@ -976,77 +965,43 @@ properties:
 
     const auto* raw = blob.ptr<uint8_t>();
     const auto byte_size = blob.total() * blob.elemSize();
-    std::vector input_data(raw, raw + byte_size);
-    std::vector<int64_t> shape = {1, 3, config.vd_net_input_height, config.vd_net_input_width};
-    tc::InferInput* input;
-    err = tc::InferInput::Create(&input, config.vd_net_input_tensor_name, shape, "FP32");
-    if (!err.IsOk())
-    {
-      LOG_ERROR_TO(logger_,
-        "Error! Unable to create input data: {}",
-        err.Message());
-      return false;
-    }
-    std::shared_ptr<tc::InferInput> input_ptr(input);
 
-    tc::InferRequestedOutput* output;
-    err = tc::InferRequestedOutput::Create(&output, config.vd_net_output_tensor_name);
-    if (!err.IsOk())
-    {
-      LOG_ERROR_TO(logger_,
-        "Error! Unable to create output data: {}",
-        err.Message());
-      return false;
-    }
-    std::shared_ptr<tc::InferRequestedOutput> output_ptr(output);
-
-    std::vector inputs = {input_ptr.get()};
-    std::vector<const tc::InferRequestedOutput*> outputs = {output_ptr.get()};
-    err = input_ptr->AppendRaw(input_data);
-    if (!err.IsOk())
-    {
-      LOG_ERROR_TO(logger_,
-        "Error! Unable to set up input data: {}",
-        err.Message());
-      return false;
-    }
-
-    tc::InferOptions options(config.vd_net_model_name);
-    options.model_version_ = "";
-    // inference timeout in microseconds
-    options.client_timeout_ = std::chrono::duration_cast<std::chrono::microseconds>(config.inference_timeout).count();
-    tc::InferResult* result;
+    TritonInferenceRequest triton_request;
+    triton_request.model_name = config.vd_net_model_name;
+    triton_request.model_version = "";
+    triton_request.endpoint = config.vd_net_inference_server;
+    triton_request.timeout = config.inference_timeout;
+    triton_request.inputs.push_back(MakeTensor(config.vd_net_input_tensor_name, "FP32",
+      {1, 3, config.vd_net_input_height, config.vd_net_input_width}, raw, byte_size));
+    triton_request.requested_outputs = {config.vd_net_output_tensor_name};
 
     if (config.logs_level <= userver::logging::Level::kTrace)
       USERVER_IMPL_LOG_TO(logger_, userver::logging::Level::kTrace,
         "vstream_key = {}_{};  before inference VDNet",
         config.id_group, config.ext_id);
 
-    AsyncNoTracing(fs_task_processor_,
-      [&err, &triton_client, &result, &options, &inputs, &outputs]
-      {
-        err = triton_client->Infer(&result, options, inputs, outputs);
-      }).Get();
+    TritonInferenceResponse triton_response;
+    try
+    {
+      triton_response = triton_client_service_.Infer(triton_request);
+    }
+    catch (const std::exception& e)
+    {
+      LOG_ERROR_TO(logger_,
+        "Error! Unable to send inference request: {}",
+        e.what());
+      return false;
+    }
 
     if (config.logs_level <= userver::logging::Level::kTrace)
       USERVER_IMPL_LOG_TO(logger_, userver::logging::Level::kTrace,
         "vstream_key = {}_{};  after inference VDNet",
         config.id_group, config.ext_id);
 
-    if (!err.IsOk())
+    if (triton_response.outputs.empty())
     {
       LOG_ERROR_TO(logger_,
-        "Error! Unable to send inference request: {}",
-        err.Message());
-      return false;
-    }
-
-    std::shared_ptr<tc::InferResult> result_ptr(result);
-    if (!result_ptr->RequestStatus().IsOk())
-    {
-      LOG_ERROR_TO(logger_,
-        "Error! Unable to receive inference result: {}",
-        err.Message());
+        "Error! Unable to receive inference result");
       return false;
     }
 
@@ -1055,9 +1010,8 @@ properties:
         "vstream_key = {}_{};  inference VDNet OK",
         config.id_group, config.ext_id);
 
-    const float* data;
-    size_t data_size;
-    result_ptr->RawData(config.vd_net_output_tensor_name, reinterpret_cast<const uint8_t**>(&data), &data_size);
+    const auto& output_raw = triton_response.outputs[0].data;
+    const auto* data = reinterpret_cast<const float*>(output_raw.data());
 
     // the output tensor has a dimension of [5, 8400]
     //  0 - bbox x_center
@@ -1117,26 +1071,14 @@ properties:
 
   bool Workflow::doInferenceVcNet(const cv::Mat& img, const VStreamConfig& config, std::vector<Vehicle>& detected_vehicles) const
   {
-    std::vector<userver::engine::TaskWithResult<triton::client::Error>> tasks;
+    std::vector<userver::engine::TaskWithResult<TritonInferenceResponse>> tasks;
     tasks.reserve(detected_vehicles.size());
 
-    std::vector<std::unique_ptr<tc::InferenceServerHttpClient>> triton_clients;
-    triton_clients.resize(detected_vehicles.size());
+    std::vector<TritonInferenceRequest> requests;
+    requests.reserve(detected_vehicles.size());
 
-    std::vector<tc::InferResult*> results;
-    results.resize(detected_vehicles.size());
-
-    std::vector<std::vector<uint8_t>> inputs_data;
-    inputs_data.reserve(detected_vehicles.size());
-
-    std::vector<std::shared_ptr<tc::InferInput>> input_ptrs;
-    input_ptrs.reserve(detected_vehicles.size());
-
-    std::vector<std::shared_ptr<tc::InferRequestedOutput>> output_ptrs;
-    output_ptrs.reserve(detected_vehicles.size());
-
-    std::vector<tc::InferOptions> options;
-    options.reserve(detected_vehicles.size());
+    std::vector<cv::Mat> blobs;
+    blobs.reserve(detected_vehicles.size());
 
     if (config.logs_level <= userver::logging::Level::kTrace)
       USERVER_IMPL_LOG_TO(logger_, userver::logging::Level::kTrace,
@@ -1145,15 +1087,6 @@ properties:
 
     for (size_t vindex = 0; vindex < detected_vehicles.size(); ++vindex)
     {
-      auto err = tc::InferenceServerHttpClient::Create(&triton_clients[vindex], config.vc_net_inference_server, false);
-      if (!err.IsOk())
-      {
-        LOG_ERROR_TO(logger_,
-          "Error! Unable to create inference client: {}",
-          err.Message());
-        return false;
-      }
-
       const auto& [bbox, confidence, is_special, license_plates] = detected_vehicles[vindex];
       if (config.logs_level <= userver::logging::Level::kTrace)
         USERVER_IMPL_LOG_TO(logger_, userver::logging::Level::kTrace,
@@ -1161,55 +1094,29 @@ properties:
           config.id_group, config.ext_id, vindex);
       cv::Rect roi(cv::Point{static_cast<int>(bbox[0]), static_cast<int>(bbox[1])},
         cv::Point{static_cast<int>(bbox[2]), static_cast<int>(bbox[3])});
-      auto blob = prepareBlobForVcNet(img(roi), config.vc_net_input_width, config.vc_net_input_height);
+      blobs.push_back(prepareBlobForVcNet(img(roi), config.vc_net_input_width, config.vc_net_input_height));
       if (config.logs_level <= userver::logging::Level::kTrace)
         USERVER_IMPL_LOG_TO(logger_, userver::logging::Level::kTrace,
           "vstream_key = {}_{};  after preprocess image {} for VcNet",
           config.id_group, config.ext_id, vindex);
 
-      const auto* raw = blob.ptr<uint8_t>();
-      const auto byte_size = blob.total() * blob.elemSize();
-      inputs_data.emplace_back(raw, raw + byte_size);
-      std::vector<int64_t> shape = {1, 3, config.vc_net_input_height, config.vc_net_input_width};
-      tc::InferInput* input;
-      err = tc::InferInput::Create(&input, config.vc_net_input_tensor_name, shape, "FP32");
-      if (!err.IsOk())
-      {
-        LOG_ERROR_TO(logger_,
-          "Error! Unable to create input data: {}",
-          err.Message());
-        return false;
-      }
-      input_ptrs.emplace_back(input);
+      const auto* raw = blobs.back().ptr<uint8_t>();
+      const auto byte_size = blobs.back().total() * blobs.back().elemSize();
 
-      tc::InferRequestedOutput* output;
-      err = tc::InferRequestedOutput::Create(&output, config.vc_net_output_tensor_name);
-      if (!err.IsOk())
-      {
-        LOG_ERROR_TO(logger_,
-          "Error! Unable to create output data: {}",
-          err.Message());
-        return false;
-      }
-      output_ptrs.emplace_back(output);
+      TritonInferenceRequest req;
+      req.model_name = config.vc_net_model_name;
+      req.model_version = "";
+      req.endpoint = config.vc_net_inference_server;
+      req.timeout = config.inference_timeout;
+      req.inputs.push_back(MakeTensor(config.vc_net_input_tensor_name, "FP32",
+        {1, 3, config.vc_net_input_height, config.vc_net_input_width}, raw, byte_size));
+      req.requested_outputs = {config.vc_net_output_tensor_name};
+      requests.push_back(std::move(req));
 
-      err = input_ptrs.back()->AppendRaw(inputs_data[vindex]);
-      if (!err.IsOk())
-      {
-        LOG_ERROR_TO(logger_,
-          "Error! Unable to set up input data: {}",
-          err.Message());
-        return false;
-      }
-      options.emplace_back(config.vc_net_model_name);
-      options.back().model_version_ = "";
-      // inference timeout in microseconds
-      options.back().client_timeout_ = std::chrono::duration_cast<std::chrono::microseconds>(config.inference_timeout).count();
-
-      tasks.emplace_back(AsyncNoTracing(fs_task_processor_,
-        [&triton_clients, &results, &options, &input_ptrs, &output_ptrs, vindex]
+      tasks.emplace_back(AsyncNoTracing(task_processor_,
+        [this, &requests, vindex]
         {
-          return triton_clients[vindex]->Infer(&results[vindex], options[vindex], {input_ptrs[vindex].get()}, {output_ptrs[vindex].get()});
+          return triton_client_service_.Infer(requests[vindex]);
         }));
     }
     WaitAllChecked(tasks);
@@ -1227,26 +1134,30 @@ properties:
     bool is_ok = false;
     for (size_t vindex = 0; vindex < detected_vehicles.size(); ++vindex)
     {
-      if (auto err = tasks[vindex].Get(); !err.IsOk())
+      TritonInferenceResponse response;
+      try
+      {
+        response = tasks[vindex].Get();
+      }
+      catch (const std::exception& e)
       {
         LOG_ERROR_TO(logger_,
           "Error! Unable to send inference request (vindex = {}): {}",
-          vindex, err.Message());
+          vindex, e.what());
         continue;
       }
 
-      const std::shared_ptr<tc::InferResult> result_ptr(results[vindex]);
-      if (!result_ptr->RequestStatus().IsOk())
+      if (response.outputs.empty())
       {
         LOG_ERROR_TO(logger_,
-          "Error! Unable to receive inference result (vindex = {}): {}",
-          vindex, result_ptr->RequestStatus().Message());
+          "Error! Unable to receive inference result (vindex = {})",
+          vindex);
         continue;
       }
 
-      const float* data;
-      size_t data_size;
-      result_ptr->RawData(config.vc_net_output_tensor_name, reinterpret_cast<const uint8_t**>(&data), &data_size);
+      const auto& raw_data = response.outputs[0].data;
+      const auto* data = reinterpret_cast<const float*>(raw_data.data());
+      const auto data_size = raw_data.size();
 
       std::vector<float> scores;
       scores.assign(data, data + static_cast<int>(data_size / sizeof(float)));
@@ -1273,26 +1184,14 @@ properties:
 
   bool Workflow::doInferenceLpdNet(const cv::Mat& img, const VStreamConfig& config, std::vector<Vehicle>& detected_vehicles)
   {
-    std::vector<userver::engine::TaskWithResult<triton::client::Error>> tasks;
+    std::vector<userver::engine::TaskWithResult<TritonInferenceResponse>> tasks;
     tasks.reserve(detected_vehicles.size());
 
-    std::vector<std::unique_ptr<tc::InferenceServerHttpClient>> triton_clients;
-    triton_clients.resize(detected_vehicles.size());
+    std::vector<TritonInferenceRequest> requests;
+    requests.reserve(detected_vehicles.size());
 
-    std::vector<tc::InferResult*> results;
-    results.resize(detected_vehicles.size());
-
-    std::vector<std::vector<uint8_t>> inputs_data;
-    inputs_data.reserve(detected_vehicles.size());
-
-    std::vector<std::shared_ptr<tc::InferInput>> input_ptrs;
-    input_ptrs.reserve(detected_vehicles.size());
-
-    std::vector<std::shared_ptr<tc::InferRequestedOutput>> output_ptrs;
-    output_ptrs.reserve(detected_vehicles.size());
-
-    std::vector<tc::InferOptions> options;
-    options.reserve(detected_vehicles.size());
+    std::vector<cv::Mat> blobs;
+    blobs.reserve(detected_vehicles.size());
 
     std::vector<cv::Point2f> shifts;
     shifts.resize(detected_vehicles.size());
@@ -1307,14 +1206,6 @@ properties:
 
     for (size_t vindex = 0; vindex < detected_vehicles.size(); ++vindex)
     {
-      auto err = tc::InferenceServerHttpClient::Create(&triton_clients[vindex], config.lpd_net_inference_server, false);
-      if (!err.IsOk())
-      {
-        LOG_ERROR_TO(logger_,
-          "Error! Unable to create inference client: {}",
-          err.Message());
-        return false;
-      }
       const auto& [bbox, confidence, is_special, license_plates] = detected_vehicles[vindex];
       if (config.logs_level <= userver::logging::Level::kTrace)
         USERVER_IMPL_LOG_TO(logger_, userver::logging::Level::kTrace,
@@ -1326,56 +1217,30 @@ properties:
       // for test
       // cv::imwrite(absl::Substitute("for_lpd_net_$4_$5_$0_$1_$2_$3.jpg", roi.tl().x, roi.tl().y, roi.br().x, roi.br().y, config.ext_id, vindex), img(roi));
 
-      auto blob = prepareBlobForYOLO(img(roi), config.lpd_net_input_width, config.lpd_net_input_height, shifts[vindex],
-        scales[vindex]);
+      blobs.push_back(prepareBlobForYOLO(img(roi), config.lpd_net_input_width, config.lpd_net_input_height, shifts[vindex],
+        scales[vindex]));
       if (config.logs_level <= userver::logging::Level::kTrace)
         USERVER_IMPL_LOG_TO(logger_, userver::logging::Level::kTrace,
           "vstream_key = {}_{};  after preprocess image {} for LPDNet",
           config.id_group, config.ext_id, vindex);
 
-      const auto* raw = blob.ptr<uint8_t>();
-      const auto byte_size = blob.total() * blob.elemSize();
-      inputs_data.emplace_back(raw, raw + byte_size);
-      std::vector<int64_t> shape = {1, 3, config.lpd_net_input_height, config.lpd_net_input_width};
-      tc::InferInput* input;
-      err = tc::InferInput::Create(&input, config.lpd_net_input_tensor_name, shape, "FP32");
-      if (!err.IsOk())
-      {
-        LOG_ERROR_TO(logger_,
-          "Error! Unable to create input data: {}",
-          err.Message());
-        return false;
-      }
-      input_ptrs.emplace_back(input);
+      const auto* raw = blobs.back().ptr<uint8_t>();
+      const auto byte_size = blobs.back().total() * blobs.back().elemSize();
 
-      tc::InferRequestedOutput* output;
-      err = tc::InferRequestedOutput::Create(&output, config.lpd_net_output_tensor_name);
-      if (!err.IsOk())
-      {
-        LOG_ERROR_TO(logger_,
-          "Error! Unable to create output data: {}",
-          err.Message());
-        return false;
-      }
-      output_ptrs.emplace_back(output);
+      TritonInferenceRequest req;
+      req.model_name = config.lpd_net_model_name;
+      req.model_version = "";
+      req.endpoint = config.lpd_net_inference_server;
+      req.timeout = config.inference_timeout;
+      req.inputs.push_back(MakeTensor(config.lpd_net_input_tensor_name, "FP32",
+        {1, 3, config.lpd_net_input_height, config.lpd_net_input_width}, raw, byte_size));
+      req.requested_outputs = {config.lpd_net_output_tensor_name};
+      requests.push_back(std::move(req));
 
-      err = input_ptrs.back()->AppendRaw(inputs_data[vindex]);
-      if (!err.IsOk())
-      {
-        LOG_ERROR_TO(logger_,
-          "Error! Unable to set up input data: {}",
-          err.Message());
-        return false;
-      }
-      options.emplace_back(config.lpd_net_model_name);
-      options.back().model_version_ = "";
-      // inference timeout in microseconds
-      options.back().client_timeout_ = std::chrono::duration_cast<std::chrono::microseconds>(config.inference_timeout).count();
-
-      tasks.emplace_back(AsyncNoTracing(fs_task_processor_,
-        [&triton_clients, &results, &options, &input_ptrs, &output_ptrs, vindex]
+      tasks.emplace_back(AsyncNoTracing(task_processor_,
+        [this, &requests, vindex]
         {
-          return triton_clients[vindex]->Infer(&results[vindex], options[vindex], {input_ptrs[vindex].get()}, {output_ptrs[vindex].get()});
+          return triton_client_service_.Infer(requests[vindex]);
         }));
     }
     WaitAllChecked(tasks);
@@ -1388,28 +1253,32 @@ properties:
     bool is_ok = false;
     for (size_t vindex = 0; vindex < detected_vehicles.size(); ++vindex)
     {
-      if (auto err = tasks[vindex].Get(); !err.IsOk())
+      TritonInferenceResponse response;
+      try
+      {
+        response = tasks[vindex].Get();
+      }
+      catch (const std::exception& e)
       {
         LOG_ERROR_TO(logger_,
           "Error! Unable to send inference request (vindex = {}): {}",
-          vindex, err.Message());
+          vindex, e.what());
         continue;
       }
 
-      std::shared_ptr<tc::InferResult> result_ptr(results[vindex]);
-      if (!result_ptr->RequestStatus().IsOk())
+      if (response.outputs.empty())
       {
         LOG_ERROR_TO(logger_,
-          "Error! Unable to receive inference result (vindex = {}): {}",
-          vindex, result_ptr->RequestStatus().Message());
+          "Error! Unable to receive inference result (vindex = {})",
+          vindex);
         continue;
       }
 
       auto& [bbox, confidence, is_special, license_plates] = detected_vehicles[vindex];
       auto& detected_plates = license_plates;
-      const float* data;
-      size_t data_size;
-      result_ptr->RawData(config.lpd_net_output_tensor_name, reinterpret_cast<const uint8_t**>(&data), &data_size);
+      const auto& raw_output = response.outputs[0].data;
+      const auto* data = reinterpret_cast<const float*>(raw_output.data());
+      const auto data_size = raw_output.size();
 
       // the output tensor has a dimension of [300, 14], and each row contains:
       //  0 - bbox left
@@ -1746,26 +1615,14 @@ properties:
 
   bool Workflow::doInferenceLpcNet(const cv::Mat& img, const VStreamConfig& config, std::vector<LicensePlate*>& detected_plates) const
   {
-    std::vector<userver::engine::TaskWithResult<triton::client::Error>> tasks;
+    std::vector<userver::engine::TaskWithResult<TritonInferenceResponse>> tasks;
     tasks.reserve(detected_plates.size());
 
-    std::vector<std::unique_ptr<tc::InferenceServerHttpClient>> triton_clients;
-    triton_clients.resize(detected_plates.size());
+    std::vector<TritonInferenceRequest> requests;
+    requests.reserve(detected_plates.size());
 
-    std::vector<tc::InferResult*> results;
-    results.resize(detected_plates.size());
-
-    std::vector<std::vector<uint8_t>> inputs_data;
-    inputs_data.reserve(detected_plates.size());
-
-    std::vector<std::shared_ptr<tc::InferInput>> input_ptrs;
-    input_ptrs.reserve(detected_plates.size());
-
-    std::vector<std::shared_ptr<tc::InferRequestedOutput>> output_ptrs;
-    output_ptrs.reserve(detected_plates.size());
-
-    std::vector<tc::InferOptions> options;
-    options.reserve(detected_plates.size());
+    std::vector<cv::Mat> blobs;
+    blobs.reserve(detected_plates.size());
 
     if (config.logs_level <= userver::logging::Level::kTrace)
       USERVER_IMPL_LOG_TO(logger_, userver::logging::Level::kTrace,
@@ -1774,15 +1631,6 @@ properties:
 
     for (size_t pindex = 0; pindex < detected_plates.size(); ++pindex)
     {
-      auto err = tc::InferenceServerHttpClient::Create(&triton_clients[pindex], config.lpc_net_inference_server, false);
-      if (!err.IsOk())
-      {
-        LOG_ERROR_TO(logger_,
-          "Error! Unable to create inference client: {}",
-          err.Message());
-        return false;
-      }
-
       auto& [bbox, confidence, kpts, plate_class, plate_numbers] = *detected_plates[pindex];
       if (config.logs_level <= userver::logging::Level::kTrace)
         USERVER_IMPL_LOG_TO(logger_, userver::logging::Level::kTrace,
@@ -1790,56 +1638,29 @@ properties:
           config.id_group, config.ext_id, pindex);
       cv::Rect roi(cv::Point{static_cast<int>(bbox[0]), static_cast<int>(bbox[1])},
         cv::Point{static_cast<int>(bbox[2]), static_cast<int>(bbox[3])});
-      auto blob = prepareBlobForLpcNet(img(roi), config.lpc_net_input_width, config.lpc_net_input_height);
+      blobs.push_back(prepareBlobForLpcNet(img(roi), config.lpc_net_input_width, config.lpc_net_input_height));
       if (config.logs_level <= userver::logging::Level::kTrace)
         USERVER_IMPL_LOG_TO(logger_, userver::logging::Level::kTrace,
           "vstream_key = {}_{};  after preprocess image {} for LpcNet",
           config.id_group, config.ext_id, pindex);
 
-      const auto* raw = blob.ptr<uint8_t>();
-      const auto byte_size = blob.total() * blob.elemSize();
-      inputs_data.emplace_back(raw, raw + byte_size);
-      std::vector<int64_t> shape = {1, 3, config.lpc_net_input_height, config.lpc_net_input_width};
-      tc::InferInput* input;
-      err = tc::InferInput::Create(&input, config.lpc_net_input_tensor_name, shape, "FP32");
-      if (!err.IsOk())
-      {
-        LOG_ERROR_TO(logger_,
-          "Error! Unable to create input data: {}",
-          err.Message());
-        return false;
-      }
-      input_ptrs.emplace_back(input);
+      const auto* raw = blobs.back().ptr<uint8_t>();
+      const auto byte_size = blobs.back().total() * blobs.back().elemSize();
 
-      tc::InferRequestedOutput* output;
-      err = tc::InferRequestedOutput::Create(&output, config.lpc_net_output_tensor_name);
-      if (!err.IsOk())
-      {
-        LOG_ERROR_TO(logger_,
-          "Error! Unable to create output data: {}",
-          err.Message());
-        return false;
-      }
-      output_ptrs.emplace_back(output);
+      TritonInferenceRequest req;
+      req.model_name = config.lpc_net_model_name;
+      req.model_version = "";
+      req.endpoint = config.lpc_net_inference_server;
+      req.timeout = config.inference_timeout;
+      req.inputs.push_back(MakeTensor(config.lpc_net_input_tensor_name, "FP32",
+        {1, 3, config.lpc_net_input_height, config.lpc_net_input_width}, raw, byte_size));
+      req.requested_outputs = {config.lpc_net_output_tensor_name};
+      requests.push_back(std::move(req));
 
-      err = input_ptrs.back()->AppendRaw(inputs_data[pindex]);
-      if (!err.IsOk())
-      {
-        LOG_ERROR_TO(logger_,
-          "Error! Unable to set up input data: {}",
-          err.Message());
-        return false;
-      }
-      options.emplace_back(config.lpc_net_model_name);
-      options.back().model_version_ = "";
-
-      // inference timeout in microseconds
-      options.back().client_timeout_ = std::chrono::duration_cast<std::chrono::microseconds>(config.inference_timeout).count();
-
-      tasks.emplace_back(AsyncNoTracing(fs_task_processor_,
-        [&triton_clients, &results, &options, &input_ptrs, &output_ptrs, pindex]
+      tasks.emplace_back(AsyncNoTracing(task_processor_,
+        [this, &requests, pindex]
         {
-          return triton_clients[pindex]->Infer(&results[pindex], options[pindex], {input_ptrs[pindex].get()}, {output_ptrs[pindex].get()});
+          return triton_client_service_.Infer(requests[pindex]);
         }));
     }
     WaitAllChecked(tasks);
@@ -1852,26 +1673,30 @@ properties:
     bool is_ok = false;
     for (size_t pindex = 0; pindex < detected_plates.size(); ++pindex)
     {
-      if (auto err = tasks[pindex].Get(); !err.IsOk())
+      TritonInferenceResponse response;
+      try
+      {
+        response = tasks[pindex].Get();
+      }
+      catch (const std::exception& e)
       {
         LOG_ERROR_TO(logger_,
           "Error! Unable to send inference request (vindex = {}): {}",
-          pindex, err.Message());
+          pindex, e.what());
         continue;
       }
 
-      const std::shared_ptr<tc::InferResult> result_ptr(results[pindex]);
-      if (!result_ptr->RequestStatus().IsOk())
+      if (response.outputs.empty())
       {
         LOG_ERROR_TO(logger_,
-          "Error! Unable to receive inference result (vindex = {}): {}",
-          pindex, result_ptr->RequestStatus().Message());
+          "Error! Unable to receive inference result (vindex = {})",
+          pindex);
         continue;
       }
 
-      const float* data;
-      size_t data_size;
-      result_ptr->RawData(config.vc_net_output_tensor_name, reinterpret_cast<const uint8_t**>(&data), &data_size);
+      const auto& raw_data = response.outputs[0].data;
+      const auto* data = reinterpret_cast<const float*>(raw_data.data());
+      const auto data_size = raw_data.size();
 
       std::vector<float> scores;
       scores.assign(data, data + static_cast<int>(data_size / sizeof(float)));
@@ -1917,26 +1742,14 @@ properties:
       112.0f / 520.f,   // 3 - Armenia
     };
 
-    std::vector<userver::engine::TaskWithResult<triton::client::Error>> tasks;
+    std::vector<userver::engine::TaskWithResult<TritonInferenceResponse>> tasks;
     tasks.reserve(detected_plates.size());
 
-    std::vector<std::unique_ptr<tc::InferenceServerHttpClient>> triton_clients;
-    triton_clients.resize(detected_plates.size());
+    std::vector<TritonInferenceRequest> requests;
+    requests.reserve(detected_plates.size());
 
-    std::vector<tc::InferResult*> results;
-    results.resize(detected_plates.size());
-
-    std::vector<std::vector<uint8_t>> inputs_data;
-    inputs_data.reserve(detected_plates.size());
-
-    std::vector<std::shared_ptr<tc::InferInput>> input_ptrs;
-    input_ptrs.reserve(detected_plates.size());
-
-    std::vector<std::shared_ptr<tc::InferRequestedOutput>> output_ptrs;
-    output_ptrs.reserve(detected_plates.size());
-
-    std::vector<tc::InferOptions> options;
-    options.reserve(detected_plates.size());
+    std::vector<cv::Mat> blobs;
+    blobs.reserve(detected_plates.size());
 
     std::vector<cv::Point2f> shifts;
     shifts.resize(detected_plates.size());
@@ -1951,14 +1764,6 @@ properties:
 
     for (size_t pindex = 0; pindex < detected_plates.size(); ++pindex)
     {
-      auto err = tc::InferenceServerHttpClient::Create(&triton_clients[pindex], config.lpr_net_inference_server, false);
-      if (!err.IsOk())
-      {
-        LOG_ERROR_TO(logger_,
-          "Error! Unable to create inference client: {}",
-          err.Message());
-        return false;
-      }
       auto& [bbox, confidence, kpts, plate_class, plate_numbers] = *detected_plates[pindex];
       if (config.logs_level <= userver::logging::Level::kTrace)
         USERVER_IMPL_LOG_TO(logger_, userver::logging::Level::kTrace,
@@ -1979,59 +1784,31 @@ properties:
       // for test
       // cv::imwrite(absl::Substitute("pp_$1_$0.png", pindex, config.ext_id), lp_image);
 
-      auto blob = prepareBlobForYOLO(lp_image, config.lpr_net_input_width, config.lpr_net_input_height, shifts[pindex],
-        scales[pindex]);
+      blobs.push_back(prepareBlobForYOLO(lp_image, config.lpr_net_input_width, config.lpr_net_input_height, shifts[pindex],
+        scales[pindex]));
 
       if (config.logs_level <= userver::logging::Level::kTrace)
         USERVER_IMPL_LOG_TO(logger_, userver::logging::Level::kTrace,
           "vstream_key = {}_{};  after preprocess image {} for LPRNet",
           config.id_group, config.ext_id, pindex);
 
-      const auto* raw = blob.ptr<uint8_t>();
-      const auto byte_size = blob.total() * blob.elemSize();
-      inputs_data.emplace_back(raw, raw + byte_size);
-      std::vector<int64_t> shape = {1, 3, config.lpr_net_input_height, config.lpr_net_input_width};
-      tc::InferInput* input;
-      err = tc::InferInput::Create(&input, config.lpr_net_input_tensor_name, shape, "FP32");
-      if (!err.IsOk())
-      {
-        LOG_ERROR_TO(logger_,
-          "Error! Unable to create input data: {}",
-          err.Message());
-        return false;
-      }
-      input_ptrs.emplace_back(input);
+      const auto* raw = blobs.back().ptr<uint8_t>();
+      const auto byte_size = blobs.back().total() * blobs.back().elemSize();
 
-      tc::InferRequestedOutput* output;
-      err = tc::InferRequestedOutput::Create(&output, config.lpr_net_output_tensor_name);
-      if (!err.IsOk())
-      {
-        LOG_ERROR_TO(logger_,
-          "Error! Unable to create output data: {}",
-          err.Message());
-        return false;
-      }
-      output_ptrs.emplace_back(output);
+      TritonInferenceRequest req;
+      req.model_name = config.lpr_net_model_name;
+      req.model_version = "";
+      req.endpoint = config.lpr_net_inference_server;
+      req.timeout = config.inference_timeout;
+      req.inputs.push_back(MakeTensor(config.lpr_net_input_tensor_name, "FP32",
+        {1, 3, config.lpr_net_input_height, config.lpr_net_input_width}, raw, byte_size));
+      req.requested_outputs = {config.lpr_net_output_tensor_name};
+      requests.push_back(std::move(req));
 
-      err = input_ptrs.back()->AppendRaw(inputs_data[pindex]);
-      if (!err.IsOk())
-      {
-        LOG_ERROR_TO(logger_,
-          "Error! Unable to set up input data: {}",
-          err.Message());
-        return false;
-      }
-
-      options.emplace_back(config.lpr_net_model_name);
-      options.back().model_version_ = "";
-
-      // inference timeout in microseconds
-      options.back().client_timeout_ = std::chrono::duration_cast<std::chrono::microseconds>(config.inference_timeout).count();
-
-      tasks.emplace_back(AsyncNoTracing(fs_task_processor_,
-        [&triton_clients, &results, &options, &input_ptrs, &output_ptrs, pindex]
+      tasks.emplace_back(AsyncNoTracing(task_processor_,
+        [this, &requests, pindex]
         {
-          return triton_clients[pindex]->Infer(&results[pindex], options[pindex], {input_ptrs[pindex].get()}, {output_ptrs[pindex].get()});
+          return triton_client_service_.Infer(requests[pindex]);
         }));
     }
     WaitAllChecked(tasks);
@@ -2044,28 +1821,30 @@ properties:
     bool is_ok = false;
     for (size_t pindex = 0; pindex < detected_plates.size(); ++pindex)
     {
-      auto err = tasks[pindex].Get();
-      if (!err.IsOk())
+      TritonInferenceResponse response;
+      try
+      {
+        response = tasks[pindex].Get();
+      }
+      catch (const std::exception& e)
       {
         LOG_ERROR_TO(logger_,
           "Error! Unable to send inference request (vindex = {}): {}",
-          pindex, err.Message());
+          pindex, e.what());
         continue;
       }
 
-      std::shared_ptr<tc::InferResult> result_ptr(results[pindex]);
-      if (!result_ptr->RequestStatus().IsOk())
+      if (response.outputs.empty())
       {
         LOG_ERROR_TO(logger_,
-          "Error! Unable to receive inference result (vindex = {}): {}",
-          pindex, err.Message());
+          "Error! Unable to receive inference result (vindex = {})",
+          pindex);
         continue;
       }
 
       auto& plate = *detected_plates[pindex];
-      const float* data;
-      size_t data_size;
-      result_ptr->RawData(config.lpr_net_output_tensor_name, reinterpret_cast<const uint8_t**>(&data), &data_size);
+      const auto& raw_output = response.outputs[0].data;
+      const auto* data = reinterpret_cast<const float*>(raw_output.data());
 
       std::vector<CharData> chars_data;
       auto num_rows = 300;

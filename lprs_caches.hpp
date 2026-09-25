@@ -93,35 +93,35 @@ namespace Lprs
 
   struct VStreamConfig
   {
-    std::string vd_net_inference_server{"127.0.0.1:8000"};
+    std::string vd_net_inference_server{"127.0.0.1:8001"};
     std::string vd_net_model_name{"vdnet_yolo"};
     int32_t vd_net_input_width = 640;
     int32_t vd_net_input_height = 640;
     std::string vd_net_input_tensor_name{"images"};
     std::string vd_net_output_tensor_name{"output0"};
 
-    std::string vc_net_inference_server{"127.0.0.1:8000"};
+    std::string vc_net_inference_server{"127.0.0.1:8001"};
     std::string vc_net_model_name{"vcnet_vit"};
     int32_t vc_net_input_width = 224;
     int32_t vc_net_input_height = 224;
     std::string vc_net_input_tensor_name{"input"};
     std::string vc_net_output_tensor_name{"output"};
 
-    std::string lpd_net_inference_server{"127.0.0.1:8000"};
+    std::string lpd_net_inference_server{"127.0.0.1:8001"};
     std::string lpd_net_model_name{"lpdnet_yolo"};
     int32_t lpd_net_input_width = 640;
     int32_t lpd_net_input_height = 640;
     std::string lpd_net_input_tensor_name{"images"};
     std::string lpd_net_output_tensor_name{"output0"};
 
-    std::string lpc_net_inference_server{"127.0.0.1:8000"};
+    std::string lpc_net_inference_server{"127.0.0.1:8001"};
     std::string lpc_net_model_name{"lpcnet_vit"};
     int32_t lpc_net_input_width = 224;
     int32_t lpc_net_input_height = 224;
     std::string lpc_net_input_tensor_name{"input"};
     std::string lpc_net_output_tensor_name{"output"};
 
-    std::string lpr_net_inference_server{"127.0.0.1:8000"};
+    std::string lpr_net_inference_server{"127.0.0.1:8001"};
     std::string lpr_net_model_name{"lprnet_yolo"};
     int32_t lpr_net_input_width = 320;
     int32_t lpr_net_input_height = 320;

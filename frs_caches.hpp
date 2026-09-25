@@ -159,10 +159,10 @@ namespace Frs
     std::chrono::milliseconds capture_timeout{std::chrono::seconds{2}};
     std::chrono::milliseconds delay_after_error{std::chrono::seconds{30}};
     std::chrono::milliseconds delay_between_frames{std::chrono::seconds{1}};
-    std::string dnn_fd_inference_server{"127.0.0.1:8000"};
-    std::string dnn_fc_inference_server{"127.0.0.1:8000"};
-    std::string dnn_fr_inference_server{"127.0.0.1:8000"};
-    std::string dnn_bd_inference_server{"127.0.0.1:8000"};
+    std::string dnn_fd_inference_server{"127.0.0.1:8001"};
+    std::string dnn_fc_inference_server{"127.0.0.1:8001"};
+    std::string dnn_fr_inference_server{"127.0.0.1:8001"};
+    std::string dnn_bd_inference_server{"127.0.0.1:8001"};
     float face_class_confidence{0.7};
     float face_confidence{0.7};
     float face_iou_threshold{0.4};

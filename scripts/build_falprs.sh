@@ -19,14 +19,13 @@ fi
 
 # Load configuration from file if exists
 if [ -f "$BASEDIR/.env" ]; then
-    source $BASEDIR/.env
+    source "$BASEDIR/.env"
 elif [ -f "$BASEDIR/../.env" ]; then
-    source $BASEDIR/../.env
+    source "$BASEDIR/../.env"
 fi
 
 # External variables used in the script
 # PG_VERSION - PostgreSQL database system version
-# TRITON_VERSION - NVIDIA Triton Inference Server version
 # FALPRS_WORKDIR - FALPRS working directory
 
 # Set default values if not provided
@@ -50,10 +49,9 @@ if [ -z "$PG_VERSION" ]; then
     esac
 fi
 
-export TRITON_VERSION="${TRITON_VERSION:-24.09}"
 export FALPRS_WORKDIR="${FALPRS_WORKDIR:-/opt/falprs}"
 
-APT_PACKAGES="build-essential ccache cmake git libboost-dev libboost-context-dev libboost-coroutine-dev libboost-filesystem-dev libboost-iostreams-dev libboost-locale-dev libboost-program-options-dev libboost-regex-dev libboost-stacktrace-dev zlib1g-dev nasm clang-format libssl-dev libyaml-cpp-dev libjemalloc-dev libpq-dev postgresql-server-dev-$PG_VERSION rapidjson-dev python3-dev python3-jinja2 python3-protobuf python3-venv python3-voluptuous python3-yaml libgtest-dev libnghttp2-dev libev-dev libldap2-dev libkrb5-dev libzstd-dev libopencv-dev libbz2-dev libre2-dev libcrypto++-dev libfmt-dev libc-ares-dev libcurl4-openssl-dev libcctz-dev liburing-dev libicu-dev libabsl-dev"
+APT_PACKAGES="build-essential ccache cmake git libboost-dev libboost-context-dev libboost-coroutine-dev libboost-filesystem-dev libboost-iostreams-dev libboost-locale-dev libboost-program-options-dev libboost-regex-dev libboost-stacktrace-dev zlib1g-dev nasm clang-format libssl-dev libyaml-cpp-dev libjemalloc-dev libpq-dev postgresql-server-dev-$PG_VERSION rapidjson-dev python3-dev python3-jinja2 python3-venv python3-voluptuous python3-yaml libgtest-dev libnghttp2-dev libev-dev libldap2-dev libkrb5-dev libzstd-dev libopencv-dev libbz2-dev libre2-dev libcrypto++-dev libc-ares-dev libcurl4-openssl-dev libcctz-dev liburing-dev libicu-dev"
 if [ "$UBUNTU_VERSION" = "26.04" ]; then
     APT_PACKAGES="$APT_PACKAGES libjitterentropy3-dev clang libstdc++-16-dev"
 fi
@@ -62,19 +60,13 @@ fi
 apt-get update
 apt-get install -y $APT_PACKAGES
 
-TRITON_CLIENT_DIR="$BUILD_HOME/triton-client"
-
-# Build Triton client and FALPRS as the regular user.
+# Build FALPRS as the regular user.
 # runuser does not request another password when the script is already running as root.
 runuser -u "$BUILD_USER" -- env \
     HOME="$BUILD_HOME" \
     USER="$BUILD_USER" \
     LOGNAME="$BUILD_USER" \
     BASEDIR="$BASEDIR" \
-    BUILD_HOME="$BUILD_HOME" \
-    TRITON_CLIENT_DIR="$TRITON_CLIENT_DIR" \
-    TRITON_VERSION="$TRITON_VERSION" \
-    FALPRS_WORKDIR="$FALPRS_WORKDIR" \
     PG_VERSION="$PG_VERSION" \
     UBUNTU_VERSION="$UBUNTU_VERSION" \
     bash -c '
@@ -85,52 +77,6 @@ if [[ "$UBUNTU_VERSION" = "26.04" ]]; then
     export CXX=clang++
 fi
 
-cd "$BUILD_HOME"
-
-if [ ! -d "$TRITON_CLIENT_DIR" ]; then
-    git clone https://github.com/triton-inference-server/client.git "$TRITON_CLIENT_DIR"
-fi
-
-cd "$TRITON_CLIENT_DIR"
-
-git checkout .
-
-ver_le() {
-    [[ "$(printf "%s\n%s\n" "$1" "$2" | sort -V | head -n1)" == "$1" ]]
-}
-
-TRITON_TAG="r$TRITON_VERSION"
-
-if [[ "$TRITON_TAG" > "r25.07" ]] && ver_le "$UBUNTU_VERSION" "24.04"; then
-    TRITON_TAG="r25.07"
-fi
-
-git checkout $TRITON_TAG
-
-# Get rid of re2 dependency (we do not need GRPC)
-sed -i "s/set(_cc_client_depends re2)/set(_cc_client_depends)/" CMakeLists.txt
-
-rm -rf build
-mkdir -p build
-cd build
-
-cmake \
-    -DCMAKE_BUILD_TYPE=Release \
-    -DCMAKE_CXX_STANDARD=23 \
-    -DCMAKE_INSTALL_PREFIX:PATH="$TRITON_CLIENT_DIR/build/install" \
-    -DTRITON_ENABLE_CC_HTTP=ON \
-    -DTRITON_ENABLE_CC_GRPC=OFF \
-    -DTRITON_ENABLE_PYTHON_HTTP=OFF \
-    -DTRITON_ENABLE_PYTHON_GRPC=OFF \
-    -DTRITON_ENABLE_GPU=OFF \
-    -DTRITON_ENABLE_EXAMPLES=OFF \
-    -DTRITON_ENABLE_TESTS=OFF \
-    -DTRITON_COMMON_REPO_TAG="$TRITON_TAG" \
-    -DTRITON_THIRD_PARTY_REPO_TAG="$TRITON_TAG" \
-    ..
-
-make cc-clients -j`nproc`
-
 cd "$BASEDIR/.."
 
 rm -rf build
@@ -139,13 +85,12 @@ cd build
 
 cmake \
     -DCMAKE_BUILD_TYPE=Release \
-    -DTRITON_CLIENT_DIR="$TRITON_CLIENT_DIR/build/install" \
     -DUSERVER_PG_SERVER_INCLUDE_DIR="/usr/include/postgresql/$PG_VERSION/server" \
     -DUSERVER_PG_SERVER_LIBRARY_DIR="/usr/lib/postgresql/$PG_VERSION/lib" \
     -DUSERVER_PG_LIBRARY_DIR="/usr/lib/postgresql/$PG_VERSION/lib" \
     ..
 
-make falprs -j`nproc`
+make falprs -j"$(nproc)"
 '
 
 # Everything below this point is deployment/configuration and requires root.

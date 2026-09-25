@@ -7,6 +7,7 @@
 #include <userver/logging/component.hpp>
 
 #include "lprs_caches.hpp"
+#include "triton_client_service.hpp"
 
 namespace Lprs
 {
@@ -105,22 +106,26 @@ namespace Lprs
     void OnAllComponentsAreStopping() override;
 
   private:
-    userver::concurrent::BackgroundTaskStorageCore tasks_;
-    userver::engine::TaskProcessor& task_processor_;
-    userver::engine::TaskProcessor& fs_task_processor_;
-    userver::clients::http::Client& http_client_;
-    const VStreamsConfigCache& vstreams_config_cache_;
-    userver::storages::postgres::ClusterPtr pg_cluster_;
-    userver::utils::PeriodicTask ban_maintenance_task_;
-    userver::utils::PeriodicTask events_log_maintenance_task_;
-    userver::logging::LoggerPtr logger_;
-
-    LocalConfig local_config_;
-
     userver::concurrent::Variable<HashMap<std::string, bool>> being_processed_vstreams;
     userver::concurrent::Variable<HashMap<std::string, BannedPlateData>> ban_data;
     userver::concurrent::Variable<HashMap<std::string, std::chrono::time_point<std::chrono::steady_clock>>> ban_special_data;
     userver::concurrent::Variable<HashMap<std::string, std::chrono::time_point<std::chrono::steady_clock>>> vstream_timeouts;
+    LocalConfig local_config_;
+
+    userver::logging::LoggerPtr logger_;
+
+    userver::engine::TaskProcessor& task_processor_;
+    userver::engine::TaskProcessor& fs_task_processor_;
+    userver::clients::http::Client& http_client_;
+
+    userver::storages::postgres::ClusterPtr pg_cluster_;
+    const VStreamsConfigCache& vstreams_config_cache_;
+
+    TritonClientService& triton_client_service_;
+
+    userver::utils::PeriodicTask ban_maintenance_task_;
+    userver::utils::PeriodicTask events_log_maintenance_task_;
+    userver::concurrent::BackgroundTaskStorageCore tasks_;
 
     void processPipeline(std::string&& vstream_key);
     void doBanMaintenance();

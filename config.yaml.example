@@ -64,6 +64,16 @@ components_manager:
         http-client-core:
             fs-task-processor: fs-task-processor
 
+        grpc-client-common:
+            # The TaskProcessor for blocking connection initiation
+            blocking-task-processor: fs-task-processor
+
+        # Creates gRPC clients
+        grpc-client-factory:
+            channel-args: {}
+
+        triton-client:
+
         handler-ping:
             path: /ping
             method: GET

@@ -4,7 +4,6 @@
 #include <ReadBarcode.h>
 #include <boost/uuid/uuid_generators.hpp>
 #include <boost/uuid/uuid_io.hpp>
-#include <http_client.h>
 #include <opencv2/core/simd_intrinsics.hpp>
 #include <userver/clients/http/component.hpp>
 #include <userver/engine/sleep.hpp>
@@ -18,7 +17,6 @@
 #include "frs_workflow.hpp"
 #include "image_preprocessing.hpp"
 
-namespace tc = triton::client;
 
 namespace Frs
 {
@@ -305,17 +303,18 @@ namespace Frs
 
   Workflow::Workflow(const userver::components::ComponentConfig& config, const userver::components::ComponentContext& context)
     : LoggableComponentBase(config, context),
+      logger_(context.FindComponent<userver::components::Logging>().GetLogger(std::string(kLogger))),
       task_processor_(context.GetTaskProcessor(config["task_processor"].As<std::string>())),
       fs_task_processor_(context.GetTaskProcessor(config["fs-task-processor"].As<std::string>())),
       http_client_(context.FindComponent<userver::components::HttpClient>().GetHttpClient()),
-      logger_(context.FindComponent<userver::components::Logging>().GetLogger(std::string(kLogger))),
       pg_cluster_(context.FindComponent<userver::components::Postgres>(kDatabase).GetCluster()),
       common_config_cache_(context.FindComponent<ConfigCache>()),
       vstreams_config_cache_(context.FindComponent<VStreamsConfigCache>()),
       face_descriptor_cache_(context.FindComponent<FaceDescriptorCache>()),
       vstream_descriptors_cache_(context.FindComponent<VStreamDescriptorsCache>()),
       sg_config_cache_(context.FindComponent<SGConfigCache>()),
-      sg_descriptors_cache_(context.FindComponent<SGDescriptorsCache>())
+      sg_descriptors_cache_(context.FindComponent<SGDescriptorsCache>()),
+      triton_client_service_(context.FindComponent<TritonClientService>())
   {
     local_config_.allow_group_id_without_auth = config[ConfigParams::SECTION_NAME][ConfigParams::ALLOW_GROUP_ID_WITHOUT_AUTH].As<decltype(local_config_.allow_group_id_without_auth)>(local_config_.allow_group_id_without_auth);
 
@@ -1845,17 +1844,6 @@ properties:
       }
     }
 
-    std::unique_ptr<tc::InferenceServerHttpClient> triton_client;
-    auto err = tc::InferenceServerHttpClient::Create(&triton_client, config.dnn_fd_inference_server, false);
-    if (!err.IsOk())
-    {
-      if (config.logs_level <= userver::logging::Level::kError || task_data.task_type == TASK_TEST)
-        USERVER_IMPL_LOG_TO(logger_, userver::logging::Level::kError,
-          "Error! Unable to create inference client: {}",
-          err.Message());
-      return false;
-    }
-
     float scale = 1.0f;
 
     if (config.logs_level <= userver::logging::Level::kTrace || task_data.task_type == TASK_TEST)
@@ -1870,86 +1858,48 @@ properties:
 
     const auto* raw = blob.ptr<uint8_t>();
     const auto byte_size = blob.total() * blob.elemSize();
-    std::vector input_data(raw, raw + byte_size);
-    std::vector<int64_t> shape = {1, 3, dnn_fd_input_height, dnn_fd_input_width};
-    tc::InferInput* input;
-    err = tc::InferInput::Create(&input, dnn_fd_input_tensor_name, shape, "FP32");
-    if (!err.IsOk())
-    {
-      if (config.logs_level <= userver::logging::Level::kError || task_data.task_type == TASK_TEST)
-        USERVER_IMPL_LOG_TO(logger_, userver::logging::Level::kError,
-          "Error! Unable to create input data: {}", err.Message());
-      return false;
-    }
-    std::shared_ptr<tc::InferInput> input_ptr(input);
-    std::vector inputs = {input_ptr.get()};
-    err = input_ptr->AppendRaw(input_data);
-    if (!err.IsOk())
-    {
-      if (config.logs_level <= userver::logging::Level::kError || task_data.task_type == TASK_TEST)
-        USERVER_IMPL_LOG_TO(logger_, userver::logging::Level::kError,
-          "Error! Unable to append input data: {}",
-          err.Message());
-      return false;
-    }
 
-    std::vector output_tensors = {"448", "471", "494", "451", "474", "497", "454", "477", "500"};
-    std::vector<const tc::InferRequestedOutput*> outputs;
-    outputs.reserve(output_tensors.size());
-    std::vector<std::shared_ptr<tc::InferRequestedOutput>> outputs_ptr;
-    outputs_ptr.reserve(output_tensors.size());
-    for (size_t i = 0; i < output_tensors.size(); ++i)
-    {
-      tc::InferRequestedOutput* p;
-      err = tc::InferRequestedOutput::Create(&p, output_tensors[i]);
-      if (!err.IsOk())
-      {
-        if (config.logs_level <= userver::logging::Level::kError || task_data.task_type == TASK_TEST)
-          USERVER_IMPL_LOG_TO(logger_, userver::logging::Level::kError,
-            "Error! Unable to create output data: {}",
-            err.Message());
-        return false;
-      }
-      outputs_ptr.emplace_back(p);
-      outputs.emplace_back(outputs_ptr[i].get());
-    }
+    constexpr std::array output_tensor_names = {"448", "471", "494", "451", "474", "497", "454", "477", "500"};
 
-    tc::InferOptions options(dnn_fd_model_name);
-    options.model_version_ = "";
-    // inference timeout in microseconds
-    options.client_timeout_ = std::chrono::duration_cast<std::chrono::microseconds>(config.inference_timeout).count();
-    tc::InferResult* result;
+    TritonInferenceRequest triton_request;
+    triton_request.model_name = dnn_fd_model_name;
+    triton_request.model_version = "";
+    triton_request.endpoint = config.dnn_fd_inference_server;
+    triton_request.timeout = config.inference_timeout;
+    triton_request.inputs.push_back(MakeTensor(dnn_fd_input_tensor_name, "FP32",
+      {1, 3, dnn_fd_input_height, dnn_fd_input_width}, raw, byte_size));
+    triton_request.requested_outputs = {output_tensor_names.begin(), output_tensor_names.end()};
 
     if (config.logs_level <= userver::logging::Level::kTrace || task_data.task_type == TASK_TEST)
       USERVER_IMPL_LOG_TO(logger_, userver::logging::Level::kTrace,
         "vstream_key = {};  before inference face detection",
         task_data.vstream_key);
-    userver::engine::AsyncNoTracing(fs_task_processor_,
-      [&err, &triton_client, &result, &options, &inputs, &outputs]
-      {
-        err = triton_client->Infer(&result, options, inputs, outputs);
-      }).Get();
+
+    TritonInferenceResponse triton_response;
+    try
+    {
+      triton_response = triton_client_service_.Infer(triton_request);
+    }
+    catch (const std::exception& e)
+    {
+      if (config.logs_level <= userver::logging::Level::kError || task_data.task_type == TASK_TEST)
+        USERVER_IMPL_LOG_TO(logger_, userver::logging::Level::kError,
+          "Error! Unable to send inference request: {}",
+          e.what());
+      return false;
+    }
+
     if (config.logs_level <= userver::logging::Level::kTrace || task_data.task_type == TASK_TEST)
       USERVER_IMPL_LOG_TO(logger_, userver::logging::Level::kTrace,
         "vstream_key = {};  after inference face detection",
         task_data.vstream_key);
 
-    if (!err.IsOk())
+    if (triton_response.outputs.size() != output_tensor_names.size())
     {
       if (config.logs_level <= userver::logging::Level::kError || task_data.task_type == TASK_TEST)
         USERVER_IMPL_LOG_TO(logger_, userver::logging::Level::kError,
-          "Error! Unable to send inference request: {}",
-          err.Message());
-      return false;
-    }
-
-    std::shared_ptr<tc::InferResult> result_ptr(result);
-    if (!result_ptr->RequestStatus().IsOk())
-    {
-      if (config.logs_level <= userver::logging::Level::kError || task_data.task_type == TASK_TEST)
-        USERVER_IMPL_LOG_TO(logger_, userver::logging::Level::kError,
-          "Error! Unable to receive inference result: {}",
-          err.Message());
+          "Error! Unexpected number of output tensors in face detection response: {}",
+          triton_response.outputs.size());
       return false;
     }
 
@@ -1958,25 +1908,33 @@ properties:
         "vstream_key = {};  inference face detection OK",
         task_data.vstream_key);
 
-    std::vector feat_stride = {8, 16, 32};
+    HashMap<std::string, size_t> tensor_name_to_orig_index;
+    for (size_t i = 0; i < output_tensor_names.size(); ++i)
+      tensor_name_to_orig_index[output_tensor_names[i]] = i;
+    std::array<size_t, output_tensor_names.size()> orig_index_to_output_index{};
+    for (size_t i = 0; i < output_tensor_names.size(); ++i)
+    {
+      const auto it = tensor_name_to_orig_index.find(triton_response.outputs[i].name);
+      orig_index_to_output_index[i] = it->second;
+    }
 
+    std::vector feat_stride = {8, 16, 32};
     detected_faces.clear();
     for (size_t i = 0; i < feat_stride.size(); ++i)
     {
       constexpr int fmc = 3;
-      const float* scores_data;
-      size_t scores_size;
-      result_ptr->RawData(output_tensors[i], reinterpret_cast<const uint8_t**>(&scores_data), &scores_size);
+      const auto& scores_raw = triton_response.outputs[orig_index_to_output_index[i]].data;
+      const auto* scores_data = reinterpret_cast<const float*>(scores_raw.data());
 
-      const float* bbox_preds_data;
-      size_t bbox_preds_size;
-      result_ptr->RawData(output_tensors[i + fmc], reinterpret_cast<const uint8_t**>(&bbox_preds_data), &bbox_preds_size);
+      const auto& bbox_raw = triton_response.outputs[orig_index_to_output_index[i + fmc]].data;
+      const auto* bbox_preds_data = reinterpret_cast<const float*>(bbox_raw.data());
+      const auto bbox_preds_size = bbox_raw.size();
       auto bbox_preds = cv::Mat(static_cast<int>(bbox_preds_size / 4 / sizeof(float)), 4, CV_32F, const_cast<float*>(bbox_preds_data));
       bbox_preds *= feat_stride[i];
 
-      const float* kps_preds_data;
-      size_t kps_preds_size;
-      result_ptr->RawData(output_tensors[i + fmc * 2], reinterpret_cast<const uint8_t**>(&kps_preds_data), &kps_preds_size);
+      const auto& kps_raw = triton_response.outputs[orig_index_to_output_index[i + fmc * 2]].data;
+      const auto* kps_preds_data = reinterpret_cast<const float*>(kps_raw.data());
+      const auto kps_preds_size = kps_raw.size();
       auto kps_preds = cv::Mat(static_cast<int>(kps_preds_size / 10 / sizeof(float)), 10, CV_32F, const_cast<float*>(kps_preds_data));
       kps_preds *= feat_stride[i];
 
@@ -1985,7 +1943,7 @@ properties:
       for (int k = 0; k < height * width; ++k)
       {
         auto px = static_cast<float>(feat_stride[i] * (k % height));
-        auto py = static_cast<float>(feat_stride[i] * static_cast<int>(k / height));
+        auto py = static_cast<float>(feat_stride[i] * (k / height));
         if (scores_data[2 * k] >= config.face_confidence)
         {
           FaceDetection det{};
@@ -2046,88 +2004,44 @@ properties:
       }
     }
 
-    std::unique_ptr<tc::InferenceServerHttpClient> triton_client;
-    auto err = tc::InferenceServerHttpClient::Create(&triton_client, config.dnn_fc_inference_server, false);
-    if (!err.IsOk())
-    {
-      if (config.logs_level <= userver::logging::Level::kError || task_data.task_type == TASK_TEST)
-        USERVER_IMPL_LOG_TO(logger_, userver::logging::Level::kError,
-          "Error! Unable to create inference client: {}",
-          err.Message());
-      return false;
-    }
-
     auto blob = prepareBlobForGenet(aligned_face, dnn_fc_input_width, dnn_fc_input_height);
     const auto* raw = blob.ptr<uint8_t>();
     const auto byte_size = blob.total() * blob.elemSize();
-    std::vector input_data(raw, raw + byte_size);
-    std::vector<int64_t> shape = {1, 3, dnn_fc_input_height, dnn_fc_input_width};
-    tc::InferInput* input;
-    err = tc::InferInput::Create(&input, dnn_fc_input_tensor_name, shape, "FP32");
-    if (!err.IsOk())
-    {
-      if (config.logs_level <= userver::logging::Level::kError || task_data.task_type == TASK_TEST)
-        USERVER_IMPL_LOG_TO(logger_, userver::logging::Level::kError,
-          "Error! Unable to create input data: {}",
-          err.Message());
-      return false;
-    }
-    std::shared_ptr<tc::InferInput> input_ptr(input);
-    err = input_ptr->AppendRaw(input_data);
-    if (!err.IsOk())
-    {
-      if (config.logs_level <= userver::logging::Level::kError || task_data.task_type == TASK_TEST)
-        USERVER_IMPL_LOG_TO(logger_, userver::logging::Level::kError,
-          "Error! Unable to append input data: {}",
-          err.Message());
-      return false;
-    }
-    std::vector inputs = {input_ptr.get()};
 
-    tc::InferRequestedOutput* output;
-    err = tc::InferRequestedOutput::Create(&output, dnn_fc_output_tensor_name);
-    if (!err.IsOk())
-    {
-      if (config.logs_level <= userver::logging::Level::kError || task_data.task_type == TASK_TEST)
-        USERVER_IMPL_LOG_TO(logger_, userver::logging::Level::kError,
-          "Error! Unable to create output data: {}",
-          err.Message());
-      return false;
-    }
-    std::shared_ptr<tc::InferRequestedOutput> output_ptr(output);
-    std::vector<const tc::InferRequestedOutput*> outputs = {output_ptr.get()};
-
-    tc::InferOptions options(dnn_fc_model_name);
-    options.model_version_ = "";
-    // inference timeout in microseconds
-    options.client_timeout_ = std::chrono::duration_cast<std::chrono::microseconds>(config.inference_timeout).count();
-    tc::InferResult* result;
+    TritonInferenceRequest triton_request;
+    triton_request.model_name = dnn_fc_model_name;
+    triton_request.model_version = "";
+    triton_request.endpoint = config.dnn_fc_inference_server;
+    triton_request.timeout = config.inference_timeout;
+    triton_request.inputs.push_back(MakeTensor(dnn_fc_input_tensor_name, "FP32",
+      {1, 3, dnn_fc_input_height, dnn_fc_input_width}, raw, byte_size));
+    triton_request.requested_outputs = {dnn_fc_output_tensor_name};
 
     if (config.logs_level <= userver::logging::Level::kTrace || task_data.task_type == TASK_TEST)
       USERVER_IMPL_LOG_TO(logger_, userver::logging::Level::kTrace,
         "vstream_key = {};  before inference face class",
         task_data.vstream_key);
-    userver::engine::AsyncNoTracing(fs_task_processor_,
-      [&err, &triton_client, &result, &options, &inputs, &outputs]
-      {
-        err = triton_client->Infer(&result, options, inputs, outputs);
-      }).Get();
+
+    TritonInferenceResponse triton_response;
+    try
+    {
+      triton_response = triton_client_service_.Infer(triton_request);
+    }
+    catch (const std::exception& e)
+    {
+      if (config.logs_level <= userver::logging::Level::kError || task_data.task_type == TASK_TEST)
+        USERVER_IMPL_LOG_TO(logger_, userver::logging::Level::kError,
+          "Error! Unable to send inference request: {}",
+          e.what());
+      return false;
+    }
+
     if (config.logs_level <= userver::logging::Level::kTrace || task_data.task_type == TASK_TEST)
       USERVER_IMPL_LOG_TO(logger_, userver::logging::Level::kTrace,
         "vstream_key = {};  after inference face class",
         task_data.vstream_key);
 
-    if (!err.IsOk())
-    {
-      if (config.logs_level <= userver::logging::Level::kError || task_data.task_type == TASK_TEST)
-        USERVER_IMPL_LOG_TO(logger_, userver::logging::Level::kError,
-          "Error! Unable to send inference request: {}",
-          err.Message());
-      return false;
-    }
-
-    std::shared_ptr<tc::InferResult> result_ptr(result);
-    if (!result_ptr->RequestStatus().IsOk())
+    if (triton_response.outputs.empty())
     {
       if (config.logs_level <= userver::logging::Level::kError || task_data.task_type == TASK_TEST)
         USERVER_IMPL_LOG_TO(logger_, userver::logging::Level::kError, "Error! Unable to receive inference result");
@@ -2139,18 +2053,8 @@ properties:
         "vstream_key = {};  inference face class OK",
         task_data.vstream_key);
 
-    const float* result_data;
-    size_t output_size;
-    err = result_ptr->RawData(dnn_fc_output_tensor_name, reinterpret_cast<const uint8_t**>(&result_data), &output_size);
-    if (!err.IsOk())
-    {
-      if (config.logs_level <= userver::logging::Level::kError || task_data.task_type == TASK_TEST)
-        USERVER_IMPL_LOG_TO(logger_, userver::logging::Level::kError,
-          "Error! Failed to get output: {}",
-          err.Message());
-      return false;
-    }
-
+    const auto& result_raw = triton_response.outputs[0].data;
+    const auto* result_data = reinterpret_cast<const float*>(result_raw.data());
     std::vector<float> scores;
     scores.assign(result_data, result_data + dnn_fc_output_size);
     face_classes = softMax(scores);
@@ -2180,93 +2084,48 @@ properties:
       }
     }
 
-    std::unique_ptr<tc::InferenceServerHttpClient> triton_client;
-    auto err = tc::InferenceServerHttpClient::Create(&triton_client, config.dnn_fr_inference_server, false);
-    if (!err.IsOk())
-    {
-      if (config.logs_level <= userver::logging::Level::kError || task_data.task_type == TASK_TEST)
-        USERVER_IMPL_LOG_TO(logger_, userver::logging::Level::kError,
-          "Error! Unable to create inference client: {}",
-          err.Message());
-      return false;
-    }
-
     auto blob = prepareBlobForArcface(aligned_face, dnn_fr_input_width, dnn_fr_input_height);
     const auto* raw = blob.ptr<uint8_t>();
     const auto byte_size = blob.total() * blob.elemSize();
-    std::vector input_data(raw, raw + byte_size);
-    std::vector<int64_t> shape = {1, 3, dnn_fr_input_height, dnn_fr_input_width};
-    tc::InferInput* input;
-    err = tc::InferInput::Create(&input, dnn_fr_input_tensor_name, shape, "FP32");
-    if (!err.IsOk())
-    {
-      if (config.logs_level <= userver::logging::Level::kError || task_data.task_type == TASK_TEST)
-        USERVER_IMPL_LOG_TO(logger_, userver::logging::Level::kError,
-          "Error! Unable to create input data: {}",
-          err.Message());
-      return false;
-    }
-    std::shared_ptr<tc::InferInput> input_ptr(input);
-    err = input_ptr->AppendRaw(input_data);
-    if (!err.IsOk())
-    {
-      if (config.logs_level <= userver::logging::Level::kError || task_data.task_type == TASK_TEST)
-        USERVER_IMPL_LOG_TO(logger_, userver::logging::Level::kError,
-          "Error! Unable to append input data: {}",
-          err.Message());
-      return false;
-    }
-    std::vector inputs = {input_ptr.get()};
 
-    tc::InferRequestedOutput* output;
-    err = tc::InferRequestedOutput::Create(&output, dnn_fr_output_tensor_name);
-    if (!err.IsOk())
-    {
-      if (config.logs_level <= userver::logging::Level::kError || task_data.task_type == TASK_TEST)
-        USERVER_IMPL_LOG_TO(logger_, userver::logging::Level::kError,
-          "Error! Unable to create output data: {}",
-          err.Message());
-      return false;
-    }
-    std::shared_ptr<tc::InferRequestedOutput> output_ptr(output);
-    std::vector<const tc::InferRequestedOutput*> outputs = {output_ptr.get()};
-
-    tc::InferOptions options(dnn_fr_model_name);
-    options.model_version_ = "";
-    // inference timeout in microseconds
-    options.client_timeout_ = std::chrono::duration_cast<std::chrono::microseconds>(config.inference_timeout).count();
-    tc::InferResult* result;
+    TritonInferenceRequest triton_request;
+    triton_request.model_name = dnn_fr_model_name;
+    triton_request.model_version = "";
+    triton_request.endpoint = config.dnn_fr_inference_server;
+    triton_request.timeout = config.inference_timeout;
+    triton_request.inputs.push_back(MakeTensor(dnn_fr_input_tensor_name, "FP32",
+      {1, 3, dnn_fr_input_height, dnn_fr_input_width}, raw, byte_size));
+    triton_request.requested_outputs = {dnn_fr_output_tensor_name};
 
     if (config.logs_level <= userver::logging::Level::kTrace || task_data.task_type == TASK_TEST)
       USERVER_IMPL_LOG_TO(logger_, userver::logging::Level::kTrace,
         "vstream_key = {};  before inference for extracting descriptor",
         task_data.vstream_key);
-    userver::engine::AsyncNoTracing(fs_task_processor_,
-      [&err, &triton_client, &result, &options, &inputs, &outputs]
-      {
-        err = triton_client->Infer(&result, options, inputs, outputs);
-      }).Get();
+
+    TritonInferenceResponse triton_response;
+    try
+    {
+      triton_response = triton_client_service_.Infer(triton_request);
+    }
+    catch (const std::exception& e)
+    {
+      if (config.logs_level <= userver::logging::Level::kError || task_data.task_type == TASK_TEST)
+        USERVER_IMPL_LOG_TO(logger_, userver::logging::Level::kError,
+          "Error! Unable to send inference request: {}",
+          e.what());
+      return false;
+    }
+
     if (config.logs_level <= userver::logging::Level::kTrace || task_data.task_type == TASK_TEST)
       USERVER_IMPL_LOG_TO(logger_, userver::logging::Level::kTrace,
         "vstream_key = {};  after inference for extracting descriptor",
         task_data.vstream_key);
 
-    if (!err.IsOk())
+    if (triton_response.outputs.empty())
     {
       if (config.logs_level <= userver::logging::Level::kError || task_data.task_type == TASK_TEST)
         USERVER_IMPL_LOG_TO(logger_, userver::logging::Level::kError,
-          "Error! Unable to send inference request: {}",
-          err.Message());
-      return false;
-    }
-
-    std::shared_ptr<tc::InferResult> result_ptr(result);
-    if (!result_ptr->RequestStatus().IsOk())
-    {
-      if (config.logs_level <= userver::logging::Level::kError || task_data.task_type == TASK_TEST)
-        USERVER_IMPL_LOG_TO(logger_, userver::logging::Level::kError,
-          "Error! Unable to receive inference result: {}",
-          err.Message());
+          "Error! Unable to receive inference result");
       return false;
     }
 
@@ -2275,20 +2134,24 @@ properties:
         "vstream_key = {};  inference face descriptor extractor OK",
         task_data.vstream_key);
 
-    const float* result_data;
-    size_t output_size;
-    err = result_ptr->RawData(dnn_fr_output_tensor_name, reinterpret_cast<const uint8_t**>(&result_data), &output_size);
-    if (!err.IsOk())
+    const auto& result_raw = triton_response.outputs[0].data;
+    const auto expected_size =
+        static_cast<size_t>(dnn_fr_output_size) * sizeof(float);
+    if (result_raw.size() != expected_size)
     {
       if (config.logs_level <= userver::logging::Level::kError || task_data.task_type == TASK_TEST)
         USERVER_IMPL_LOG_TO(logger_, userver::logging::Level::kError,
-          "Error! Failed to get output: {}",
-          err.Message());
+          "vstream_key = {};  unexpected inference face descriptor extractor result size: must be {}, but is {}",
+          task_data.vstream_key, expected_size, result_raw.size());
       return false;
     }
 
-    auto m_result = cv::Mat(1, dnn_fr_output_size, CV_32F, const_cast<float*>(result_data));
-    face_descriptor = m_result.clone();
+    face_descriptor = cv::Mat(1, dnn_fr_output_size, CV_32F);
+    std::memcpy(
+        face_descriptor.ptr<float>(),
+        result_raw.data(),
+        expected_size
+    );
 
     return true;
   }
@@ -2416,16 +2279,6 @@ properties:
   {
     detected_barcodes.clear();
 
-    std::unique_ptr<tc::InferenceServerHttpClient> triton_client;
-    auto err = tc::InferenceServerHttpClient::Create(&triton_client, config.dnn_bd_inference_server, false);
-    if (!err.IsOk())
-    {
-      LOG_ERROR_TO(logger_,
-        "Error! Unable to create inference client: {}",
-        err.Message());
-      return false;
-    }
-
     if (config.logs_level <= userver::logging::Level::kTrace || task_data.task_type == TASK_TEST)
       USERVER_IMPL_LOG_TO(logger_, userver::logging::Level::kTrace,
         "vstream_key = {};  before image preprocessing for barcode detection",
@@ -2440,77 +2293,43 @@ properties:
 
     const auto* raw = blob.ptr<uint8_t>();
     const auto byte_size = blob.total() * blob.elemSize();
-    std::vector input_data(raw, raw + byte_size);
-    std::vector<int64_t> shape = {1, 3, common_config.dnn_bd_input_height, common_config.dnn_bd_input_width};
-    tc::InferInput* input;
-    err = tc::InferInput::Create(&input, common_config.dnn_bd_input_tensor_name, shape, "FP32");
-    if (!err.IsOk())
-    {
-      LOG_ERROR_TO(logger_,
-        "Error! Unable to create input data: {}",
-        err.Message());
-      return false;
-    }
-    std::shared_ptr<tc::InferInput> input_ptr(input);
 
-    tc::InferRequestedOutput* output;
-    err = tc::InferRequestedOutput::Create(&output, common_config.dnn_bd_output_tensor_name);
-    if (!err.IsOk())
-    {
-      LOG_ERROR_TO(logger_,
-        "Error! Unable to create output data: {}",
-        err.Message());
-      return false;
-    }
-    std::shared_ptr<tc::InferRequestedOutput> output_ptr(output);
-
-    std::vector inputs = {input_ptr.get()};
-    std::vector<const tc::InferRequestedOutput*> outputs = {output_ptr.get()};
-    err = input_ptr->AppendRaw(input_data);
-    if (!err.IsOk())
-    {
-      LOG_ERROR_TO(logger_,
-        "Error! Unable to set up input data: {}",
-        err.Message());
-      return false;
-    }
-
-    tc::InferOptions options(common_config.dnn_bd_model_name);
-    options.model_version_ = "";
-    // inference timeout in microseconds
-    options.client_timeout_ = std::chrono::duration_cast<std::chrono::microseconds>(config.inference_timeout).count();
-    tc::InferResult* result;
+    TritonInferenceRequest triton_request;
+    triton_request.model_name = common_config.dnn_bd_model_name;
+    triton_request.model_version = "";
+    triton_request.endpoint = config.dnn_bd_inference_server;
+    triton_request.timeout = config.inference_timeout;
+    triton_request.inputs.push_back(MakeTensor(common_config.dnn_bd_input_tensor_name, "FP32",
+      {1, 3, common_config.dnn_bd_input_height, common_config.dnn_bd_input_width}, raw, byte_size));
+    triton_request.requested_outputs = {common_config.dnn_bd_output_tensor_name};
 
     if (config.logs_level <= userver::logging::Level::kTrace)
       USERVER_IMPL_LOG_TO(logger_, userver::logging::Level::kTrace,
         "vstream_key = {};  before inference barcode detection",
         task_data.vstream_key);
 
-    AsyncNoTracing(fs_task_processor_,
-      [&err, &triton_client, &result, &options, &inputs, &outputs]
-      {
-        err = triton_client->Infer(&result, options, inputs, outputs);
-      }).Get();
+    TritonInferenceResponse triton_response;
+    try
+    {
+      triton_response = triton_client_service_.Infer(triton_request);
+    }
+    catch (const std::exception& e)
+    {
+      LOG_ERROR_TO(logger_,
+        "Error! Unable to send inference request: {}",
+        e.what());
+      return false;
+    }
 
     if (config.logs_level <= userver::logging::Level::kTrace)
       USERVER_IMPL_LOG_TO(logger_, userver::logging::Level::kTrace,
         "vstream_key = {};  after inference barcode detection",
         task_data.vstream_key);
 
-    if (!err.IsOk())
+    if (triton_response.outputs.empty())
     {
       LOG_ERROR_TO(logger_,
-        "Error! Unable to send inference request: {}",
-        err.Message());
-      return false;
-    }
-
-    std::shared_ptr<tc::InferResult> result_ptr(result);
-    if (!result_ptr->RequestStatus().IsOk())
-    {
-      LOG_ERROR_TO(logger_,
-        "Error! Unable to receive inference result: {}",
-        err.Message());
+        "Error! Unable to receive inference result");
       return false;
     }
 
@@ -2519,9 +2338,8 @@ properties:
         "vstream_key = {};  inference barcode detection OK",
         task_data.vstream_key);
 
-    const float* data;
-    size_t data_size;
-    result_ptr->RawData(common_config.dnn_bd_output_tensor_name, reinterpret_cast<const uint8_t**>(&data), &data_size);
+    const auto& output_raw = triton_response.outputs[0].data;
+    const auto* data = reinterpret_cast<const float*>(output_raw.data());
 
     // the output tensor has a dimension of [5, 2100]
     //  0 - bbox x_center
