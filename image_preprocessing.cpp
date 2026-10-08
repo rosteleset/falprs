@@ -94,9 +94,9 @@ cv::Mat prepareBlobForGenet(const cv::Mat& img, const int32_t target_width, cons
 
   // ImageNet normalization: (pixel / 255.0 - mean) / std, per channel (RGB)
   constexpr float inv255 = 1.0f / 255.0f;
-  constexpr float mean_r = 0.485f, std_r = 0.229f;
-  constexpr float mean_g = 0.456f, std_g = 0.224f;
-  constexpr float mean_b = 0.406f, std_b = 0.225f;
+  constexpr float std_r = 0.229f;
+  constexpr float std_g = 0.224f;
+  constexpr float std_b = 0.225f;
   constexpr float inv_std_r = 1.0f / std_r;
   constexpr float inv_std_g = 1.0f / std_g;
   constexpr float inv_std_b = 1.0f / std_b;
@@ -107,6 +107,9 @@ cv::Mat prepareBlobForGenet(const cv::Mat& img, const int32_t target_width, cons
     const int offset = h * target_width;
     for (int w = 0; w < target_width; ++w)
     {
+      constexpr float mean_b = 0.406f;
+      constexpr float mean_g = 0.456f;
+      constexpr float mean_r = 0.485f;
       const int idx = offset + w;
       const int px = w * 3;
       plane_r[idx] = (static_cast<float>(row[px + 2]) * inv255 - mean_r) * inv_std_r;
@@ -156,4 +159,84 @@ cv::Mat prepareBlobForLpcNet(const cv::Mat& img, const int32_t target_width, con
     true,                             // swapRB: BGR → RGB
     false                             // without crop
   );
+}
+
+// YOLO OBB letterbox with stride alignment
+cv::Mat prepareBlobForYOLOOBB(const cv::Mat& image, const int32_t target_size, cv::Point2f& padding, float& ratio)
+{
+  constexpr int32_t kStride = 32;
+  constexpr int32_t kPaddingValue = 114;
+
+  const auto image_width = image.cols;
+  const auto image_height = image.rows;
+
+  // Scale ratio (new / old).
+  ratio = std::min(
+    target_size / static_cast<double>(image_height),
+    target_size / static_cast<double>(image_width));
+
+  // Resized image dimensions.
+  const auto new_width = static_cast<int32_t>(std::round(image_width * ratio));
+  const auto new_height = static_cast<int32_t>(std::round(image_height * ratio));
+
+  // Padding.
+  //
+  // Ultralytics LetterBox with auto=True reduces padding
+  // to the minimum required to satisfy the model stride.
+  auto dw = target_size - new_width;
+  auto dh = target_size - new_height;
+
+  dw %= kStride;
+  dh %= kStride;
+
+  padding.x = static_cast<float>(dw) / 2;
+  padding.y = static_cast<float>(dh) / 2;
+
+  cv::Mat resized;
+
+  if (image_width != new_width || image_height != new_height)
+  {
+    cv::resize(
+      image,
+      resized,
+      cv::Size(new_width, new_height),
+      0.0,
+      0.0,
+      cv::INTER_LINEAR);
+  } else
+    resized = image;
+
+  // Match Ultralytics rounding:
+  //
+  // top    = round(dh - 0.1)
+  // bottom = round(dh + 0.1)
+  // left   = round(dw - 0.1)
+  // right  = round(dw + 0.1)
+  const auto top = static_cast<int32_t>(std::round(padding.y - 0.1f));
+  const auto bottom = static_cast<int32_t>(std::round(padding.y + 0.1f));
+  const auto left = static_cast<int32_t>(std::round(padding.x - 0.1f));
+  const auto right = static_cast<int32_t>(std::round(padding.x + 0.1f));
+
+  cv::Mat letterboxed;
+  cv::copyMakeBorder(
+    resized,
+    letterboxed,
+    top,
+    bottom,
+    left,
+    right,
+    cv::BORDER_CONSTANT,
+    cv::Scalar(
+      kPaddingValue,
+      kPaddingValue,
+      kPaddingValue));
+
+  // BGR -> RGB, HWC uint8 -> NCHW float32 [0, 1].
+  return cv::dnn::blobFromImage(
+    letterboxed,
+    1.0 / 255.0,          // scale factor
+    cv::Size(),           // size is already target
+    cv::Scalar(0, 0, 0),  // mean (subtracted before scaling)
+    true,                 // swapRB
+    false);               // without crop
 }

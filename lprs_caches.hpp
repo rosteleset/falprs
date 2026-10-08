@@ -62,6 +62,12 @@ namespace Lprs
     inline static constexpr auto LPR_NET_INPUT_HEIGHT = "lpr-net-input-height";
     inline static constexpr auto LPR_NET_INPUT_TENSOR_NAME = "lpr-net-input-tensor-name";
     inline static constexpr auto LPR_NET_OUTPUT_TENSOR_NAME = "lpr-net-output-tensor-name";
+    inline static constexpr auto OVD_NET_INFERENCE_SERVER = "ovd-net-inference-server";
+    inline static constexpr auto OVD_NET_MODEL_NAME = "ovd-net-model-name";
+    inline static constexpr auto OVD_NET_INPUT_WIDTH = "ovd-net-input-width";
+    inline static constexpr auto OVD_NET_INPUT_HEIGHT = "ovd-net-input-height";
+    inline static constexpr auto OVD_NET_INPUT_TENSOR_NAME = "ovd-net-input-tensor-name";
+    inline static constexpr auto OVD_NET_OUTPUT_TENSOR_NAME = "ovd-net-output-tensor-name";
     inline static constexpr auto VEHICLE_CONFIDENCE = "vehicle-confidence";
     inline static constexpr auto VEHICLE_IOU_THRESHOLD = "vehicle-iou-threshold";
     inline static constexpr auto VEHICLE_AREA_RATIO_THRESHOLD = "vehicle-area-ratio-threshold";
@@ -127,6 +133,13 @@ namespace Lprs
     int32_t lpr_net_input_height = 320;
     std::string lpr_net_input_tensor_name{"images"};
     std::string lpr_net_output_tensor_name{"output0"};
+
+    std::string ovd_net_inference_server{"127.0.0.1:8001"};
+    std::string ovd_net_model_name{"ovdnet"};
+    int32_t ovd_net_input_width = 320;
+    int32_t ovd_net_input_height = 320;
+    std::string ovd_net_input_tensor_name{"images"};
+    std::string ovd_net_output_tensor_name{"output0"};
 
     std::chrono::milliseconds callback_timeout{std::chrono::seconds{2}};
     float plate_confidence{0.6};
@@ -199,6 +212,13 @@ namespace Lprs
     config.lpr_net_input_height = convertToNumber(json[ConfigParams::LPR_NET_INPUT_HEIGHT], config.lpr_net_input_height);
     config.lpr_net_input_tensor_name = convertToString(json[ConfigParams::LPR_NET_INPUT_TENSOR_NAME], config.lpr_net_input_tensor_name);
     config.lpr_net_output_tensor_name = convertToString(json[ConfigParams::LPR_NET_OUTPUT_TENSOR_NAME], config.lpr_net_output_tensor_name);
+
+    config.ovd_net_inference_server = convertToString(json[ConfigParams::OVD_NET_INFERENCE_SERVER], config.ovd_net_inference_server);
+    config.ovd_net_model_name = convertToString(json[ConfigParams::OVD_NET_MODEL_NAME], config.ovd_net_model_name);
+    config.ovd_net_input_width = convertToNumber(json[ConfigParams::OVD_NET_INPUT_WIDTH], config.ovd_net_input_width);
+    config.ovd_net_input_height = convertToNumber(json[ConfigParams::OVD_NET_INPUT_HEIGHT], config.ovd_net_input_height);
+    config.ovd_net_input_tensor_name = convertToString(json[ConfigParams::OVD_NET_INPUT_TENSOR_NAME], config.ovd_net_input_tensor_name);
+    config.ovd_net_output_tensor_name = convertToString(json[ConfigParams::OVD_NET_OUTPUT_TENSOR_NAME], config.ovd_net_output_tensor_name);
 
     config.callback_timeout = convertToDuration(json[ConfigParams::CALLBACK_TIMEOUT], config.callback_timeout);
     config.plate_confidence = convertToNumber(json[ConfigParams::PLATE_CONFIDENCE], config.plate_confidence);
@@ -320,6 +340,17 @@ namespace Lprs
         vstreams vs
         left join default_vstream_config d
           on d.id_group = vs.id_group
+
+      union all
+
+      select
+        d.id_group::text unique_key,
+        d.id_group,
+        0 id_vstream,
+        'v' ext_id,
+        d.config
+      from
+        default_vstream_config d
     )__SQL__";
     static constexpr const char* kUpdatedField = nullptr;
     using CacheContainer = VStreamConfigContainer;
@@ -328,7 +359,7 @@ namespace Lprs
 
   using VStreamsConfigCache = userver::components::PostgreCache<VStreamsConfigCachePolicy>;
 
-  // Video streams and their groups cache
+  // Video streams and their group cache
   struct VStreamGroup
   {
     int32_t id_vstream;

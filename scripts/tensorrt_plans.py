@@ -78,6 +78,15 @@ REGULAR_MODELS = [
         'shape_args': '--minShapes=images:1x3x640x640 --optShapes=images:8x3x640x640 --maxShapes=images:8x3x640x640',
         'output_pattern': 'vdnet_yolo{suffix}.engine',
     },
+    {
+        'key': 'ovdnet',
+        'onnx': 'ovdnet.onnx',
+        'sha1': 'c8d1c7ecb49cc87a869cd73b3823a05c41e1a65b',
+        'id': '14DM9X8WplPoQ_dngwkGPQvgZfuSWiJQC',
+        'template': 'ovdnet_{suffix}.engine',
+        'shape_args': '--minShapes=images:1x3x96x96 --optShapes=images:8x3x320x320 --maxShapes=images:8x3x1024x1024',
+        'output_pattern': 'ovdnet{suffix}.engine',
+    },
 ]
 
 MODEL_TEMPLATES = {
@@ -90,6 +99,7 @@ MODEL_TEMPLATES = {
     'scrfd': "model_{suffix}.plan",
     'vcnet_vit': "vcnet_vit_{suffix}.engine",
     'vdnet_yolo': "vdnet_yolo_{suffix}.engine",
+    'ovdnet': "ovdnet_{suffix}.engine",
 }
 
 

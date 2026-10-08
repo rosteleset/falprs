@@ -13,10 +13,9 @@
 #include <userver/http/content_type.hpp>
 #include <userver/yaml_config/merge_schemas.hpp>
 
+#include "image_preprocessing.hpp"
 #include "lprs_api.hpp"
 #include "lprs_workflow.hpp"
-#include "image_preprocessing.hpp"
-
 
 namespace Lprs
 {
@@ -1944,6 +1943,271 @@ properties:
     }
 
     return is_ok;
+  }
+
+  // OVDNet inference
+  bool Workflow::doInferenceOvdNet(const cv::Mat& img, const VStreamConfig& config, std::vector<VehicleObb>& detected_vehicles) const
+  {
+    detected_vehicles.clear();
+
+    if (config.logs_level <= userver::logging::Level::kTrace)
+      USERVER_IMPL_LOG_TO(logger_, userver::logging::Level::kTrace,
+        "vstream_key = {};  before preprocess image for OVDNet",
+        config.id_group);
+
+    cv::Point2f padding;
+    float scale;
+    const auto image_size = std::max(config.ovd_net_input_width, config.ovd_net_input_height);
+    auto blob = prepareBlobForYOLOOBB(img, image_size, padding, scale);
+    if (config.logs_level <= userver::logging::Level::kTrace)
+      USERVER_IMPL_LOG_TO(logger_, userver::logging::Level::kTrace,
+        "vstream_key = {};  after preprocess image for OVDNet",
+        config.id_group);
+
+    const auto* raw = blob.ptr<uint8_t>();
+    const auto byte_size = blob.total() * blob.elemSize();
+
+    TritonInferenceRequest triton_request;
+    triton_request.model_name = config.ovd_net_model_name;
+    triton_request.model_version = "";
+    triton_request.endpoint = config.ovd_net_inference_server;
+    triton_request.timeout = config.inference_timeout;
+    triton_request.inputs.push_back(MakeTensor(config.ovd_net_input_tensor_name, "FP32",
+      {blob.size[0], blob.size[1], blob.size[2], blob.size[3]}, raw, byte_size));
+    triton_request.requested_outputs = {config.ovd_net_output_tensor_name};
+
+    TritonInferenceResponse triton_response;
+    try
+    {
+      triton_response = triton_client_service_.Infer(triton_request);
+    }
+    catch (const std::exception& e)
+    {
+      LOG_ERROR_TO(logger_,
+        "Error! Unable to send inference request: {}",
+        e.what());
+      return false;
+    }
+
+    if (config.logs_level <= userver::logging::Level::kTrace)
+      USERVER_IMPL_LOG_TO(logger_, userver::logging::Level::kTrace,
+        "vstream_key = {};  after inference OVDNet",
+        config.id_group);
+
+    if (triton_response.outputs.empty())
+    {
+      LOG_ERROR_TO(logger_,
+        "Error! Unable to receive inference result");
+      return false;
+    }
+
+    if (config.logs_level <= userver::logging::Level::kDebug)
+      USERVER_IMPL_LOG_TO(logger_, userver::logging::Level::kDebug,
+        "vstream_key = {};  inference OVDNet OK",
+        config.id_group);
+
+    const auto& output_raw = triton_response.outputs[0].data;
+    const auto* data = reinterpret_cast<const float*>(output_raw.data());
+
+    // the output tensor has a dimension of [300, 7]
+    //  0 - bbox x
+    //  1 - bbox y
+    //  2 - bbox w
+    //  3 - bbox h
+    //  4 - confidence
+    //  5 - class_id
+    //  6 - angle
+    constexpr auto num_rows = 300;
+    constexpr auto num_cols = 7;
+    if (config.logs_level <= userver::logging::Level::kTrace)
+      USERVER_IMPL_LOG_TO(logger_, userver::logging::Level::kTrace,
+        "vstream_key = {};  vehicle confidence threshold: {:.3f}",
+        config.id_group, config.vehicle_confidence);
+    for (auto j = 0; j < num_rows; ++j)
+    {
+      if (const auto conf = data[4 + num_cols * j]; conf > config.vehicle_confidence)
+      {
+        auto cx = data[0 + num_cols * j];
+        auto cy = data[1 + num_cols * j];
+        const auto w = data[2 + num_cols * j];
+        const auto h = data[3 + num_cols * j];
+        auto dx = w * 0.5f;
+        auto dy = h * 0.5f;
+        const auto x1 = cx - dx;
+        const auto y1 = cy - dy;
+        const auto x2 = cx + dx;
+        const auto y2 = cy + dy;
+        const auto class_id = static_cast<size_t>(data[5 + num_cols * j]);
+
+        const auto inv_scale = 1.0f / scale;
+        const auto x_min = std::fmax((x1 - padding.x) * inv_scale, 0.0f);
+        const auto y_min = std::fmax((y1 - padding.y) * inv_scale, 0.0f);
+        const auto x_max = std::fmin((x2 - padding.x) * inv_scale, static_cast<float>(img.cols - 1));
+        const auto y_max = std::fmin((y2 - padding.y) * inv_scale, static_cast<float>(img.rows - 1));
+
+        // Undo LetterBox for OBB center.
+        cx = (cx - padding.x) * inv_scale;
+        cy = (cy - padding.y) * inv_scale;
+        dx *= inv_scale;
+        dy *= inv_scale;
+
+        const auto angle = data[6 + num_cols * j];
+        const auto cos_a = std::cos(angle);
+        const auto sin_a = std::sin(angle);
+
+        detected_vehicles.push_back({
+          cv::Rect2f{
+            cv::Point2f{x_min, y_min},
+            cv::Point2f{x_max, y_max}
+          },
+          angle,
+          {{
+            {cx + dx * cos_a - dy * sin_a, cy + dx * sin_a + dy * cos_a},
+            {cx - dx * cos_a - dy * sin_a, cy - dx * sin_a + dy * cos_a},
+            {cx - dx * cos_a + dy * sin_a, cy - dx * sin_a - dy * cos_a},
+            {cx + dx * cos_a + dy * sin_a, cy + dx * sin_a - dy * cos_a}
+          }},
+          conf,
+          class_id
+        });
+      }
+    }
+
+    return true;
+  }
+
+  std::vector<VehicleObb> Workflow::detectVehiclesObb(const int32_t id_group, const std::string_view screenshot_url, std::optional<int32_t> image_size, std::optional<float> confidence_threshold) const
+  {
+    VStreamConfig config;
+    std::string vstream_key = std::to_string(id_group);
+    // scope for accessing cache
+    {
+      const auto cache = vstreams_config_cache_.Get();
+      if (!cache->getData().contains(vstream_key))
+        return {};
+
+      config = cache->getData().at(vstream_key);
+    }
+
+    if (config.logs_level <= userver::logging::Level::kDebug)
+    {
+      auto frame_url = screenshot_url.starts_with("data:") ? "data:base64..." : screenshot_url;
+      USERVER_IMPL_LOG_TO(logger_, userver::logging::Level::kDebug,
+        "Start detectVehiclesObb: vstream_key = {};  frame_url = {}",
+        vstream_key, frame_url);
+    }
+
+    std::vector<VehicleObb> detected_vehicles;
+    try
+    {
+      if (config.logs_level <= userver::logging::Level::kTrace)
+        USERVER_IMPL_LOG_TO(logger_, userver::logging::Level::kTrace,
+          "vstream_key = {};  before image acquisition",
+          vstream_key);
+
+      std::string image_data;
+      if (screenshot_url.starts_with("data:"))
+      {
+        if (const auto pos_comma = screenshot_url.find(','); pos_comma != std::string::npos)
+          if (screenshot_url.find(";base64,") != std::string::npos)
+            if (!absl::Base64Unescape(absl::ClippedSubstr(screenshot_url, pos_comma + 1), &image_data))
+            {
+              if (config.logs_level <= userver::logging::Level::kError)
+                USERVER_IMPL_LOG_TO(logger_, userver::logging::Level::kError,
+                  "Error decoding image from BASE64: vstream_key = {};",
+                  vstream_key);
+
+              return {};
+            }
+      } else
+      {
+        // parse user and password
+        std::string auth_user;
+        std::string auth_password;
+        if (const auto char_alpha = screenshot_url.find('@'); char_alpha != std::string::npos)
+        {
+          if (const auto protocol_suffix = screenshot_url.find("://"); protocol_suffix != std::string::npos && protocol_suffix < char_alpha)
+          {
+            const auto start_of_authority = protocol_suffix + 3;
+            if (const auto char_colon = screenshot_url.find(':', start_of_authority); char_colon != std::string::npos && char_colon < char_alpha)
+            {
+              auth_user = screenshot_url.substr(start_of_authority, char_colon - start_of_authority);
+              auth_password = screenshot_url.substr(char_colon + 1, char_alpha - char_colon - 1);
+            } else
+              auth_user = screenshot_url.substr(start_of_authority, char_alpha - start_of_authority);
+          }
+        }
+        // clang-format off
+        const auto capture_response = http_client_.CreateRequest()
+          .get(std::string(screenshot_url))
+          .http_auth_type(userver::clients::http::HttpAuthType::kAnySafe, false, auth_user, auth_password)
+          .retry(config.max_capture_error_count)
+          .timeout(config.capture_timeout)
+          .perform();
+        // clang-format on
+
+        if (capture_response->status_code() != userver::clients::http::Status::OK || capture_response->body_view().empty())
+        {
+          if (config.logs_level <= userver::logging::Level::kError)
+            USERVER_IMPL_LOG_TO(logger_, userver::logging::Level::kError,
+              "vstream_key = {};  url = {};  status_code = {}",
+              vstream_key, screenshot_url, capture_response->status_code());
+
+          return {};
+        }
+
+        image_data = capture_response->body();
+      }
+
+      if (config.logs_level <= userver::logging::Level::kTrace)
+        USERVER_IMPL_LOG_TO(logger_, userver::logging::Level::kTrace,
+          "vstream_key = {};  after image acquisition",
+          vstream_key);
+
+      if (config.logs_level <= userver::logging::Level::kTrace)
+      {
+        USERVER_IMPL_LOG_TO(logger_, userver::logging::Level::kTrace,
+          "vstream_key = {};  image size = {} bytes",
+          vstream_key, image_data.size());
+        USERVER_IMPL_LOG_TO(logger_, userver::logging::Level::kTrace,
+          "vstream_key = {};  before decoding the image",
+          vstream_key);
+      }
+      const cv::Mat frame = imdecode(std::vector(image_data.begin(), image_data.end()),
+        cv::IMREAD_COLOR);
+      if (config.logs_level <= userver::logging::Level::kTrace)
+        USERVER_IMPL_LOG_TO(logger_, userver::logging::Level::kTrace,
+          "vstream_key = {};  after decoding the image",
+          vstream_key);
+
+      if (config.logs_level <= userver::logging::Level::kTrace)
+        USERVER_IMPL_LOG_TO(logger_, userver::logging::Level::kTrace,
+          "vstream_key = {};  before doInferenceOvdNet",
+          vstream_key);
+      config.ovd_net_input_width = image_size.value_or(config.ovd_net_input_width);
+      config.ovd_net_input_height = image_size.value_or(config.ovd_net_input_height);
+      config.vehicle_confidence = confidence_threshold.value_or(config.vehicle_confidence);
+      doInferenceOvdNet(frame, config, detected_vehicles);
+      if (config.logs_level <= userver::logging::Level::kTrace)
+        USERVER_IMPL_LOG_TO(logger_, userver::logging::Level::kTrace,
+          "vstream_key = {};  after doInferenceOvdNet",
+          vstream_key);
+    } catch (const std::exception& e)
+    {
+      if (config.logs_level <= userver::logging::Level::kError)
+        USERVER_IMPL_LOG_TO(logger_, userver::logging::Level::kError,
+          "vstream_key = {};  {}",
+          vstream_key, e.what());
+
+      return {};
+    }
+
+    if (config.logs_level <= userver::logging::Level::kDebug)
+      USERVER_IMPL_LOG_TO(logger_, userver::logging::Level::kDebug,
+        "End detectVehiclesObb: vstream_key = {};",
+        vstream_key);
+
+    return detected_vehicles;
   }
 
   int64_t Workflow::addEventLog(const int32_t id_vstream, const userver::storages::postgres::TimePointTz& log_date, const userver::formats::json::Value& info) const

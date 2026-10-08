@@ -8,4 +8,4 @@ cv::Mat prepareBlobForScrfd(const cv::Mat& image, int32_t target_width, int32_t 
 cv::Mat prepareBlobForGenet(const cv::Mat& img, int32_t target_width, int32_t target_height);
 cv::Mat prepareBlobForArcface(const cv::Mat& img, int32_t target_width, int32_t target_height);
 cv::Mat prepareBlobForLpcNet(const cv::Mat& img, int32_t target_width, int32_t target_height);
-
+cv::Mat prepareBlobForYOLOOBB(const cv::Mat& image, int32_t target_size, cv::Point2f& padding, float& ratio);

@@ -16,15 +16,16 @@ namespace Lprs
     static constexpr auto kName = "lprs-api-http";
 
     // API methods
-    static constexpr auto METHOD_ADD_STREAM = "addStream";                              // add or change a video stream
-    static constexpr auto METHOD_REMOVE_STREAM = "removeStream";                        // remove video stream
-    static constexpr auto METHOD_LIST_STREAMS = "listStreams";                          // list video streams with config
-    static constexpr auto METHOD_START_WORKFLOW = "startWorkflow";                      // start a license plate recognition workflow
-    static constexpr auto METHOD_STOP_WORKFLOW = "stopWorkflow";                        // stop license plate recognition workflow
-    static constexpr auto METHOD_GET_EVENT_DATA = "getEventData";                       // get a list of events from a time interval
-    static constexpr auto METHOD_SET_STREAM_DEFAULT_CONFIG = "setStreamDefaultConfig";  // set the default video stream configuration parameters
-    static constexpr auto METHOD_GET_STREAM_DEFAULT_CONFIG = "getStreamDefaultConfig";  // get the default video stream configuration parameters
+    static constexpr auto METHOD_ADD_STREAM = "addStream";                                               // add or change a video stream
+    static constexpr auto METHOD_REMOVE_STREAM = "removeStream";                                         // remove video stream
+    static constexpr auto METHOD_LIST_STREAMS = "listStreams";                                           // list video streams with config
+    static constexpr auto METHOD_START_WORKFLOW = "startWorkflow";                                       // start a license plate recognition workflow
+    static constexpr auto METHOD_STOP_WORKFLOW = "stopWorkflow";                                         // stop license plate recognition workflow
+    static constexpr auto METHOD_GET_EVENT_DATA = "getEventData";                                        // get a list of events from a time interval
+    static constexpr auto METHOD_SET_STREAM_DEFAULT_CONFIG = "setStreamDefaultConfig";                   // set the default video stream configuration parameters
+    static constexpr auto METHOD_GET_STREAM_DEFAULT_CONFIG = "getStreamDefaultConfig";                   // get the default video stream configuration parameters
     static constexpr auto METHOD_GET_SUPPORTED_PLATE_NUMBER_FORMATS = "getSupportedPlateNumberFormats";  // get supported plate number formats
+    static constexpr auto METHOD_DETECT_VEHICLES_OBB = "detectVehiclesObb";                              // get vehicle detections with oriented bounding boxes
 
     // parameters
     static constexpr auto PARAM_STREAM_ID = "streamId";
@@ -47,6 +48,12 @@ namespace Lprs
     static constexpr auto PARAM_PLATE_TYPE = "type";
     static constexpr auto PARAM_COUNTRY_CODE = "countryCode";
     static constexpr auto PARAM_REGEX = "regex";
+    static constexpr auto PARAM_IMAGE_SIZE = "imageSize";
+    static constexpr auto PARAM_CORNERS = "corners";
+    static constexpr auto PARAM_CONFIDENCE_THRESHOLD = "confidenceThreshold";
+    static constexpr auto PARAM_CLASS_ID = "classId";
+    static constexpr auto PARAM_CLASS_NAME = "className";
+    static constexpr auto PARAM_ANGLE = "angle";
 
     // messages
     static constexpr auto MESSAGE_OK = "Ok";
@@ -155,5 +162,7 @@ namespace Lprs
 
     // supported plate number formats
     static userver::formats::json::Value getSupportedPlateNumberFormats();
+
+    userver::formats::json::Value detectVehiclesObb(int32_t id_group, const userver::formats::json::Value& json) const;
   };
 }  // namespace Lprs

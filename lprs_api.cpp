@@ -2,8 +2,10 @@
 
 #include <absl/strings/substitute.h>
 #include <userver/components/component_context.hpp>
+#include <userver/formats/serialize/common_containers.hpp>
 
 #include "lprs_api.hpp"
+#include <StdPrint.h>
 
 namespace Lprs
 {
@@ -93,6 +95,10 @@ namespace Lprs
         {
           return getSupportedPlateNumberFormats();
         }},
+      {METHOD_DETECT_VEHICLES_OBB, [this](auto&& id_group, auto&& json)
+        {
+          return detectVehiclesObb(id_group, json);
+        }},
     };
 
     if (with_content_methods.contains(api_method))
@@ -127,19 +133,19 @@ namespace Lprs
   void Api::requireMemberThrow(const userver::formats::json::Value& json, const std::string_view member)
   {
     if (!json.HasMember(member))
-      throw userver::server::handlers::ClientError(ExternalBody{absl::Substitute("Required member `$0` not found.",  absl::string_view(member.data(), member.size()))});
+      throw userver::server::handlers::ClientError(ExternalBody{absl::Substitute("Required member `$0` not found.", absl::string_view(member.data(), member.size()))});
 
     if (json[member].IsNull())
-      throw userver::server::handlers::ClientError(ExternalBody{absl::Substitute("Member `$0` must not be null.",  absl::string_view(member.data(), member.size()))});
+      throw userver::server::handlers::ClientError(ExternalBody{absl::Substitute("Member `$0` must not be null.", absl::string_view(member.data(), member.size()))});
 
     if (json[member].IsArray())
-      throw userver::server::handlers::ClientError(ExternalBody{absl::Substitute("Member `$0` must not be an array.",  absl::string_view(member.data(), member.size()))});
+      throw userver::server::handlers::ClientError(ExternalBody{absl::Substitute("Member `$0` must not be an array.", absl::string_view(member.data(), member.size()))});
 
     if (json[member].IsObject())
-      throw userver::server::handlers::ClientError(ExternalBody{absl::Substitute("Member `$0` must not be an object.",  absl::string_view(member.data(), member.size()))});
+      throw userver::server::handlers::ClientError(ExternalBody{absl::Substitute("Member `$0` must not be an object.", absl::string_view(member.data(), member.size()))});
 
     if (json[member].IsString() && json[member].As<std::string>().empty())
-      throw userver::server::handlers::ClientError(ExternalBody{absl::Substitute("Member `$0` must not be empty.",  absl::string_view(member.data(), member.size()))});
+      throw userver::server::handlers::ClientError(ExternalBody{absl::Substitute("Member `$0` must not be empty.", absl::string_view(member.data(), member.size()))});
   }
 
   void Api::addStream(int32_t id_group, const userver::formats::json::Value& json) const
@@ -349,4 +355,46 @@ namespace Lprs
 
     return formats.ExtractValue();
   }
+
+  userver::formats::json::Value Api::detectVehiclesObb(int32_t id_group, const userver::formats::json::Value& json) const
+  {
+    requireMemberThrow(json, PARAM_SCREENSHOT_URL);
+    const auto screenshot_url = convertToString(json[PARAM_SCREENSHOT_URL]);
+    std::optional<int32_t> image_size = std::nullopt;
+    std::optional<float> vehicle_confidence = std::nullopt;
+    if (json.HasMember(PARAM_IMAGE_SIZE))
+    {
+      image_size = convertToInt<int32_t>(json[PARAM_IMAGE_SIZE]);
+      if (image_size < 160 || image_size > 1024)
+        throw userver::server::handlers::ClientError(ExternalBody{absl::Substitute("Member `$0` must be between 160 and 1024", PARAM_IMAGE_SIZE)});
+    }
+    if (json.HasMember(PARAM_CONFIDENCE_THRESHOLD))
+    {
+      vehicle_confidence = convertToNumber<float>(json[PARAM_CONFIDENCE_THRESHOLD], -1.0f);
+      if (vehicle_confidence < 0.0f || vehicle_confidence > 1.0f)
+        throw userver::server::handlers::ClientError(ExternalBody{absl::Substitute("Member `$0` must be between 0.0 and 1.0", PARAM_CONFIDENCE_THRESHOLD)});
+    }
+
+    const auto detected_vehicles = workflow_.detectVehiclesObb(id_group, screenshot_url, image_size, vehicle_confidence);
+    userver::formats::json::ValueBuilder vehicles;
+    for (const auto& vehicle : detected_vehicles)
+    {
+      userver::formats::json::ValueBuilder v{};
+      v[PARAM_CLASS_ID] = vehicle.class_id;
+      v[PARAM_CLASS_NAME] = OVDNET_CLASSES[vehicle.class_id];
+      v[PARAM_CONFIDENCE] = vehicle.confidence;
+      v[PARAM_BOX] = std::vector{static_cast<int32_t>(vehicle.bbox.tl().x), static_cast<int32_t>(vehicle.bbox.tl().y), static_cast<int32_t>(vehicle.bbox.br().x), static_cast<int32_t>(vehicle.bbox.br().y)};
+      v[PARAM_ANGLE] = vehicle.angle;
+      v[PARAM_CORNERS] = std::vector{
+        static_cast<int32_t>(vehicle.corners[0].x), static_cast<int32_t>(vehicle.corners[0].y),
+        static_cast<int32_t>(vehicle.corners[1].x), static_cast<int32_t>(vehicle.corners[1].y),
+        static_cast<int32_t>(vehicle.corners[2].x), static_cast<int32_t>(vehicle.corners[2].y),
+        static_cast<int32_t>(vehicle.corners[3].x), static_cast<int32_t>(vehicle.corners[3].y)
+      };
+      vehicles.PushBack(std::move(v));
+    }
+
+    return vehicles.ExtractValue();
+  }
+
 }  // namespace Lprs

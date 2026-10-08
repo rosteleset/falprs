@@ -12,11 +12,14 @@
 namespace Lprs
 {
   // License plate classes
-  inline static constexpr char const* PLATE_CLASSES[] = {"ru_1", "ru_1a", "by", "am"};
+  inline static constexpr auto PLATE_CLASSES = std::to_array<std::string_view>({"ru_1", "ru_1a", "by", "am"});
   inline static constexpr int32_t PLATE_CLASS_RU_1 = 0;
   inline static constexpr int32_t PLATE_CLASS_RU_1A = 1;
   inline static constexpr int32_t PLATE_CLASS_BY = 2;
   inline static constexpr int32_t PLATE_CLASS_AM = 3;
+
+  // OVDNet classes
+  inline static constexpr auto OVDNET_CLASSES = std::to_array<std::string_view>({"car", "van", "truck", "bus", "freight car"});
 
   namespace DatabaseFields
   {
@@ -77,6 +80,15 @@ namespace Lprs
     std::vector<LicensePlate> license_plates;
   };
 
+  struct VehicleObb
+  {
+    cv::Rect2f bbox;                     // axis-aligned bounding box
+    float angle;                         // rotation angle in radians
+    std::array<cv::Point2f, 4> corners;  // rotated bounding box
+    float confidence;
+    size_t class_id;
+  };
+
   class Workflow final : public userver::components::LoggableComponentBase
   {
   public:
@@ -104,6 +116,7 @@ namespace Lprs
     const LocalConfig& getLocalConfig();
     const userver::logging::LoggerPtr& getLogger();
     void OnAllComponentsAreStopping() override;
+    std::vector<VehicleObb> detectVehiclesObb(int32_t id_group, std::string_view screenshot_url, std::optional<int32_t> image_size, std::optional<float> confidence_threshold) const;
 
   private:
     userver::concurrent::Variable<HashMap<std::string, bool>> being_processed_vstreams;
@@ -149,8 +162,11 @@ namespace Lprs
 
     // LPRNet
     bool doInferenceLprNet(const cv::Mat& img, const VStreamConfig& config, std::vector<LicensePlate*>& detected_plates);
-
     static bool isValidPlateNumber(PlateNumberData& plate_number);
+
+    // OVDNet
+    bool doInferenceOvdNet(const cv::Mat& img, const VStreamConfig& config, std::vector<VehicleObb>& detected_vehicles) const;
+
     int64_t addEventLog(int32_t id_vstream, const userver::storages::postgres::TimePointTz& log_date, const userver::formats::json::Value& info) const;
   };
 }  // namespace Lprs
