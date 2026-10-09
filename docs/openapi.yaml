@@ -2076,6 +2076,143 @@ paths:
         '400':
           description: Bad request
 
+  /lprs/api/detectVehiclesObb:
+    post:
+      tags:
+        - Host --> LPRS
+      summary: Detect Vehicles with Oriented Bounding Boxes
+      description: |
+        Detects vehicles with oriented bounding boxes in the specified image
+      operationId: lprs_detectVehiclesObb
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - screenshotUrl
+              properties:
+                screenshotUrl:
+                  description: URL of the image to process.
+                  type: string
+                imageSize:
+                  description: >-
+                    Image size used for inference. Must be between 160 and 1024, inclusive. If omitted, the default is the maximum of the configured ovd-net-input-width and ovd-net-input-height values.
+                  type: integer
+                  minimum: 160
+                  maximum: 1024
+                confidenceThreshold:
+                  description: Confidence threshold for vehicle detection, in the range [0.0, 1.0]. If omitted, the value of the vehicle-confidence parameter is used.
+                  type: number
+                  format: float
+                  minimum: 0.0
+                  maximum: 1.0
+            example:
+              screenshotUrl: http://localhost:9071/test_obb_001.jpg
+              imageSize: 320
+              confidenceThreshold: 0.5
+      responses:
+        '200':
+          description: Successful operation
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ResponseBase'
+                  - type: object
+                    required:
+                      - data
+                    properties:
+                      data:
+                        type: array
+                        items:
+                          type: object
+                          required:
+                            - classId
+                            - className
+                            - confidence
+                            - box
+                            - angle
+                            - corners
+                          properties:
+                            classId:
+                              description: Numeric identifier of the detected vehicle class.
+                              type: integer
+                            className:
+                              description: Name of the detected vehicle class, e.g. car.
+                              type: string
+                            confidence:
+                              description: Detection confidence score, in the range [0.0, 1.0].
+                              type: number
+                              format: float
+                              minimum: 0.0
+                              maximum: 1.0
+                            box:
+                              description: Four bounding-box coordinates in the order [x1, y1, x2, y2].
+                              type: array
+                              items:
+                                type: integer
+                            angle:
+                              description: Rotation angle reported by the detector.
+                              type: number
+                              format: float
+                            corners:
+                              description: Eight coordinates representing the four corners of the oriented bounding box, ordered as [x1, y1, x2, y2, x3, y3, x4, y4].
+                              type: array
+                              items:
+                                type: integer
+              example:
+                code: "200"
+                message: "Ok"
+                data:
+                  - classId: 0
+                    className: car
+                    confidence: 0.9128483533859253
+                    box: [1037, 8, 1141, 235]
+                    angle: 0.07551318407058716
+                    corners: [1132, 238, 1029, 230, 1046, 5, 1149, 12]
+                  - classId: 0
+                    className: car
+                    confidence: 0.8976563215255737
+                    box: [599, 0, 705, 239]
+                    angle: 0.0004724562168121338
+                    corners: [705, 239, 599, 239, 599, -9, 705, -9]
+                  - classId: 0
+                    className: car
+                    confidence: 0.895782470703125
+                    box: [173, 6, 268, 209]
+                    angle: 0.000265657901763916
+                    corners: [268, 209, 173, 209, 173, 6, 268, 6]
+                  - classId: 0
+                    className: car
+                    confidence: 0.8947356343269348
+                    box: [785, 1, 882, 228]
+                    angle: 0.008391708135604858
+                    corners: [881, 229, 784, 228, 786, 1, 883, 2]
+                  - classId: 0
+                    className: car
+                    confidence: 0.891389787197113
+                    box: [915, 14, 1008, 221]
+                    angle: -0.010528355836868286
+                    corners: [1009, 221, 916, 222, 914, 15, 1007, 14]
+                  - classId: 0
+                    className: car
+                    confidence: 0.8906928896903992
+                    box: [823, 484, 1035, 588]
+                    angle: -0.012018203735351563
+                    corners: [1035, 587, 823, 589, 822, 485, 1034, 483]
+                  - classId: 0
+                    className: car
+                    confidence: 0.6207315921783447
+                    box: [576, 474, 783, 589]
+                    angle: -0.025921642780303955
+                    corners: [784, 586, 578, 591, 575, 476, 782, 471]
+        '204':
+          description: No content
+        '400':
+          description: Bad request
+
   /lprs_callback:
     post:
       security: []
