@@ -5,7 +5,6 @@
 #include <userver/formats/serialize/common_containers.hpp>
 
 #include "lprs_api.hpp"
-#include <StdPrint.h>
 
 namespace Lprs
 {

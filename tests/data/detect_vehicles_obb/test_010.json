@@ -1,0 +1,14 @@
+{
+  "screenshotUrl": "http://localhost:9071/test_obb_005.jpg",
+  "imageSize": 159,
+  "confidenceThreshold": 0.3,
+  "expectedStatus": 400,
+  "tolerances": {
+    "boxPixels": 2,
+    "cornerPixels": 2,
+    "angle": 0.05,
+    "confidence": 0.05,
+    "minBoxIoU": 0.9
+  },
+  "expected": []
+}

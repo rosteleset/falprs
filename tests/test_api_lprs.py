@@ -2,6 +2,10 @@ import pytest
 import requests
 import time
 from datetime import datetime, timedelta
+import json
+import math
+from itertools import permutations
+from pathlib import Path
 
 FALPRS_URL = "http://localhost:9071"
 API_URL = FALPRS_URL + "/lprs/api/"
@@ -35,6 +39,19 @@ CONF_FLAG_PROCESS_SPECIAL = "flag-process-special"
 TYPE_RU_1 = "ru_1"
 TYPE_RU_1a = "ru_1a"
 TYPE_BY = "by"
+
+DATA_DIR = Path(__file__).parent / "data" / "detect_vehicles_obb"
+
+EXPECTED_STATUS = "expectedStatus"
+IMAGE_SIZE = "imageSize"
+CONFIDENCE_THRESHOLD = "confidenceThreshold"
+EXPECTED = "expected"
+
+CLASS_ID = "classId"
+CLASS_NAME = "className"
+CONFIDENCE = "confidence"
+ANGLE = "angle"
+CORNERS = "corners"
 
 order = 0
 
@@ -1037,3 +1054,216 @@ def test_get_stream_default_config():
     assert isinstance(data[DATA], dict)
     assert data[DATA].get(CONF_MIN_PLATE_HEIGHT) == 25
     assert data[DATA].get(LOGS_LEVEL) == "trace"
+
+# detectVehiclesObb
+def box_iou(box1, box2):
+    """Calculate IoU between two axis-aligned bounding boxes."""
+    x1 = max(box1[0], box2[0])
+    y1 = max(box1[1], box2[1])
+    x2 = min(box1[2], box2[2])
+    y2 = min(box1[3], box2[3])
+
+    intersection = max(0, x2 - x1) * max(0, y2 - y1)
+
+    area1 = max(0, box1[2] - box1[0]) * max(0, box1[3] - box1[1])
+    area2 = max(0, box2[2] - box2[0]) * max(0, box2[3] - box2[1])
+
+    union = area1 + area2 - intersection
+
+    return intersection / union if union > 0 else 0.0
+
+
+def angle_difference(angle1, angle2):
+    """Calculate angular difference, accounting for OBB symmetry."""
+    return abs(
+        (angle1 - angle2 + math.pi / 2) % math.pi - math.pi / 2
+    )
+
+
+def corners_difference(corners1, corners2):
+    """Find the minimum maximum point distance regardless of corner order."""
+    assert len(corners1) == 8
+    assert len(corners2) == 8
+
+    points1 = list(zip(corners1[::2], corners1[1::2]))
+    points2 = list(zip(corners2[::2], corners2[1::2]))
+
+    return min(
+        max(
+            math.dist(point1, point2)
+            for point1, point2 in zip(points1, ordering)
+        )
+        for ordering in permutations(points2)
+    )
+
+
+def check_detection(actual, expected, tolerances):
+    """Validate one detection against its expected values."""
+    assert actual[CLASS_ID] == expected[CLASS_ID]
+    assert actual[CLASS_NAME] == expected[CLASS_NAME]
+
+    assert len(actual[BOX]) == 4
+    assert len(actual[CORNERS]) == 8
+
+    assert all(
+        abs(actual_value - expected_value)
+        <= tolerances["boxPixels"]
+        for actual_value, expected_value in zip(
+            actual[BOX], expected[BOX]
+        )
+    ), (
+        f"Box mismatch: expected {expected[BOX]}, "
+        f"got {actual[BOX]}"
+    )
+
+    iou = box_iou(actual[BOX], expected[BOX])
+    assert iou >= tolerances["minBoxIoU"], (
+        f"Box IoU too low: expected >= "
+        f"{tolerances['minBoxIoU']}, got {iou:.4f}"
+    )
+
+    corner_diff = corners_difference(
+        actual[CORNERS], expected[CORNERS]
+    )
+    assert corner_diff <= tolerances["cornerPixels"], (
+        f"Corners mismatch: maximum point distance "
+        f"is {corner_diff:.2f} pixels"
+    )
+
+    angle_diff = angle_difference(
+        actual[ANGLE], expected[ANGLE]
+    )
+    assert angle_diff <= tolerances["angle"], (
+        f"Angle mismatch: expected {expected[ANGLE]}, "
+        f"got {actual[ANGLE]}, difference={angle_diff:.6f}"
+    )
+
+    confidence_diff = abs(
+        actual[CONFIDENCE] - expected[CONFIDENCE]
+    )
+    assert confidence_diff <= tolerances["confidence"], (
+        f"Confidence mismatch: expected {expected[CONFIDENCE]}, "
+        f"got {actual[CONFIDENCE]}, "
+        f"difference={confidence_diff:.6f}"
+    )
+
+
+def match_detections(actual, expected, tolerances):
+    """Match detections by class and box IoU, independent of result order."""
+    assert len(actual) == len(expected), (
+        f"Expected {len(expected)} detections, got {len(actual)}"
+    )
+
+    remaining = list(actual)
+
+    for exp in expected:
+        candidates = [
+            (box_iou(item[BOX], exp[BOX]), index, item)
+            for index, item in enumerate(remaining)
+            if (
+                item.get(CLASS_ID) == exp[CLASS_ID]
+                and item.get(CLASS_NAME) == exp[CLASS_NAME]
+            )
+        ]
+
+        assert candidates, (
+            f"No detection found for expected object: {exp}"
+        )
+
+        iou, index, item = max(
+            candidates,
+            key=lambda candidate: candidate[0],
+        )
+
+        assert iou >= tolerances["minBoxIoU"], (
+            f"No matching detection near box {exp[BOX]}; "
+            f"best IoU={iou:.4f}"
+        )
+
+        check_detection(item, exp, tolerances)
+        remaining.pop(index)
+
+    assert not remaining, (
+        f"Unexpected detections remain: {len(remaining)}"
+    )
+
+
+def load_test_cases():
+    """Load JSON test cases from the data directory."""
+    files = sorted(DATA_DIR.glob("*.json"))
+
+    if not files:
+        raise RuntimeError(
+            f"No JSON test cases found in {DATA_DIR}"
+        )
+
+    return files
+
+
+@pytest.mark.parametrize(
+    "case_file",
+    load_test_cases(),
+    ids=lambda path: path.stem,
+)
+def test_detect_vehicles_obb(case_file):
+    """Test detectVehiclesObb using a JSON reference case."""
+    with case_file.open(encoding="utf-8") as file:
+        case = json.load(file)
+
+    assert EXPECTED_STATUS in case
+    expected_status = case[EXPECTED_STATUS]
+    expected = case.get(EXPECTED, [])
+
+    request_data = {}
+
+    if SCREENSHOT_URL in case:
+        request_data[SCREENSHOT_URL] = case[SCREENSHOT_URL]
+
+    if IMAGE_SIZE in case:
+        request_data[IMAGE_SIZE] = case[IMAGE_SIZE]
+
+    if CONFIDENCE_THRESHOLD in case:
+        request_data[CONFIDENCE_THRESHOLD] = case[CONFIDENCE_THRESHOLD]
+
+    response = requests.post(
+        API_URL + "detectVehiclesObb",
+        json=request_data,
+    )
+
+    if expected_status == 200:
+        assert response.status_code == 200, response.text
+
+        result = response.json()
+
+        assert result.get("code") == "200", result
+        assert result.get("message") == "Ok", result
+        assert isinstance(result.get("data"), list)
+        assert result["data"], "Expected non-empty detections"
+        assert expected, (
+            "The expected list must not be empty for status 200"
+        )
+
+        tolerances = case["tolerances"]
+
+        match_detections(
+            result["data"],
+            expected,
+            tolerances,
+        )
+
+    elif expected_status == 204:
+        assert response.status_code == 204, response.text
+        assert expected == [], (
+            "Expected detections must be empty for status 204"
+        )
+
+    elif expected_status >= 400:
+        assert response.status_code == expected_status, (
+            f"Expected HTTP {expected_status}, "
+            f"got HTTP {response.status_code}: {response.text}"
+        )
+
+    else:
+        pytest.fail(
+            f"Unsupported {EXPECTED_STATUS}: {expected_status}"
+        )

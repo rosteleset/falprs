@@ -11,6 +11,7 @@
 #include <userver/fs/write.hpp>
 #include <userver/http/common_headers.hpp>
 #include <userver/http/content_type.hpp>
+#include <userver/server/handlers/handler_base.hpp>
 #include <userver/yaml_config/merge_schemas.hpp>
 
 #include "image_preprocessing.hpp"
@@ -2073,7 +2074,24 @@ properties:
       }
     }
 
+    if (config.logs_level <= userver::logging::Level::kTrace)
+      USERVER_IMPL_LOG_TO(logger_, userver::logging::Level::kTrace,
+        "vstream_key = {};  found vehicles: {}",
+        config.id_group, detected_vehicles.size());
+
     return true;
+  }
+
+  [[noreturn]] void throwImageBase64Error()
+  {
+    throw userver::server::handlers::ClientError(
+      userver::server::handlers::ExternalBody{absl::Substitute("Failed to decode Base64-encoded image from parameter $0", Api::PARAM_SCREENSHOT_URL)});
+  }
+
+  [[noreturn]] void throwImageFetchError()
+  {
+    throw userver::server::handlers::ClientError(
+      userver::server::handlers::ExternalBody{absl::Substitute("Failed to fetch image from parameter $0", Api::PARAM_SCREENSHOT_URL)});
   }
 
   std::vector<VehicleObb> Workflow::detectVehiclesObb(const int32_t id_group, const std::string_view screenshot_url, std::optional<int32_t> image_size, std::optional<float> confidence_threshold) const
@@ -2117,8 +2135,10 @@ properties:
                   "Error decoding image from BASE64: vstream_key = {};",
                   vstream_key);
 
-              return {};
+              throwImageBase64Error();
             }
+        if (image_data.empty())
+          throwImageBase64Error();
       } else
       {
         // parse user and password
@@ -2153,7 +2173,7 @@ properties:
               "vstream_key = {};  url = {};  status_code = {}",
               vstream_key, screenshot_url, capture_response->status_code());
 
-          return {};
+          throwImageFetchError();
         }
 
         image_data = capture_response->body();
@@ -2192,6 +2212,9 @@ properties:
         USERVER_IMPL_LOG_TO(logger_, userver::logging::Level::kTrace,
           "vstream_key = {};  after doInferenceOvdNet",
           vstream_key);
+    } catch (const userver::clients::http::BaseCodeException&)
+    {
+      throwImageFetchError();
     } catch (const std::exception& e)
     {
       if (config.logs_level <= userver::logging::Level::kError)
@@ -2199,7 +2222,7 @@ properties:
           "vstream_key = {};  {}",
           vstream_key, e.what());
 
-      return {};
+      throw;
     }
 
     if (config.logs_level <= userver::logging::Level::kDebug)
