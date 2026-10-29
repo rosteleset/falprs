@@ -7,6 +7,8 @@ After=syslog.target network-online.target postgresql.service
 Type=simple
 WorkingDirectory=/opt/falprs
 ExecStart=/opt/falprs/falprs -c config.yaml
+# Full backtraces of panics of the Rust implementation, written to the error log
+Environment=RUST_BACKTRACE=1
 Restart=on-failure
 RestartSec=10
 KillMode=control-group
