@@ -32,6 +32,7 @@
 * [Тесты](#tests)
    * [LPRS](#lprs_tests)
    * [FRS](#frs_tests)
+   * [Служебные эндпоинты](#service_tests)
 * [Синхронизация данных со старым проектом FRS](#frs_sync_data)
 * [Примеры графиков нагрузки на CPU и GPU](#cpu_gpu_load)
 
@@ -411,7 +412,7 @@ cd ~/falprs/examples/frs
 ## Тесты
 Устанавливаем зависимости:
 ```bash
-sudo apt-get install -y python3-requests python3-pytest python3-pytest-order
+sudo apt-get install -y python3-requests python3-pytest python3-pytest-order python3-pil
 ```
 Создаём директории и тестовые базы данных:
 ```bash
@@ -423,12 +424,20 @@ cd ~/falprs/tests
 ### LPRS
 ```bash
 pytest -v -s test_api_lprs.py
+pytest -v -s test_api_lprs_callbacks.py
 ```
 
 <a id="frs_tests"></a>
 ### FRS
 ```bash
 pytest -v -s test_api_frs.py
+pytest -v -s test_api_frs_callbacks.py
+```
+
+<a id="service_tests"></a>
+### Служебные эндпоинты
+```bash
+pytest -v -s test_service_endpoints.py
 ```
 После окончания тестов удаляем директории и тестовые базы данных:
 ```bash

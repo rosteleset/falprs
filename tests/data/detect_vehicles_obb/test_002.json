@@ -1,5 +1,5 @@
 {
-  "screenshotUrl": "http://localhost:9071/test_obb_002.jpg",
+  "screenshotUrl": "http://localhost:9071/test_obb_002.png",
   "imageSize": 320,
   "confidenceThreshold": 0.5,
   "expectedStatus": 200,

@@ -32,6 +32,7 @@ This project is a replacement for the [old one](https://github.com/rosteleset/fr
 * [Tests](#tests)
    * [LPRS](#lprs_tests)
    * [FRS](#frs_tests)
+   * [Service Endpoints](#service_tests)
 * [Data Synchronization with the Deprecated FRS Project](#frs_sync_data)
 * [Examples of CPU and GPU Load Charts](#cpu_gpu_load)
 
@@ -411,7 +412,7 @@ Go to the console from which the test service for processing callbacks was launc
 ## Tests
 Install dependencies:
 ```bash
-sudo apt-get install -y python3-requests python3-pytest python3-pytest-order
+sudo apt-get install -y python3-requests python3-pytest python3-pytest-order python3-pil
 ```
 Create directories and test databases:
 ```bash
@@ -423,12 +424,20 @@ cd ~/falprs/tests
 ### LPRS
 ```bash
 pytest -v -s test_api_lprs.py
+pytest -v -s test_api_lprs_callbacks.py
 ```
 
 <a id="frs_tests"></a>
 ### FRS
 ```bash
 pytest -v -s test_api_frs.py
+pytest -v -s test_api_frs_callbacks.py
+```
+
+<a id="service_tests"></a>
+### Service Endpoints
+```bash
+pytest -v -s test_service_endpoints.py
 ```
 After finishing the tests, delete the directories and test databases:
 ```bash
