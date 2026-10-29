@@ -25,6 +25,7 @@ elif [ -f "$BASEDIR/../.env" ]; then
 fi
 
 # External variables used in the script
+# FALPRS_IMPL - implementation to build: rust (default) or cpp
 # PG_VERSION - PostgreSQL database system version
 # FALPRS_WORKDIR - FALPRS working directory
 
@@ -50,10 +51,33 @@ if [ -z "$PG_VERSION" ]; then
 fi
 
 export FALPRS_WORKDIR="${FALPRS_WORKDIR:-/opt/falprs}"
+export FALPRS_IMPL="${FALPRS_IMPL:-rust}"
+case "$FALPRS_IMPL" in
+    rust)
+        FALPRS_BINARY="$BASEDIR/../rust/target/release/falprs"
+        ;;
+    cpp)
+        FALPRS_BINARY="$BASEDIR/../build/falprs"
+        ;;
+    *)
+        echo "Error: FALPRS_IMPL must be rust or cpp, not '$FALPRS_IMPL'"
+        exit 1
+        ;;
+esac
+echo "Building the $FALPRS_IMPL implementation of FALPRS"
 
-APT_PACKAGES="build-essential ccache cmake git libboost-dev libboost-context-dev libboost-coroutine-dev libboost-filesystem-dev libboost-iostreams-dev libboost-locale-dev libboost-program-options-dev libboost-regex-dev libboost-stacktrace-dev zlib1g-dev nasm clang-format libssl-dev libyaml-cpp-dev libjemalloc-dev libpq-dev postgresql-server-dev-$PG_VERSION rapidjson-dev python3-dev python3-jinja2 python3-venv python3-voluptuous python3-yaml libgtest-dev libnghttp2-dev libev-dev libldap2-dev libkrb5-dev libzstd-dev libopencv-dev libbz2-dev libre2-dev libcrypto++-dev libc-ares-dev libcurl4-openssl-dev libcctz-dev liburing-dev libicu-dev"
+CPP_APT_PACKAGES="build-essential ccache cmake git libboost-dev libboost-context-dev libboost-coroutine-dev libboost-filesystem-dev libboost-iostreams-dev libboost-locale-dev libboost-program-options-dev libboost-regex-dev libboost-stacktrace-dev zlib1g-dev nasm clang-format libssl-dev libyaml-cpp-dev libjemalloc-dev libpq-dev postgresql-server-dev-$PG_VERSION rapidjson-dev python3-dev python3-jinja2 python3-venv python3-voluptuous python3-yaml libgtest-dev libnghttp2-dev libev-dev libldap2-dev libkrb5-dev libzstd-dev libopencv-dev libbz2-dev libre2-dev libcrypto++-dev libc-ares-dev libcurl4-openssl-dev libcctz-dev liburing-dev libicu-dev"
 if [ "$UBUNTU_VERSION" = "26.04" ]; then
-    APT_PACKAGES="$APT_PACKAGES libjitterentropy3-dev clang libstdc++-16-dev"
+    CPP_APT_PACKAGES="$CPP_APT_PACKAGES libjitterentropy3-dev clang libstdc++-16-dev"
+fi
+
+# The Rust build needs a C compiler only for the TLS crypto library; Rust itself is installed with rustup
+RUST_APT_PACKAGES="build-essential ca-certificates curl python3-yaml"
+
+if [ "$FALPRS_IMPL" = "rust" ]; then
+    APT_PACKAGES="$RUST_APT_PACKAGES"
+else
+    APT_PACKAGES="$CPP_APT_PACKAGES"
 fi
 
 # These operations require root privileges.
@@ -62,6 +86,31 @@ apt-get install -y $APT_PACKAGES
 
 # Build FALPRS as the regular user.
 # runuser does not request another password when the script is already running as root.
+if [ "$FALPRS_IMPL" = "rust" ]; then
+runuser -u "$BUILD_USER" -- env \
+    HOME="$BUILD_HOME" \
+    USER="$BUILD_USER" \
+    LOGNAME="$BUILD_USER" \
+    BASEDIR="$BASEDIR" \
+    bash -c '
+set -e
+
+export PATH="$HOME/.cargo/bin:$PATH"
+
+# rustup in the home directory of the building user; the shell profile is left as is
+if ! command -v rustup >/dev/null 2>&1; then
+    curl --proto "=https" --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal --default-toolchain none --no-modify-path
+fi
+
+cd "$BASEDIR/../rust"
+
+# Install, or update, the toolchain channel named in rust-toolchain.toml
+TOOLCHAIN=$(sed -n "s/^channel *= *\"\(.*\)\"/\1/p" rust-toolchain.toml)
+rustup toolchain install "$TOOLCHAIN" --profile minimal
+
+cargo build --release --locked -p falprs
+'
+else
 runuser -u "$BUILD_USER" -- env \
     HOME="$BUILD_HOME" \
     USER="$BUILD_USER" \
@@ -92,6 +141,7 @@ cmake \
 
 make falprs -j"$(nproc)"
 '
+fi
 
 # Everything below this point is deployment/configuration and requires root.
 # The executable was built by BUILD_USER and is copied to the root-owned
@@ -100,7 +150,10 @@ make falprs -j"$(nproc)"
 mkdir -p "$FALPRS_WORKDIR"
 mkdir -p "$FALPRS_WORKDIR/static"
 
-if ! cp "$BASEDIR/../build/falprs" "$FALPRS_WORKDIR"; then
+if cp "$FALPRS_BINARY" "$FALPRS_WORKDIR/falprs"; then
+    # The update script compares it with the implementation to install
+    echo "$FALPRS_IMPL" > "$FALPRS_WORKDIR/falprs.impl"
+else
     echo "Warning: failed to copy falprs, continuing..."
 fi
 

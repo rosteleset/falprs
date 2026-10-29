@@ -201,6 +201,8 @@ nvidia-smi --query-gpu=compute_cap --format=csv
 For example, the GPU GTX 1080 Ti has the Pascal architecture, so *TRITON_VERSION=24.04*
 
 The project working directory is set by the **FALPRS_WORKDIR** variable (default value is */opt/falprs*).
+
+The implementation to build and install is set by the **FALPRS_IMPL** variable: *rust* (default value) or *cpp*. To build the Rust implementation, the scripts install the Rust toolchain with *rustup* into the home directory of the user who runs them with *sudo*, if it is not installed yet. When the variable changes, *scripts/update_falprs.sh* builds and installs the chosen implementation even if the version is the same.
 **Important:** if you are migrating from an deprecated FRS project, you need to use the *sha1sum* utility to specify the hash sum of the ONNX file you used to create the TensorRT plan for the old *arcface* model. This value is specified in the **ARCFACE_SHA1** variable. For example, calculating the hash sum for the old *glint_r50.onnx* file:
 ```bash
 sha1sum glint_r50.onnx
