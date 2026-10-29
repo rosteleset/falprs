@@ -1,0 +1,57 @@
+# Dependency policy, see docs/adr/0002-rust-port-pure-rust-no-unsafe.md
+
+[graph]
+targets = ["x86_64-unknown-linux-gnu"]
+
+[advisories]
+version = 2
+
+[licenses]
+version = 2
+# Permissive licenses compatible with GPL-3.0
+allow = ["Apache-2.0", "BSD-3-Clause", "BSL-1.0", "GPL-3.0-only", "ISC", "MIT", "Unicode-3.0", "Unlicense", "Zlib"]
+
+[bans]
+multiple-versions = "allow"
+wildcards = "deny"
+# Path dependencies between the workspace crates
+allow-wildcard-paths = true
+
+[bans.build]
+# A build script is how C/C++ code gets compiled or linked (every *-sys crate has one),
+# so every crate that has one must be reviewed and listed here.
+# `ring` is the only crate allowed to build C/asm code (TLS for outgoing HTTPS).
+include-dependencies = true
+executables = "deny"
+allow-build-scripts = [
+    # Reviewed: compiler/feature detection or code generation only, no C/C++ is compiled or linked
+    { crate = "ahash" },
+    { crate = "anyhow" },
+    { crate = "codepage-437" },
+    { crate = "crc32fast" },
+    { crate = "encoding_rs" },
+    { crate = "generic-array" },
+    { crate = "getrandom" },
+    { crate = "httparse" },
+    { crate = "icu_normalizer_data" },
+    { crate = "icu_properties_data" },
+    { crate = "libc" }, # Rust declarations of the system libc that std already links
+    { crate = "mime_guess" },
+    { crate = "num-traits" },
+    { crate = "parking_lot_core" },
+    { crate = "prettyplease" }, # `links` only guards against two copies of the crate, no native library
+    { crate = "proc-macro2" },
+    { crate = "pulldown-cmark" },
+    { crate = "quote" },
+    { crate = "rustix" },
+    { crate = "rustls" },
+    { crate = "rustversion" },
+    { crate = "serde" },
+    { crate = "serde_core" },
+    { crate = "serde_json" },
+    { crate = "thiserror" },
+    { crate = "zerocopy" },
+    { crate = "zmij" },
+    # The only dependency with C/asm code, allowed as the TLS crypto provider: HTTPS cameras need outgoing TLS
+    { crate = "ring" },
+]
