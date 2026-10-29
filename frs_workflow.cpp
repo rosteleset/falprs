@@ -230,12 +230,14 @@ namespace Frs
       });
   }
 
-  std::string drawOSD(const VStreamConfig& config, const cv::Mat& frame)
+  // returns the JPEG of a copy of the frame with OSD, or an empty string if no OSD is configured; the frame itself is not changed
+  std::string drawOSD(const VStreamConfig& config, const cv::Mat& source_frame)
   {
     std::string result{};
     // draw, if necessary, OSD
     if (!config.title.empty())
     {
+      cv::Mat frame = source_frame.clone();
       constexpr int font_face = cv::FONT_HERSHEY_COMPLEX;
       constexpr int thickness = 2;
 
@@ -622,6 +624,8 @@ properties:
                   "Error decoding image from BASE64: vstream_key = {};",
                   task_data.vstream_key);
 
+              if (task_data.task_type == TASK_RECOGNIZE)
+                stopWorkflow(std::move(task_data.vstream_key));
               return {
                 .comments = "Error decoding image from BASE64",
                 .face_image = {},
@@ -705,6 +709,15 @@ properties:
         USERVER_IMPL_LOG_TO(logger_, userver::logging::Level::kTrace,
           "vstream_key = {};  after decoding the image",
           task_data.vstream_key);
+
+      // screenshot data: OSD is drawn once per frame, only when a screenshot of the frame is saved
+      std::optional<std::string> frame_with_osd;
+      auto screenshot_data = [&]() -> const std::string&
+      {
+        if (!frame_with_osd)
+          frame_with_osd = drawOSD(config, frame);
+        return frame_with_osd->empty() ? image_data : *frame_with_osd;
+      };
 
       cv::Rect work_area{};
       if (config.work_area.size() == 4)
@@ -805,8 +818,7 @@ properties:
             auto path_prefix = absl::StrCat(local_config_.barcodes_path, path_suffix);
             userver::fs::CreateDirectories(fs_task_processor_, path_prefix);
             auto path = absl::StrCat(path_prefix, uuid, screenshot_extension);
-            std::string frame_with_osd = drawOSD(config, frame);
-            userver::fs::RewriteFileContents(fs_task_processor_, path, frame_with_osd.empty() ? image_data : frame_with_osd);
+            userver::fs::RewriteFileContents(fs_task_processor_, path, screenshot_data());
             userver::fs::Chmod(fs_task_processor_, path,
               boost::filesystem::perms::owner_read | boost::filesystem::perms::owner_write | boost::filesystem::perms::others_read | boost::filesystem::perms::others_write);
 
@@ -1238,15 +1250,12 @@ properties:
             (*dnn_stats_ptr)[config.id_vstream].fr_count += stats_data.fr_count;
           }
 
-          std::string frame_with_osd;
           if (best_face_index >= 0 && task_data.task_type == TASK_RECOGNIZE)
           {
             if (config.logs_level <= userver::logging::Level::kInfo)
               USERVER_IMPL_LOG_TO(logger_, userver::logging::Level::kInfo,
                 "vstream_key = {};  faces detected: id_vstream = {}",
                 task_data.vstream_key, config.id_vstream);
-
-            frame_with_osd = drawOSD(config, frame);
 
             auto log_uuid = boost::uuids::random_generator()();
             auto s_uuid = absl::StrReplaceAll(boost::uuids::to_string(log_uuid), {{"-", ""}});
@@ -1262,7 +1271,7 @@ properties:
             auto path_prefix = absl::StrCat(local_config_.screenshots_path, path_suffix);
             userver::fs::CreateDirectories(fs_task_processor_, path_prefix);
             auto path = absl::StrCat(path_prefix, s_uuid, screenshot_extension);
-            userver::fs::RewriteFileContents(fs_task_processor_, path, frame_with_osd.empty() ? image_data : frame_with_osd);
+            userver::fs::RewriteFileContents(fs_task_processor_, path, screenshot_data());
             userver::fs::Chmod(fs_task_processor_, path,
               boost::filesystem::perms::owner_read | boost::filesystem::perms::owner_write | boost::filesystem::perms::others_read | boost::filesystem::perms::others_write);
 
@@ -1371,7 +1380,7 @@ properties:
                 auto path_prefix = absl::StrCat(local_config_.screenshots_path, path_suffix);
                 userver::fs::CreateDirectories(fs_task_processor_, path_prefix);
                 auto path = absl::StrCat(path_prefix, s_uuid, screenshot_extension);
-                userver::fs::RewriteFileContents(fs_task_processor_, path, frame_with_osd.empty() ? image_data : frame_with_osd);
+                userver::fs::RewriteFileContents(fs_task_processor_, path, screenshot_data());
                 userver::fs::Chmod(fs_task_processor_, path,
                   boost::filesystem::perms::owner_read | boost::filesystem::perms::owner_write | boost::filesystem::perms::others_read | boost::filesystem::perms::others_write);
 
@@ -1559,11 +1568,24 @@ properties:
       auto json_data = userver::formats::json::FromStream(f);
       auto dnn_stats_ptr = dnn_stats_data.Lock();
       dnn_stats_ptr->clear();
+      DNNStatsData data_sum;
       for (const auto& item : json_data["data"])
-        (*dnn_stats_ptr)[item["id_vstream"].As<int32_t>()] = DNNStatsData{
+      {
+        DNNStatsData stats{
           item["fd_count"].As<int32_t>(),
           item["fc_count"].As<int32_t>(),
           item["fr_count"].As<int32_t>()};
+        data_sum.fd_count += stats.fd_count;
+        data_sum.fc_count += stats.fc_count;
+        data_sum.fr_count += stats.fr_count;
+        (*dnn_stats_ptr)[item["id_vstream"].As<int32_t>()] = stats;
+      }
+
+      // the totals also include removed video streams
+      auto removed_ptr = removed_dnn_stats_data.Lock();
+      removed_ptr->fd_count = std::max(0, json_data["all"]["fd_count"].As<int32_t>(0) - data_sum.fd_count);
+      removed_ptr->fc_count = std::max(0, json_data["all"]["fc_count"].As<int32_t>(0) - data_sum.fc_count);
+      removed_ptr->fr_count = std::max(0, json_data["all"]["fr_count"].As<int32_t>(0) - data_sum.fr_count);
     } catch (const std::exception& e)
     {
       LOG_ERROR_TO(logger_) << e.what();
@@ -1572,8 +1594,14 @@ properties:
 
   void Workflow::saveDNNStatsData() const
   {
-    userver::formats::json::ValueBuilder list_data;
+    // an array even without video streams
+    userver::formats::json::ValueBuilder list_data{userver::formats::json::Type::kArray};
     DNNStatsData all_data;
+    // scope to access concurrent variable: the totals start from the removed video streams
+    {
+      const auto removed_ptr = removed_dnn_stats_data.Lock();
+      all_data = *removed_ptr;
+    }
     // scope to access concurrent variable
     {
       auto dnn_stats_ptr = dnn_stats_data.Lock();
@@ -1636,7 +1664,7 @@ properties:
         }
   }
 
-  void Workflow::doFlagDeletedMaintenance() const
+  void Workflow::doFlagDeletedMaintenance()
   {
     LOG_DEBUG_TO(logger_, "Deleting marked records from the database");
 
@@ -1654,6 +1682,51 @@ properties:
     {
       trx.Rollback();
       LOG_ERROR_TO(logger_) << e.what();
+    }
+
+    cleanUpWorkflowData();
+  }
+
+  // Drops the in-memory data of video streams that no longer need it, so that it does not grow with time
+  void Workflow::cleanUpWorkflowData()
+  {
+    HashSet<int32_t> id_vstreams;
+    // scope for accessing cache
+    {
+      const auto cache = vstreams_config_cache_.Get();
+      for (const auto& [key, config] : cache->getData())
+        id_vstreams.insert(config.id_vstream);
+    }
+
+    // unknown descriptors: expired ones, and all of removed video streams
+    {
+      auto ud_ptr = unknown_descriptors.Lock();
+      for (auto it = ud_ptr->begin(); it != ud_ptr->end();)
+      {
+        removeExpiredUnknownDescriptors(it->second);
+        if (it->second.empty() || !id_vstreams.contains(it->first))
+          ud_ptr->erase(it++);
+        else
+          ++it;
+      }
+    }
+
+    // inference statistics of removed video streams are kept only in the totals;
+    // zero is the identifier for tasks without a video stream
+    {
+      auto dnn_stats_ptr = dnn_stats_data.Lock();
+      auto removed_ptr = removed_dnn_stats_data.Lock();
+      for (auto it = dnn_stats_ptr->begin(); it != dnn_stats_ptr->end();)
+      {
+        if (it->first != 0 && !id_vstreams.contains(it->first))
+        {
+          removed_ptr->fd_count += it->second.fd_count;
+          removed_ptr->fc_count += it->second.fc_count;
+          removed_ptr->fr_count += it->second.fr_count;
+          dnn_stats_ptr->erase(it++);
+        } else
+          ++it;
+      }
     }
   }
 

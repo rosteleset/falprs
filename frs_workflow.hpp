@@ -297,6 +297,8 @@ namespace Frs
   private:
     userver::concurrent::Variable<HashMap<std::string, bool>> being_processed_vstreams;
     userver::concurrent::Variable<HashMap<int32_t, DNNStatsData>> dnn_stats_data;
+    // inference statistics of removed video streams, counted only in the totals
+    userver::concurrent::Variable<DNNStatsData> removed_dnn_stats_data;
     userver::concurrent::Variable<HashMap<std::string, std::chrono::time_point<std::chrono::steady_clock>>> vstream_timeouts;
     userver::concurrent::Variable<HashMap<int32_t, std::vector<UnknownDescriptorData>>> unknown_descriptors;
     LocalConfig local_config_;
@@ -326,7 +328,8 @@ namespace Frs
 
     // Maintenance member functions
     void doOldLogFacesMaintenance() const;
-    void doFlagDeletedMaintenance() const;
+    void doFlagDeletedMaintenance();
+    void cleanUpWorkflowData();
     void doCopyEventsMaintenance() const;
     void doOldEventsMaintenance() const;
     void doOldLogBarcodesMaintenance() const;
