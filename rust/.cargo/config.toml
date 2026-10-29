@@ -1,0 +1,3 @@
+[target.x86_64-unknown-linux-gnu]
+# Compress the line tables of release builds; panic backtraces read compressed sections
+rustflags = ["-C", "link-arg=-Wl,--compress-debug-sections=zlib"]
