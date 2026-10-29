@@ -26,11 +26,15 @@ use crate::config::Config;
 use crate::logging::{Level, Loggers};
 
 #[derive(Parser)]
-#[command(version, about = "FALPRS: licence plate and face recognition service")]
+#[command(about = "FALPRS: licence plate and face recognition service", disable_version_flag = true)]
 struct Args {
-    /// Path to the service config (the userver config.yaml)
+    /// Print the version and exit; only the number is printed, like the C++ service, as the
+    /// update script compares it
     #[arg(short, long)]
-    config: PathBuf,
+    version: bool,
+    /// Path to the service config (the userver config.yaml)
+    #[arg(short, long, required_unless_present = "version")]
+    config: Option<PathBuf>,
 }
 
 async fn serve(port: u16, router: Router, mut shutdown: watch::Receiver<bool>) -> Result<()> {
@@ -60,11 +64,15 @@ async fn wait_for_termination() -> Result<()> {
 #[tokio::main]
 async fn main() -> Result<()> {
     let args = Args::parse();
+    let Some(config_path) = args.config.filter(|_| !args.version) else {
+        println!("{}", env!("CARGO_PKG_VERSION"));
+        return Ok(());
+    };
     // TLS for outgoing HTTPS uses ring, the only dependency with C/asm code
     rustls::crypto::ring::default_provider()
         .install_default()
         .map_err(|_| anyhow::anyhow!("can't install the TLS crypto provider"))?;
-    let config = Config::load(&args.config)?;
+    let config = Config::load(&config_path)?;
     let loggers = Arc::new(Loggers::new(&config.loggers)?);
     let logger = loggers.default_logger();
     log!(logger, Level::Info, "starting service");
