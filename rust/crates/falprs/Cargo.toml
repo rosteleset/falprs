@@ -1,0 +1,42 @@
+[package]
+name = "falprs"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+anyhow.workspace = true
+axum.workspace = true
+base64.workspace = true
+bytes.workspace = true
+chrono.workspace = true
+clap.workspace = true
+futures.workspace = true
+hex.workspace = true
+image.workspace = true
+md-5.workspace = true
+mime_guess.workspace = true
+pg-cluster.workspace = true
+prost.workspace = true
+reqwest.workspace = true
+rustls.workspace = true
+rxing.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+serde-saphyr.workspace = true
+sha2.workspace = true
+swash.workspace = true
+thiserror.workspace = true
+tokio.workspace = true
+tonic.workspace = true
+tonic-prost.workspace = true
+uuid.workspace = true
+
+[build-dependencies]
+anyhow.workspace = true
+protox.workspace = true
+tonic-prost-build.workspace = true
