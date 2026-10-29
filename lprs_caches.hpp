@@ -38,7 +38,7 @@ namespace Lprs
     inline static constexpr auto VD_NET_INPUT_HEIGHT = "vd-net-input-height";
     inline static constexpr auto VD_NET_INPUT_TENSOR_NAME = "vd-net-input-tensor-name";
     inline static constexpr auto VD_NET_OUTPUT_TENSOR_NAME = "vd-net-output-tensor-name";
-    inline static constexpr auto VC_NET_INFERENCE_SERVER = "vd-net-inference-server";
+    inline static constexpr auto VC_NET_INFERENCE_SERVER = "vc-net-inference-server";
     inline static constexpr auto VC_NET_MODEL_NAME = "vc-net-model-name";
     inline static constexpr auto VC_NET_INPUT_WIDTH = "vc-net-input-width";
     inline static constexpr auto VC_NET_INPUT_HEIGHT = "vc-net-input-height";
@@ -50,7 +50,7 @@ namespace Lprs
     inline static constexpr auto LPD_NET_INPUT_HEIGHT = "lpd-net-input-height";
     inline static constexpr auto LPD_NET_INPUT_TENSOR_NAME = "lpd-net-input-tensor-name";
     inline static constexpr auto LPD_NET_OUTPUT_TENSOR_NAME = "lpd-net-output-tensor-name";
-    inline static constexpr auto LPC_NET_INFERENCE_SERVER = "vd-net-inference-server";
+    inline static constexpr auto LPC_NET_INFERENCE_SERVER = "lpc-net-inference-server";
     inline static constexpr auto LPC_NET_MODEL_NAME = "lpc-net-model-name";
     inline static constexpr auto LPC_NET_INPUT_WIDTH = "lpc-net-input-width";
     inline static constexpr auto LPC_NET_INPUT_HEIGHT = "lpc-net-input-height";

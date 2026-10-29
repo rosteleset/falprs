@@ -387,6 +387,7 @@ properties:
                   "Error decoding image from BASE64: vstream_key = {};",
                   vstream_key);
 
+              stopWorkflow(std::move(vstream_key));
               return;
             }
       } else
@@ -956,7 +957,7 @@ properties:
         config.id_group, config.ext_id);
     cv::Point2f shift;
     double scale;
-    auto blob = prepareBlobForYOLO(img, config.lpd_net_input_width, config.lpd_net_input_height, shift,
+    auto blob = prepareBlobForYOLO(img, config.vd_net_input_width, config.vd_net_input_height, shift,
       scale);
     if (config.logs_level <= userver::logging::Level::kTrace)
       USERVER_IMPL_LOG_TO(logger_, userver::logging::Level::kTrace,
@@ -1405,58 +1406,63 @@ properties:
       for (size_t j = i + 1; j < detected_vehicles.size(); ++j)
         if (hasIntersection(detected_vehicles[i].bbox, detected_vehicles[j].bbox))
         {
-          for (auto m = detected_vehicles[i].license_plates.begin(); m != detected_vehicles[i].license_plates.end(); ++m)
-            for (auto n = detected_vehicles[j].license_plates.begin(); n != detected_vehicles[j].license_plates.end(); ++n)
+          auto& plates_i = detected_vehicles[i].license_plates;
+          auto& plates_j = detected_vehicles[j].license_plates;
+
+          // duplicates are marked first and erased afterwards, so that iterating stays valid;
+          // the counts of the remaining plates are updated after each mark, as the rule depends on them
+          std::vector<bool> remove_i(plates_i.size(), false);
+          std::vector<bool> remove_j(plates_j.size(), false);
+          size_t remaining_i = plates_i.size();
+          size_t remaining_j = plates_j.size();
+          for (size_t m = 0; m < plates_i.size(); ++m)
+            for (size_t n = 0; n < plates_j.size() && !remove_i[m]; ++n)
             {
-              auto r1 = cv::Rect2f(cv::Point2f{m->bbox[0], m->bbox[1]}, cv::Point2f{m->bbox[2], m->bbox[3]});
-              auto r2 = cv::Rect2f(cv::Point2f{n->bbox[0], n->bbox[1]}, cv::Point2f{n->bbox[2], n->bbox[3]});
+              if (remove_j[n])
+                continue;
+
+              auto r1 = cv::Rect2f(cv::Point2f{plates_i[m].bbox[0], plates_i[m].bbox[1]}, cv::Point2f{plates_i[m].bbox[2], plates_i[m].bbox[3]});
+              auto r2 = cv::Rect2f(cv::Point2f{plates_j[n].bbox[0], plates_j[n].bbox[1]}, cv::Point2f{plates_j[n].bbox[2], plates_j[n].bbox[3]});
               if (iou(r1, r2) > 0.7)  // the intersection is large enough
               {
-                if (detected_vehicles[i].license_plates.size() == detected_vehicles[j].license_plates.size())
+                bool remove_from_i;
+                if (remaining_i == remaining_j)
                 {
                   // remove plate from a vehicle with the largest area
                   auto b1 = cv::Rect2f(cv::Point2f{detected_vehicles[i].bbox[0], detected_vehicles[i].bbox[1]}, cv::Point2f{detected_vehicles[i].bbox[2], detected_vehicles[i].bbox[3]});
                   auto b2 = cv::Rect2f(cv::Point2f{detected_vehicles[j].bbox[0], detected_vehicles[j].bbox[1]}, cv::Point2f{detected_vehicles[j].bbox[2], detected_vehicles[j].bbox[3]});
-                  if (b1.area() > b2.area())
-                  {
-                    if (config.logs_level <= userver::logging::Level::kTrace)
-                      USERVER_IMPL_LOG_TO(logger_, userver::logging::Level::kTrace,
-                        "vstream_key = {}_{};  remove duplicate plate number from vehicle {}",
-                        config.id_group, config.ext_id, i);
-                    m = detected_vehicles[i].license_plates.erase(m);
-                    --m;
-                  } else
-                  {
-                    if (config.logs_level <= userver::logging::Level::kTrace)
-                      USERVER_IMPL_LOG_TO(logger_, userver::logging::Level::kTrace,
-                        "vstream_key = {}_{};  remove duplicate plate number from vehicle {}",
-                        config.id_group, config.ext_id, j);
-                    n = detected_vehicles[j].license_plates.erase(n);
-                    --n;
-                  }
+                  remove_from_i = b1.area() > b2.area();
+                } else
+                  // remove plate from a vehicle with most elements
+                  remove_from_i = remaining_i > remaining_j;
+
+                if (config.logs_level <= userver::logging::Level::kTrace)
+                  USERVER_IMPL_LOG_TO(logger_, userver::logging::Level::kTrace,
+                    "vstream_key = {}_{};  remove duplicate plate number from vehicle {}",
+                    config.id_group, config.ext_id, remove_from_i ? static_cast<size_t>(i) : j);
+                if (remove_from_i)
+                {
+                  remove_i[m] = true;
+                  --remaining_i;
                 } else
                 {
-                  // remove plate from a vehicle with most elements
-                  if (detected_vehicles[i].license_plates.size() > detected_vehicles[j].license_plates.size())
-                  {
-                    if (config.logs_level <= userver::logging::Level::kTrace)
-                      USERVER_IMPL_LOG_TO(logger_, userver::logging::Level::kTrace,
-                        "vstream_key = {}_{};  remove duplicate plate number from vehicle {}",
-                        config.id_group, config.ext_id, i);
-                    m = detected_vehicles[i].license_plates.erase(m);
-                    --m;
-                  } else
-                  {
-                    if (config.logs_level <= userver::logging::Level::kTrace)
-                      USERVER_IMPL_LOG_TO(logger_, userver::logging::Level::kTrace,
-                        "vstream_key = {}_{};  remove duplicate plate number from vehicle {}",
-                        config.id_group, config.ext_id, j);
-                    n = detected_vehicles[j].license_plates.erase(n);
-                    --n;
-                  }
+                  remove_j[n] = true;
+                  --remaining_j;
                 }
               }
             }
+
+          auto erase_marked = [](std::vector<LicensePlate>& plates, const std::vector<bool>& marked)
+          {
+            std::vector<LicensePlate> kept;
+            kept.reserve(plates.size());
+            for (size_t k = 0; k < plates.size(); ++k)
+              if (!marked[k])
+                kept.push_back(std::move(plates[k]));
+            plates = std::move(kept);
+          };
+          erase_marked(plates_i, remove_i);
+          erase_marked(plates_j, remove_j);
         }
     std::erase_if(detected_vehicles, [&config, img_width = width, img_height = height](const auto& vehicle)
       {
