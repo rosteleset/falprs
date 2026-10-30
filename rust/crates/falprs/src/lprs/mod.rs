@@ -12,6 +12,7 @@ use std::sync::Arc;
 
 use anyhow::{Context, Result};
 use axum::Router;
+use axum::extract::DefaultBodyLimit;
 use pg_cluster::{Cluster, ClusterSettings};
 
 use crate::cache::PgCache;
@@ -27,6 +28,8 @@ pub struct Lprs {
     logger: Arc<Logger>,
     /// Stream group used for requests without an `Authorization` header; 0 or less forbids them.
     allow_group_id_without_auth: i32,
+    /// The largest API request body accepted.
+    api_max_request_size: usize,
     groups: Arc<PgCache<GroupsData>>,
     vstreams_config: Arc<PgCache<VStreamsConfigData>>,
     vstream_group: Arc<PgCache<VStreamGroupData>>,
@@ -70,6 +73,7 @@ impl Lprs {
             cluster,
             logger,
             allow_group_id_without_auth,
+            api_max_request_size: config.api_max_request_size,
             groups,
             vstreams_config,
             vstream_group,
@@ -109,6 +113,6 @@ impl Lprs {
     }
 
     pub fn router(self: &Arc<Self>) -> Router {
-        api::router(self.clone())
+        api::router(self.clone()).layer(DefaultBodyLimit::max(self.api_max_request_size))
     }
 }

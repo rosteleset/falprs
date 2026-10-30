@@ -18,6 +18,9 @@ use crate::converters::parse_duration;
 /// Dynamic config key mapping cache component names to the host type their fills read from.
 const CACHE_HOST_TYPES_KEY: &str = "FALPRS_PG_CACHE_HOST_TYPES";
 
+/// userver's default `max_request_size` of a handler.
+const DEFAULT_MAX_REQUEST_SIZE: usize = 1024 * 1024;
+
 /// Settings the service takes from `config.yaml`.
 #[derive(Debug, Clone)]
 pub struct Config {
@@ -59,6 +62,8 @@ pub struct CacheConfig {
 #[derive(Debug, Clone)]
 pub struct LprsConfig {
     pub database: DatabaseConfig,
+    /// The largest API request body accepted, as userver's `max_request_size`.
+    pub api_max_request_size: usize,
     pub groups_cache: CacheConfig,
     pub vstreams_config_cache: CacheConfig,
     pub vstream_group_cache: CacheConfig,
@@ -71,6 +76,8 @@ pub struct FrsConfig {
     pub database: DatabaseConfig,
     /// Whether the API also answers GET requests (only `motionDetection` handles them).
     pub api_allows_get: bool,
+    /// The largest API request body accepted, as userver's `max_request_size`.
+    pub api_max_request_size: usize,
     pub groups_cache: CacheConfig,
     pub config_cache: CacheConfig,
     pub vstreams_config_cache: CacheConfig,
@@ -100,6 +107,8 @@ struct Components {
     fs_cache_main: Option<FsCache>,
     #[serde(rename = "dynamic-config")]
     dynamic_config: Option<DynamicConfig>,
+    #[serde(rename = "lprs-api-http")]
+    lprs_api: Option<Handler>,
     #[serde(rename = "lprs-postgresql-database")]
     lprs_database: Option<Database>,
     #[serde(rename = "lprs-groups-pg-cache")]
@@ -135,6 +144,7 @@ struct Components {
 #[derive(Deserialize)]
 struct Handler {
     method: Option<String>,
+    max_request_size: Option<usize>,
 }
 
 #[derive(Deserialize)]
@@ -142,6 +152,13 @@ struct Server {
     listener: Listener,
     #[serde(rename = "listener-monitor")]
     listener_monitor: Option<Listener>,
+    #[serde(rename = "handler-defaults")]
+    handler_defaults: Option<HandlerDefaults>,
+}
+
+#[derive(Deserialize)]
+struct HandlerDefaults {
+    max_request_size: Option<usize>,
 }
 
 #[derive(Deserialize)]
@@ -250,6 +267,15 @@ impl Config {
             bail!("logging.loggers.default is required");
         }
         let defaults = components.dynamic_config.unwrap_or_default().defaults;
+        // A handler's own limit, else the server's handler defaults, else userver's default
+        let default_max_request_size = components
+            .server
+            .handler_defaults
+            .as_ref()
+            .and_then(|defaults| defaults.max_request_size)
+            .unwrap_or(DEFAULT_MAX_REQUEST_SIZE);
+        let max_request_size =
+            |handler: Option<&Handler>| handler.and_then(|h| h.max_request_size).unwrap_or(default_max_request_size);
         let lprs = match components.lprs_database {
             None => None,
             Some(database) => Some(LprsConfig {
@@ -257,6 +283,7 @@ impl Config {
                     dsn: database.dbconnection,
                     max_pool_size: max_pool_size(&defaults, "lprs-postgresql-database"),
                 },
+                api_max_request_size: max_request_size(components.lprs_api.as_ref()),
                 groups_cache: cache_config("lprs-groups-pg-cache", components.lprs_groups_cache, &defaults)?,
                 vstreams_config_cache: cache_config(
                     "lprs-vstreams-config-pg-cache",
@@ -278,9 +305,11 @@ impl Config {
                     dsn: database.dbconnection,
                     max_pool_size: max_pool_size(&defaults, "frs-postgresql-database"),
                 },
+                api_max_request_size: max_request_size(components.frs_api.as_ref()),
                 api_allows_get: components
                     .frs_api
-                    .and_then(|handler| handler.method)
+                    .as_ref()
+                    .and_then(|handler| handler.method.as_deref())
                     .is_some_and(|methods| methods.split(',').any(|method| method.trim() == "GET")),
                 groups_cache: cache_config("frs-groups-pg-cache", components.frs_groups_cache, &defaults)?,
                 config_cache: cache_config("frs-config-pg-cache", components.frs_config_cache, &defaults)?,
@@ -344,6 +373,7 @@ mod tests {
         assert_eq!(lprs.groups_cache.host_type, HostType::Master);
         assert_eq!(lprs.workflow["allow-group-id-without-auth"], 1);
         assert_eq!(lprs.groups_cache.full_update_interval, None);
+        assert_eq!(lprs.api_max_request_size, 1024 * 1024);
 
         let frs = config.frs.unwrap();
         assert_eq!(frs.database.dsn, "postgresql://test_falprs:123@localhost:5432/test_frs");
@@ -360,8 +390,20 @@ mod tests {
         let config = Config::load(Path::new(concat!(env!("CARGO_MANIFEST_DIR"), "/../../../config.yaml.example"))).unwrap();
         assert!(config.loggers.contains_key("lprs"));
         assert!(config.loggers.contains_key("frs"));
-        assert!(config.lprs.is_some());
-        assert!(config.frs.is_some());
+        assert_eq!(config.lprs.unwrap().api_max_request_size, 5 * 1024 * 1024);
+        assert_eq!(config.frs.unwrap().api_max_request_size, 5 * 1024 * 1024);
+    }
+
+    #[test]
+    fn max_request_size_from_handler_defaults() {
+        let text = test_config_text().replacen(
+            "        server:\n",
+            "        server:\n            handler-defaults:\n                max_request_size: 3000000\n",
+            1,
+        );
+        let config = Config::parse(&text).unwrap();
+        assert_eq!(config.lprs.unwrap().api_max_request_size, 3_000_000);
+        assert_eq!(config.frs.unwrap().api_max_request_size, 3_000_000);
     }
 
     #[test]
