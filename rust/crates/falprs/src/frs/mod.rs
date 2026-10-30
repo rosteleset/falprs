@@ -14,6 +14,7 @@ use std::time::Duration;
 
 use anyhow::{Context, Result};
 use axum::Router;
+use axum::extract::DefaultBodyLimit;
 use pg_cluster::{Cluster, ClusterSettings};
 
 use crate::cache::PgCache;
@@ -29,6 +30,8 @@ pub struct Frs {
     logger: Arc<Logger>,
     local: LocalConfig,
     api_allows_get: bool,
+    /// The largest API request body accepted.
+    api_max_request_size: usize,
     groups: Arc<PgCache<GroupsData>>,
     config: Arc<PgCache<ConfigData>>,
     vstreams_config: Arc<PgCache<VStreamsConfigData>>,
@@ -83,6 +86,7 @@ impl Frs {
             logger,
             local: LocalConfig::from_config(&config.workflow),
             api_allows_get: config.api_allows_get,
+            api_max_request_size: config.api_max_request_size,
             groups,
             config: common_config,
             vstreams_config,
@@ -137,6 +141,6 @@ impl Frs {
     }
 
     pub fn router(self: &Arc<Self>) -> Router {
-        api::router(self.clone())
+        api::router(self.clone()).layer(DefaultBodyLimit::max(self.api_max_request_size))
     }
 }
