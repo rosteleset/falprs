@@ -171,6 +171,16 @@ impl Logger {
         })
     }
 
+    /// A logger that discards everything, for tests.
+    #[cfg(test)]
+    pub fn null() -> Logger {
+        let config = LoggerConfig {
+            file_path: "@null".to_string(),
+            level: "trace".to_string(),
+        };
+        Logger::new("null", &config).unwrap()
+    }
+
     pub fn init_level(&self) -> Level {
         self.init_level
     }
@@ -262,4 +272,64 @@ macro_rules! log {
     ($logger:expr, $level:expr, $($arg:tt)+) => {
         $logger.log($level, module_path!(), format_args!($($arg)+))
     };
+}
+
+/// The logger and key of the video stream a workflow step works for, with the stream's log level.
+#[derive(Clone, Copy)]
+pub struct StreamLog<'a> {
+    pub logger: &'a Logger,
+    pub key: &'a str,
+    pub level: Level,
+    /// Log regardless of the level, as FRS does for image tests.
+    pub always: bool,
+}
+
+impl StreamLog<'_> {
+    pub fn logs(&self, level: Level) -> bool {
+        self.always || self.level <= level
+    }
+}
+
+/// Logs `vstream_key = <key>;  <message>` if the video stream's log level allows `level`.
+#[macro_export]
+macro_rules! stream_log {
+    ($stream:expr, $level:expr, $($arg:tt)+) => {
+        if $stream.logs($level) {
+            $crate::log!($stream.logger, $level, "vstream_key = {};  {}", $stream.key, format_args!($($arg)+))
+        }
+    };
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn stream_log_prefixes_the_key_and_follows_the_stream_level() {
+        let path = std::env::temp_dir().join(format!("falprs-stream-log-{}.txt", std::process::id()));
+        let config = LoggerConfig {
+            file_path: path.to_string_lossy().into_owned(),
+            level: "trace".to_string(),
+        };
+        let logger = Logger::new("test", &config).unwrap();
+        let stream = StreamLog {
+            logger: &logger,
+            key: "1_cam",
+            level: Level::Debug,
+            always: false,
+        };
+        crate::stream_log!(stream, Level::Trace, "hidden");
+        crate::stream_log!(stream, Level::Debug, "plate count: {}", 2);
+        let test = StreamLog { always: true, ..stream };
+        crate::stream_log!(test, Level::Trace, "shown");
+        // Reopening waits for the queued lines to be written
+        logger.reopen();
+
+        let text = std::fs::read_to_string(&path).unwrap();
+        let _ = std::fs::remove_file(&path);
+        // TSKV escapes `=` in values
+        assert!(text.contains("\ttext=vstream_key \\= 1_cam;  plate count: 2\n"));
+        assert!(text.contains("\ttext=vstream_key \\= 1_cam;  shown\n"));
+        assert!(!text.contains("hidden"));
+    }
 }

@@ -19,7 +19,8 @@ use super::workflow::Screenshot;
 use crate::converters::format_time;
 use crate::imaging;
 use crate::log;
-use crate::logging::Level;
+use crate::logging::{Level, StreamLog};
+use crate::stream_log;
 use crate::triton::{InferRequest, Tensor};
 
 /// A detected barcode: absolute x_min, y_min, x_max, y_max and confidence.
@@ -48,10 +49,12 @@ fn nms_barcodes(mut detections: Vec<Detection>) -> Vec<Detection> {
     kept
 }
 
-async fn detect_barcodes(frs: &Frs, frame: &RgbImage, common: &CommonConfig, config: &VStreamConfig) -> Result<Vec<Detection>> {
+async fn detect_barcodes(frs: &Frs, frame: &RgbImage, common: &CommonConfig, config: &VStreamConfig, log: StreamLog<'_>) -> Result<Vec<Detection>> {
     let model = &common.bd_net;
     let (width, height) = (model.input_width, model.input_height);
     let input = tokio::task::block_in_place(|| imaging::prepare_yolo(frame, width, height));
+    stream_log!(log, Level::Trace, "after image preprocessing for face detection");
+    stream_log!(log, Level::Trace, "before inference barcode detection");
     let outputs = frs
         .triton
         .infer(InferRequest {
@@ -63,9 +66,11 @@ async fn detect_barcodes(frs: &Frs, frame: &RgbImage, common: &CommonConfig, con
         })
         .await
         .context("Unable to send inference request")?;
+    stream_log!(log, Level::Trace, "after inference barcode detection");
     let Some(output) = outputs.first() else {
         bail!("Unable to receive inference result");
     };
+    stream_log!(log, Level::Debug, "inference barcode detection OK");
     let data = output.as_f32();
     if data.len() < 5 * NUM_COLS {
         bail!("unexpected barcode detection output size {}", data.len());
@@ -73,7 +78,8 @@ async fn detect_barcodes(frs: &Frs, frame: &RgbImage, common: &CommonConfig, con
     let inv_scale = 1.0 / input.scale as f32;
     let (shift_x, shift_y) = input.shift;
     let (max_x, max_y) = ((frame.width() - 1) as f32, (frame.height() - 1) as f32);
-    let detections = (0..NUM_COLS)
+    stream_log!(log, Level::Trace, "barcode confidence threshold: {:.3}", config.barcode_confidence);
+    let detections: Vec<Detection> = (0..NUM_COLS)
         .filter(|&j| data[4 * NUM_COLS + j] > config.barcode_confidence)
         .map(|j| {
             let (cx, cy, bw, bh) = (data[j], data[NUM_COLS + j], data[2 * NUM_COLS + j], data[3 * NUM_COLS + j]);
@@ -89,7 +95,10 @@ async fn detect_barcodes(frs: &Frs, frame: &RgbImage, common: &CommonConfig, con
             }
         })
         .collect();
-    Ok(nms_barcodes(detections))
+    stream_log!(log, Level::Trace, "before nms_barcodes count: {}", detections.len());
+    let detections = nms_barcodes(detections);
+    stream_log!(log, Level::Trace, "after nms_barcodes count: {}", detections.len());
+    Ok(detections)
 }
 
 /// ZXing's luminance of the frame as the C++ service passes it: OpenCV's BGR bytes labelled as
@@ -182,16 +191,19 @@ pub async fn process(
     if logs(Level::Trace) {
         log!(frs.logger, Level::Trace, "vstream_key = {key};  before image preprocessing for barcode detection");
     }
-    let detections = match detect_barcodes(frs, frame, common, config).await {
+    let stream = StreamLog {
+        logger: &frs.logger,
+        key,
+        level: config.logs_level,
+        always: is_test,
+    };
+    let detections = match detect_barcodes(frs, frame, common, config, stream).await {
         Ok(detections) => detections,
         Err(e) => {
             log!(frs.logger, Level::Error, "Error! {e:#}");
             return;
         }
     };
-    if config.logs(Level::Trace) {
-        log!(frs.logger, Level::Trace, "vstream_key = {key};  after nms_barcodes count: {}", detections.len());
-    }
     if logs(Level::Trace) {
         log!(frs.logger, Level::Trace, "vstream_key = {key};  before decoding barcodes");
     }

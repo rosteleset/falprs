@@ -5,6 +5,9 @@ use image::RgbImage;
 
 use super::vstream_config::VStreamConfig;
 use crate::imaging::letterbox_yolo_obb;
+use crate::log;
+use crate::logging::{Level, StreamLog};
+use crate::stream_log;
 use crate::triton::{InferRequest, Tensor, Triton};
 
 pub const CLASSES: [&str; 5] = ["car", "van", "truck", "bus", "freight car"];
@@ -24,10 +27,12 @@ pub struct VehicleObb {
 const OUTPUT_ROWS: usize = 300;
 const OUTPUT_COLUMNS: usize = 7;
 
-pub async fn detect(triton: &Triton, image: &RgbImage, config: &VStreamConfig) -> Result<Vec<VehicleObb>> {
+pub async fn detect(triton: &Triton, image: &RgbImage, config: &VStreamConfig, log: StreamLog<'_>) -> Result<Vec<VehicleObb>> {
     let model = &config.ovd_net;
     let target_size = model.input_width.max(model.input_height);
+    stream_log!(log, Level::Trace, "before preprocess image for OVDNet");
     let letterbox = tokio::task::block_in_place(|| letterbox_yolo_obb(image, target_size));
+    stream_log!(log, Level::Trace, "after preprocess image for OVDNet");
     let shape = vec![1, 3, letterbox.height as i64, letterbox.width as i64];
     let outputs = triton
         .infer(InferRequest {
@@ -38,9 +43,12 @@ pub async fn detect(triton: &Triton, image: &RgbImage, config: &VStreamConfig) -
             timeout: config.inference_timeout,
         })
         .await?;
+    stream_log!(log, Level::Trace, "after inference OVDNet");
     let Some(output) = outputs.first() else {
-        bail!("inference returned no outputs");
+        log!(log.logger, Level::Error, "Error! Unable to receive inference result");
+        return Ok(Vec::new());
     };
+    stream_log!(log, Level::Debug, "inference OVDNet OK");
     let data = output.as_f32();
     if data.len() < OUTPUT_ROWS * OUTPUT_COLUMNS {
         bail!("unexpected output size {}", data.len());
@@ -49,7 +57,8 @@ pub async fn detect(triton: &Triton, image: &RgbImage, config: &VStreamConfig) -
     let inv_scale = 1.0 / letterbox.ratio;
     let (pad_x, pad_y) = letterbox.padding;
     let (max_x, max_y) = ((image.width() - 1) as f32, (image.height() - 1) as f32);
-    let vehicles = data
+    stream_log!(log, Level::Trace, "vehicle confidence threshold: {:.3}", config.vehicle_confidence);
+    let vehicles: Vec<VehicleObb> = data
         .chunks_exact(OUTPUT_COLUMNS)
         .take(OUTPUT_ROWS)
         .filter(|row| row[4] > config.vehicle_confidence)
@@ -80,5 +89,6 @@ pub async fn detect(triton: &Triton, image: &RgbImage, config: &VStreamConfig) -
             }
         })
         .collect();
+    stream_log!(log, Level::Trace, "found vehicles: {}", vehicles.len());
     Ok(vehicles)
 }

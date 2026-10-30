@@ -6,6 +6,8 @@ use image::RgbImage;
 
 use super::config::{CommonConfig, VStreamConfig};
 use crate::imaging;
+use crate::logging::{Level, StreamLog};
+use crate::stream_log;
 use crate::triton::{InferRequest, Tensor, Triton};
 
 #[derive(Debug, Clone)]
@@ -123,10 +125,14 @@ pub async fn detect_faces(
     frame: &RgbImage,
     common: &CommonConfig,
     config: &VStreamConfig,
+    log: StreamLog<'_>,
 ) -> Result<Vec<FaceDetection>> {
     let model = &common.fd_net;
     let (width, height) = (model.input_width, model.input_height);
+    stream_log!(log, Level::Trace, "before image preprocessing for face detection");
     let (tensor, scale) = tokio::task::block_in_place(|| imaging::prepare_scrfd(frame, width, height));
+    stream_log!(log, Level::Trace, "after image preprocessing for face detection");
+    stream_log!(log, Level::Trace, "before inference face detection");
     let names: Vec<&str> = [0, 1, 2].iter().flat_map(|&k| SCRFD_OUTPUTS.iter().map(move |s| s[k])).collect();
     let outputs = triton
         .infer(InferRequest {
@@ -138,9 +144,11 @@ pub async fn detect_faces(
         })
         .await
         .context("Unable to send inference request")?;
+    stream_log!(log, Level::Trace, "after inference face detection");
     if outputs.len() != names.len() {
         bail!("Unexpected number of output tensors in face detection response: {}", outputs.len());
     }
+    stream_log!(log, Level::Debug, "inference face detection OK");
     let output = |name: &str| outputs.iter().find(|t| t.name == name).map(|t| t.as_f32()).unwrap_or_default();
 
     let mut faces = Vec::new();
@@ -206,10 +214,12 @@ pub async fn infer_face_class(
     aligned_face: &RgbImage,
     common: &CommonConfig,
     config: &VStreamConfig,
+    log: StreamLog<'_>,
 ) -> Result<Vec<(usize, f32)>> {
     let model = &common.fc_net;
     let (width, height) = (model.input_width, model.input_height);
     let tensor = imaging::prepare_genet(aligned_face, width, height);
+    stream_log!(log, Level::Trace, "before inference face class");
     let outputs = triton
         .infer(InferRequest {
             endpoint: &config.fc_inference_server,
@@ -220,23 +230,28 @@ pub async fn infer_face_class(
         })
         .await
         .context("Unable to send inference request")?;
+    stream_log!(log, Level::Trace, "after inference face class");
     let Some(output) = outputs.first() else {
         bail!("Unable to receive inference result");
     };
+    stream_log!(log, Level::Debug, "inference face class OK");
     let mut scores = output.as_f32();
     scores.resize(model.output_size, 0.0);
     Ok(soft_max(&scores))
 }
 
+/// The face descriptor, or none if the model returned one of an unexpected size (logged here).
 pub async fn extract_face_descriptor(
     triton: &Triton,
     aligned_face: &RgbImage,
     common: &CommonConfig,
     config: &VStreamConfig,
-) -> Result<Vec<f32>> {
+    log: StreamLog<'_>,
+) -> Result<Option<Vec<f32>>> {
     let model = &common.fr_net;
     let (width, height) = (model.input_width, model.input_height);
     let tensor = imaging::prepare_arcface(aligned_face, width, height);
+    stream_log!(log, Level::Trace, "before inference for extracting descriptor");
     let outputs = triton
         .infer(InferRequest {
             endpoint: &config.fr_inference_server,
@@ -247,17 +262,22 @@ pub async fn extract_face_descriptor(
         })
         .await
         .context("Unable to send inference request")?;
+    stream_log!(log, Level::Trace, "after inference for extracting descriptor");
     let Some(output) = outputs.first() else {
         bail!("Unable to receive inference result");
     };
+    stream_log!(log, Level::Debug, "inference face descriptor extractor OK");
     let expected = model.output_size * 4;
     if output.data.len() != expected {
-        bail!(
+        stream_log!(
+            log,
+            Level::Error,
             "unexpected inference face descriptor extractor result size: must be {expected}, but is {}",
             output.data.len()
         );
+        return Ok(None);
     }
-    Ok(output.as_f32())
+    Ok(Some(output.as_f32()))
 }
 
 /// Dot product of two normalized descriptors, or -1 for descriptors of different or zero size.

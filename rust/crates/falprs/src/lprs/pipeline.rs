@@ -10,6 +10,9 @@ use image::RgbImage;
 
 use super::geometry::{BBox, area, distance, has_intersection, intersection_area, iou};
 use super::vstream_config::{ModelConfig, VStreamConfig, WorkAreaPolygon};
+use crate::log;
+use crate::logging::{Level, StreamLog};
+use crate::stream_log;
 use crate::imaging::{crop, perspective_transform, prepare_lpc, prepare_vc, prepare_yolo, warp_perspective};
 use crate::triton::{InferRequest, Tensor, Triton};
 
@@ -66,11 +69,18 @@ fn nchw(model: &ModelConfig) -> Vec<i64> {
 }
 
 /// Runs the requests concurrently; like userver's `WaitAllChecked`, any failure fails them all.
-async fn infer_all(triton: &Triton, requests: Vec<InferRequest<'_>>) -> Result<Vec<Vec<f32>>> {
+async fn infer_all(triton: &Triton, requests: Vec<InferRequest<'_>>, log: StreamLog<'_>) -> Result<Vec<Vec<f32>>> {
     join_all(requests.into_iter().map(|r| triton.infer(r)))
         .await
         .into_iter()
-        .map(|outputs| Ok(outputs?.first().context("inference returned no outputs")?.as_f32()))
+        .enumerate()
+        .map(|(index, outputs)| {
+            let Some(output) = outputs?.first().map(|output| output.as_f32()) else {
+                log!(log.logger, Level::Error, "Error! Unable to receive inference result (vindex = {index})");
+                bail!("inference returned no outputs");
+            };
+            Ok(output)
+        })
         .collect()
 }
 
@@ -101,14 +111,21 @@ fn suppress<T>(items: &mut Vec<T>, overlaps: impl Fn(&T, &T) -> bool) {
 }
 
 /// VDNet: vehicles in the frame. An inference failure yields no vehicles, as in the C++ service.
-pub async fn detect_vehicles(triton: &Triton, image: &RgbImage, config: &VStreamConfig) -> Result<Vec<Vehicle>> {
+pub async fn detect_vehicles(triton: &Triton, image: &RgbImage, config: &VStreamConfig, log: StreamLog<'_>) -> Result<Vec<Vehicle>> {
+    stream_log!(log, Level::Trace, "before preprocess image for VDNet");
     let input = tokio::task::block_in_place(|| prepare_yolo(image, config.vd_net.input_width, config.vd_net.input_height));
-    let data = triton
+    stream_log!(log, Level::Trace, "after preprocess image for VDNet");
+    stream_log!(log, Level::Trace, "before inference VDNet");
+    let outputs = triton
         .infer(request(&config.vd_net, nchw(&config.vd_net), &input.tensor, config))
-        .await?
-        .first()
-        .context("inference returned no outputs")?
-        .as_f32();
+        .await?;
+    stream_log!(log, Level::Trace, "after inference VDNet");
+    let Some(output) = outputs.first() else {
+        log!(log.logger, Level::Error, "Error! Unable to receive inference result");
+        return Ok(Vec::new());
+    };
+    stream_log!(log, Level::Debug, "inference VDNet OK");
+    let data = output.as_f32();
 
     // Output [5, 8400]: centre x, centre y, width, height, confidence
     const COLUMNS: usize = 8400;
@@ -119,6 +136,7 @@ pub async fn detect_vehicles(triton: &Triton, image: &RgbImage, config: &VStream
     let (max_x, max_y) = ((image.width() - 1) as f32, (image.height() - 1) as f32);
     let screen_area = (image.width() * image.height()) as f32;
     let mut vehicles = Vec::new();
+    stream_log!(log, Level::Trace, "vehicle confidence threshold: {:.3}", config.vehicle_confidence);
     for j in 0..COLUMNS {
         let confidence = data[4 * COLUMNS + j];
         if confidence <= config.vehicle_confidence {
@@ -143,8 +161,10 @@ pub async fn detect_vehicles(triton: &Triton, image: &RgbImage, config: &VStream
             plates: Vec::new(),
         });
     }
+    stream_log!(log, Level::Trace, "before nms_vehicles count: {}", vehicles.len());
     sort_by_confidence(&mut vehicles, |v| v.confidence);
     suppress(&mut vehicles, |a, b| iou(&a.bbox, &b.bbox) > config.vehicle_iou_threshold);
+    stream_log!(log, Level::Trace, "after nms_vehicles count: {}", vehicles.len());
     Ok(vehicles)
 }
 
@@ -154,17 +174,38 @@ fn softmax(values: &[f32]) -> Vec<f32> {
 }
 
 /// VCNet: marks special vehicles.
-pub async fn classify_special(triton: &Triton, image: &RgbImage, config: &VStreamConfig, vehicles: &mut [Vehicle]) -> Result<()> {
+pub async fn classify_special(triton: &Triton, image: &RgbImage, config: &VStreamConfig, vehicles: &mut [Vehicle], log: StreamLog<'_>) -> Result<()> {
     let model = &config.vc_net;
+    stream_log!(log, Level::Trace, "before inference VcNet");
     let tensors = tokio::task::block_in_place(|| {
         vehicles
             .iter()
-            .map(|v| Ok(prepare_vc(&roi(image, &v.bbox)?, model.input_width, model.input_height)))
+            .enumerate()
+            .map(|(vindex, v)| {
+                stream_log!(log, Level::Trace, "before preprocess image {vindex} for VcNet");
+                let tensor = prepare_vc(&roi(image, &v.bbox)?, model.input_width, model.input_height);
+                stream_log!(log, Level::Trace, "after preprocess image {vindex} for VcNet");
+                Ok(tensor)
+            })
             .collect::<Result<Vec<_>>>()
     })?;
     let requests = tensors.iter().map(|t| request(model, nchw(model), t, config)).collect();
-    for (vehicle, scores) in vehicles.iter_mut().zip(infer_all(triton, requests).await?) {
+    let outputs = infer_all(triton, requests, log).await?;
+    stream_log!(log, Level::Trace, "after inference VcNet");
+    stream_log!(log, Level::Trace, "special confidence threshold: {:.3}", config.special_confidence);
+    for (vindex, (vehicle, scores)) in vehicles.iter_mut().zip(outputs).enumerate() {
+        stream_log!(log, Level::Trace, "vindex = {vindex};  softmax scores: {scores:?}");
         let scores = softmax(&scores);
+        let b = vehicle.bbox;
+        stream_log!(
+            log,
+            Level::Trace,
+            "vindex = {vindex};  bbox = [{:.2}, {:.2}, {:.2}, {:.2}];  scores: {scores:?}",
+            b[0],
+            b[1],
+            b[2],
+            b[3]
+        );
         if scores.len() >= 2 {
             vehicle.is_special = scores[1] > scores[0] && scores[1] > config.special_confidence;
         }
@@ -186,24 +227,33 @@ fn absolute_work_area(work_area: &[WorkAreaPolygon], width: u32, height: u32) ->
 }
 
 /// LPDNet: plates of every vehicle, filtered by the work area and the minimum plate height.
-pub async fn detect_plates(triton: &Triton, image: &RgbImage, config: &VStreamConfig, vehicles: &mut [Vehicle]) -> Result<()> {
+pub async fn detect_plates(triton: &Triton, image: &RgbImage, config: &VStreamConfig, vehicles: &mut [Vehicle], log: StreamLog<'_>) -> Result<()> {
     let model = &config.lpd_net;
+    stream_log!(log, Level::Trace, "before inference LPDNet");
     let inputs = tokio::task::block_in_place(|| {
         vehicles
             .iter()
-            .map(|v| Ok(prepare_yolo(&roi(image, &v.bbox)?, model.input_width, model.input_height)))
+            .enumerate()
+            .map(|(vindex, v)| {
+                stream_log!(log, Level::Trace, "before preprocess image {vindex} for LPDNet");
+                let input = prepare_yolo(&roi(image, &v.bbox)?, model.input_width, model.input_height);
+                stream_log!(log, Level::Trace, "after preprocess image {vindex} for LPDNet");
+                Ok(input)
+            })
             .collect::<Result<Vec<_>>>()
     })?;
     let requests = inputs.iter().map(|input| request(model, nchw(model), &input.tensor, config)).collect();
-    let outputs = infer_all(triton, requests).await?;
+    let outputs = infer_all(triton, requests, log).await?;
+    stream_log!(log, Level::Trace, "after inference LPDNet");
 
     let work_area = absolute_work_area(&config.work_area, image.width(), image.height());
-    for ((vehicle, input), data) in vehicles.iter_mut().zip(&inputs).zip(outputs) {
+    for (vindex, ((vehicle, input), data)) in vehicles.iter_mut().zip(&inputs).zip(outputs).enumerate() {
         // Rows of 14: left, top, right, bottom, confidence, class, 4 key points clockwise from the top left
         const COLUMNS: usize = 14;
         let inv_scale = 1.0 / input.scale as f32;
         let (shift_x, shift_y) = input.shift;
         let [bx, by, _, _] = vehicle.bbox;
+        stream_log!(log, Level::Trace, "license plate confidence threshold (vindex = {vindex}): {}", config.plate_confidence);
         let mut plates: Vec<LicensePlate> = data
             .chunks_exact(COLUMNS)
             .filter(|row| row[4] > config.plate_confidence)
@@ -227,8 +277,10 @@ pub async fn detect_plates(triton: &Triton, image: &RgbImage, config: &VStreamCo
                 }
             })
             .collect();
+        stream_log!(log, Level::Trace, "before nms_plates count (vindex = {vindex}): {}", plates.len());
         sort_by_confidence(&mut plates, |p| p.confidence);
         suppress(&mut plates, |a, b| a.plate_class_common == b.plate_class_common && has_intersection(&a.bbox, &b.bbox));
+        stream_log!(log, Level::Trace, "after nms_plates count (vindex = {vindex}): {}", plates.len());
 
         if !work_area.is_empty() || config.min_plate_height > 0.0 {
             plates.retain(|plate| {
@@ -241,25 +293,42 @@ pub async fn detect_plates(triton: &Triton, image: &RgbImage, config: &VStreamCo
                         plate_area.min(common) / plate_area.max(common) > 0.999
                     });
                     if !inside {
+                        stream_log!(
+                            log,
+                            Level::Trace,
+                            "license plate does not fall completely into the work area;  key points: {}",
+                            format_key_points(&plate.kpts)
+                        );
                         return false;
                     }
                 }
-                config.min_plate_height <= 0.0
-                    || distance(corners[0], corners[3]).min(distance(corners[1], corners[2])) >= config.min_plate_height
+                let too_small = config.min_plate_height > 0.0
+                    && distance(corners[0], corners[3]).min(distance(corners[1], corners[2])) < config.min_plate_height;
+                if too_small {
+                    stream_log!(log, Level::Trace, "license plate height is too small;  key points: {}", format_key_points(&plate.kpts));
+                }
+                !too_small
             });
         }
+        stream_log!(log, Level::Trace, "detected plate count (vindex = {vindex}): {}", plates.len());
         vehicle.plates = plates;
     }
     Ok(())
 }
 
+/// Key points as the C++ service logs them: `[(x, y) (x, y) (x, y) (x, y)]`.
+fn format_key_points(kpts: &[f32; 8]) -> String {
+    let points: Vec<String> = kpts.chunks_exact(2).map(|p| format!("({:.2}, {:.2})", p[0], p[1])).collect();
+    format!("[{}]", points.join(" "))
+}
+
 /// Removes a plate detected on two overlapping vehicles from one of them, then drops vehicles
 /// that have neither plates nor a special status, or lie outside the work area.
-pub fn remove_duplicate_plates(config: &VStreamConfig, vehicles: &mut Vec<Vehicle>, width: u32, height: u32) {
+pub fn remove_duplicate_plates(config: &VStreamConfig, vehicles: &mut Vec<Vehicle>, width: u32, height: u32, log: StreamLog<'_>) {
     for i in 0..vehicles.len().saturating_sub(1) {
         for j in i + 1..vehicles.len() {
             if has_intersection(&vehicles[i].bbox, &vehicles[j].bbox) {
-                remove_duplicates_of_pair(vehicles, i, j);
+                remove_duplicates_of_pair(vehicles, i, j, log);
             }
         }
     }
@@ -282,7 +351,7 @@ pub fn remove_duplicate_plates(config: &VStreamConfig, vehicles: &mut Vec<Vehicl
 /// first and removed afterwards; the counts of the remaining plates are updated after each mark,
 /// as the choice of the vehicle depends on them: the vehicle with more plates loses the plate, or,
 /// with equal counts, the larger vehicle.
-fn remove_duplicates_of_pair(vehicles: &mut [Vehicle], i: usize, j: usize) {
+fn remove_duplicates_of_pair(vehicles: &mut [Vehicle], i: usize, j: usize, log: StreamLog<'_>) {
     let (plates_i, plates_j) = (&vehicles[i].plates, &vehicles[j].plates);
     let mut remove_i = vec![false; plates_i.len()];
     let mut remove_j = vec![false; plates_j.len()];
@@ -300,6 +369,7 @@ fn remove_duplicates_of_pair(vehicles: &mut [Vehicle], i: usize, j: usize) {
             } else {
                 remaining_i > remaining_j
             };
+            stream_log!(log, Level::Trace, "remove duplicate plate number from vehicle {}", if remove_from_i { i } else { j });
             if remove_from_i {
                 remove_i[m] = true;
                 remaining_i -= 1;
@@ -316,17 +386,37 @@ fn remove_duplicates_of_pair(vehicles: &mut [Vehicle], i: usize, j: usize) {
 }
 
 /// LPCNet: the plate type of every plate.
-pub async fn classify_plates(triton: &Triton, image: &RgbImage, config: &VStreamConfig, plates: &mut [&mut LicensePlate]) -> Result<()> {
+pub async fn classify_plates(triton: &Triton, image: &RgbImage, config: &VStreamConfig, plates: &mut [&mut LicensePlate], log: StreamLog<'_>) -> Result<()> {
     let model = &config.lpc_net;
+    stream_log!(log, Level::Trace, "before inference LpcNet");
     let tensors = tokio::task::block_in_place(|| {
         plates
             .iter()
-            .map(|p| Ok(prepare_lpc(&roi(image, &p.bbox)?, model.input_width, model.input_height)))
+            .enumerate()
+            .map(|(pindex, p)| {
+                stream_log!(log, Level::Trace, "before preprocess image {pindex} for LpcNet");
+                let tensor = prepare_lpc(&roi(image, &p.bbox)?, model.input_width, model.input_height);
+                stream_log!(log, Level::Trace, "after preprocess image {pindex} for LpcNet");
+                Ok(tensor)
+            })
             .collect::<Result<Vec<_>>>()
     })?;
     let requests = tensors.iter().map(|t| request(model, nchw(model), t, config)).collect();
-    for (plate, scores) in plates.iter_mut().zip(infer_all(triton, requests).await?) {
+    let outputs = infer_all(triton, requests, log).await?;
+    stream_log!(log, Level::Trace, "after inference LpcNet");
+    for (pindex, (plate, scores)) in plates.iter_mut().zip(outputs).enumerate() {
+        stream_log!(log, Level::Trace, "pindex = {pindex};  softmax scores: {scores:?}");
         let scores = softmax(&scores);
+        let b = plate.bbox;
+        stream_log!(
+            log,
+            Level::Trace,
+            "pindex = {pindex};  bbox = [{:.2}, {:.2}, {:.2}, {:.2}];  scores: {scores:?}",
+            b[0],
+            b[1],
+            b[2],
+            b[3]
+        );
         let mut best = 0;
         for (i, score) in scores.iter().enumerate().skip(1) {
             if *score > scores[best] {
@@ -496,12 +586,15 @@ fn assemble_numbers(chars: &[CharData], plate_class: i32, char_iou_threshold: f3
 }
 
 /// LPRNet: straightens every plate and reads its number.
-pub async fn recognize_plates(triton: &Triton, image: &RgbImage, config: &VStreamConfig, plates: &mut [&mut LicensePlate]) -> Result<()> {
+pub async fn recognize_plates(triton: &Triton, image: &RgbImage, config: &VStreamConfig, plates: &mut [&mut LicensePlate], log: StreamLog<'_>) -> Result<()> {
     let model = &config.lpr_net;
+    stream_log!(log, Level::Trace, "before inference LPRNet");
     let inputs = tokio::task::block_in_place(|| {
         plates
             .iter()
-            .map(|plate| {
+            .enumerate()
+            .map(|(pindex, plate)| {
+                stream_log!(log, Level::Trace, "before preprocess image {pindex} for LPRNet");
                 let class = plate.plate_class_common.clamp(0, HEIGHT_RATIO_BY_PLATE_CLASS.len() as i32 - 1) as usize;
                 let width = model.input_width as f32;
                 let height = width * HEIGHT_RATIO_BY_PLATE_CLASS[class];
@@ -509,17 +602,21 @@ pub async fn recognize_plates(triton: &Triton, image: &RgbImage, config: &VStrea
                 let transform = perspective_transform(plate.corners(), dst).context("degenerate plate corners")?;
                 let straightened = warp_perspective(image, &transform, model.input_width, height as u32)
                     .context("degenerate plate transform")?;
-                Ok(prepare_yolo(&straightened, model.input_width, model.input_height))
+                let input = prepare_yolo(&straightened, model.input_width, model.input_height);
+                stream_log!(log, Level::Trace, "after preprocess image {pindex} for LPRNet");
+                Ok(input)
             })
             .collect::<Result<Vec<_>>>()
     })?;
     let requests = inputs.iter().map(|input| request(model, nchw(model), &input.tensor, config)).collect();
-    let outputs = infer_all(triton, requests).await?;
+    let outputs = infer_all(triton, requests, log).await?;
+    stream_log!(log, Level::Trace, "after inference LPRNet");
 
-    for ((plate, input), data) in plates.iter_mut().zip(&inputs).zip(outputs) {
+    for (pindex, ((plate, input), data)) in plates.iter_mut().zip(&inputs).zip(outputs).enumerate() {
         // Rows of 6: left, top, right, bottom, confidence, class
         let inv_scale = 1.0 / input.scale as f32;
         let (shift_x, shift_y) = input.shift;
+        stream_log!(log, Level::Trace, "char score threshold: {:.2}", config.char_score);
         let mut chars: Vec<CharData> = data
             .chunks_exact(6)
             .take(300)
@@ -536,12 +633,20 @@ pub async fn recognize_plates(triton: &Triton, image: &RgbImage, config: &VStrea
                 plate_class: plate.plate_class_common,
             })
             .collect();
+        stream_log!(log, Level::Trace, "before nms_chars count (pindex = {pindex}): {}", chars.len());
         sort_by_confidence(&mut chars, |c| c.confidence);
         suppress(&mut chars, |a, b| a.char_class == b.char_class && iou(&a.bbox, &b.bbox) > config.char_iou_threshold);
+        stream_log!(log, Level::Trace, "after nms_chars count (pindex = {pindex}): {}", chars.len());
         sort_chars(&mut chars);
 
         let mut numbers = assemble_numbers(&chars, plate.plate_class_common, config.char_iou_threshold);
-        numbers.retain_mut(validate_plate_number);
+        numbers.retain_mut(|number| {
+            let is_valid = validate_plate_number(number);
+            if !is_valid {
+                stream_log!(log, Level::Trace, "invalid plate number: {}", number.number);
+            }
+            is_valid
+        });
         numbers.sort_by(|a, b| b.score.total_cmp(&a.score));
         plate.numbers = numbers;
     }
@@ -639,7 +744,14 @@ mod tests {
     fn dedupe(vehicles: Vec<Vehicle>) -> Vec<Vec<f32>> {
         let mut vehicles = vehicles;
         let config = VStreamConfig::from_json(&serde_json::json!({}));
-        remove_duplicate_plates(&config, &mut vehicles, 1920, 1080);
+        let logger = crate::logging::Logger::null();
+        let log = StreamLog {
+            logger: &logger,
+            key: "1_test",
+            level: Level::Trace,
+            always: false,
+        };
+        remove_duplicate_plates(&config, &mut vehicles, 1920, 1080, log);
         vehicles.iter().map(|v| v.plates.iter().map(|p| p.confidence).collect()).collect()
     }
 

@@ -20,7 +20,7 @@ use crate::converters::format_time;
 use crate::fetch::{FetchError, decode_base64, fetch_image};
 use crate::imaging;
 use crate::log;
-use crate::logging::Level;
+use crate::logging::{Level, StreamLog};
 
 pub const MIME_IMAGE: &str = "image/jpeg";
 
@@ -222,6 +222,15 @@ impl Run<'_> {
 
     fn is(&self, task_type: TaskType) -> bool {
         self.task.task_type == task_type
+    }
+
+    fn stream(&self) -> StreamLog<'_> {
+        StreamLog {
+            logger: &self.frs.logger,
+            key: &self.task.vstream_key,
+            level: self.config.logs_level,
+            always: self.is(TaskType::Test),
+        }
     }
 }
 
@@ -434,7 +443,7 @@ async fn pipeline_body(ctx: &mut Run<'_>, url: &str) -> Result<Flow> {
         }
     }
 
-    let detected = pipeline::detect_faces(&frs.triton, &frame, &ctx.common, &ctx.config).await;
+    let detected = pipeline::detect_faces(&frs.triton, &frame, &ctx.common, &ctx.config, ctx.stream()).await;
     let detected = match detected {
         Ok(detected) => detected,
         Err(e) => {
@@ -551,7 +560,7 @@ async fn pipeline_body(ctx: &mut Run<'_>, url: &str) -> Result<Flow> {
             write_test_image(&format!("aligned_face_class_{}.jpg", face_data.len()), &aligned_face_class);
         }
 
-        match pipeline::infer_face_class(&frs.triton, &aligned_face_class, &common, &config).await {
+        match pipeline::infer_face_class(&frs.triton, &aligned_face_class, &common, &config, ctx.stream()).await {
             Ok(classes) => {
                 stats.fc_count += 1;
                 if let Some(&(class_index, score)) = classes.first() {
@@ -582,8 +591,9 @@ async fn pipeline_body(ctx: &mut Run<'_>, url: &str) -> Result<Flow> {
             }
         }
 
-        let descriptor = match pipeline::extract_face_descriptor(&frs.triton, &aligned_face, &common, &config).await {
-            Ok(descriptor) => descriptor,
+        let descriptor = match pipeline::extract_face_descriptor(&frs.triton, &aligned_face, &common, &config, ctx.stream()).await {
+            Ok(Some(descriptor)) => descriptor,
+            Ok(None) => continue,
             Err(e) => {
                 if ctx.logs(Level::Error) {
                     log!(frs.logger, Level::Error, "Error! {e:#}");
