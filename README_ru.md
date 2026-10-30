@@ -421,6 +421,7 @@ sudo apt-get install -y python3-requests python3-pytest python3-pytest-order pyt
 cd ~/falprs/tests
 ./test_prepare.sh
 ```
+Тесты запускают реализацию, заданную переменной **FALPRS_IMPL** (*rust* по-умолчанию или *cpp*), которая берётся из окружения или из файла *.env*, как в скриптах сборки; переменная **FALPRS_BIN** явно задаёт путь к исполняемому файлу сервиса.
 
 <a id="lprs_tests"></a>
 ### LPRS

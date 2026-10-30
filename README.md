@@ -421,6 +421,7 @@ Create directories and test databases:
 cd ~/falprs/tests
 ./test_prepare.sh
 ```
+The tests run the implementation set by the **FALPRS_IMPL** variable (*rust* by default, or *cpp*), taken from the environment or from the *.env* file like in the build scripts; the **FALPRS_BIN** variable sets the path to the service binary explicitly.
 
 <a id="lprs_tests"></a>
 ### LPRS
