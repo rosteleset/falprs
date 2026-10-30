@@ -475,6 +475,7 @@ async fn save_failed(lprs: &Lprs, ext_id: &str, config: &VStreamConfig, image_da
 
 /// Forgets plate bans whose area ban has ended.
 pub fn ban_maintenance(lprs: &Lprs) {
+    log!(lprs.logger, Level::Debug, "call doBanMaintenance");
     let now = Instant::now();
     lock(&lprs.workflows.plate_bans).retain(|_, ban| ban.area_until >= now);
 }
@@ -507,9 +508,11 @@ fn remove_old_images(directory: &Path, before: SystemTime) {
 
 /// Deletes events and event screenshots older than the events TTL, and old failed screenshots.
 pub async fn events_log_maintenance(lprs: &Lprs) {
+    log!(lprs.logger, Level::Debug, "call doEventsLogMaintenance");
     let settings = &lprs.settings;
     let before = SystemTime::now() - settings.events_log_ttl;
     let before_date: DateTime<Utc> = before.into();
+    log!(lprs.logger, Level::Debug, "delete event logs older than {before_date}");
     if let Err(e) = lprs
         .cluster
         .execute(HostType::Master, "delete from events_log where log_date < $1", &[&before_date])
