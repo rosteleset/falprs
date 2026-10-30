@@ -51,6 +51,14 @@ async fn serve(port: u16, router: Router, mut shutdown: watch::Receiver<bool>) -
     Ok(())
 }
 
+/// Ignores SIGUSR1, which would otherwise terminate the process: userver reopens its logs on it,
+/// here logs are reopened through the on-log-rotate handler instead.
+fn ignore_sigusr1() -> Result<()> {
+    let mut user1 = signal(SignalKind::user_defined1())?;
+    tokio::spawn(async move { while user1.recv().await.is_some() {} });
+    Ok(())
+}
+
 async fn wait_for_termination() -> Result<()> {
     let mut terminate = signal(SignalKind::terminate())?;
     let mut interrupt = signal(SignalKind::interrupt())?;
@@ -72,6 +80,7 @@ async fn main() -> Result<()> {
     rustls::crypto::ring::default_provider()
         .install_default()
         .map_err(|_| anyhow::anyhow!("can't install the TLS crypto provider"))?;
+    ignore_sigusr1()?;
     let config = Config::load(&config_path)?;
     let loggers = Arc::new(Loggers::new(&config.loggers)?);
     let logger = loggers.default_logger();
@@ -114,4 +123,21 @@ async fn main() -> Result<()> {
         frs.shutdown().await;
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn sigusr1_does_not_terminate_the_process() {
+        ignore_sigusr1().unwrap();
+        let status = std::process::Command::new("kill")
+            .args(["-USR1", &std::process::id().to_string()])
+            .status()
+            .unwrap();
+        assert!(status.success());
+        // Without the handler the default action would have killed the test process by now
+        tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+    }
 }
