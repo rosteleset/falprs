@@ -20,7 +20,8 @@ use crate::converters;
 use crate::fetch::{FetchError, fetch_image};
 use crate::imaging;
 use crate::log;
-use crate::logging::Level;
+use crate::logging::{Level, StreamLog};
+use crate::stream_log;
 
 
 /// Workflow settings from the `config` section of the `lprs-workflow` component.
@@ -177,6 +178,17 @@ async fn process_frame(lprs: &Lprs, vstream_key: &str) -> Next {
         }
     };
 
+    let stream = StreamLog {
+        logger: &lprs.logger,
+        key: vstream_key,
+        level: config.logs_level,
+        always: false,
+    };
+    if config.logs(Level::Debug) {
+        let frame_url = if config.screenshot_url.starts_with("data:") { "data:base64..." } else { config.screenshot_url.as_str() };
+        log!(lprs.logger, Level::Debug, "Start processPipeline: vstream_key = {vstream_key};  frame_url = {frame_url}");
+    }
+    stream_log!(stream, Level::Trace, "before image acquisition");
     let image_data = match fetch_image(&lprs.http, &config.screenshot_url, config.max_capture_error_count, config.capture_timeout).await {
         Ok(data) => data,
         Err(FetchError::Base64) => {
@@ -193,8 +205,16 @@ async fn process_frame(lprs: &Lprs, vstream_key: &str) -> Next {
         }
     };
 
-    match recognize(lprs, vstream_key, &entry.ext_id, entry.id_vstream, config, &image_data).await {
-        Ok(()) => Next::After(config.delay_between_frames),
+    stream_log!(stream, Level::Trace, "after image acquisition");
+    stream_log!(stream, Level::Trace, "image size = {} bytes", image_data.len());
+
+    match recognize(lprs, stream, &entry.ext_id, entry.id_vstream, config, &image_data).await {
+        Ok(()) => {
+            if config.logs(Level::Debug) {
+                log!(lprs.logger, Level::Debug, "End processPipeline: vstream_key = {vstream_key};");
+            }
+            Next::After(config.delay_between_frames)
+        }
         Err(e) => {
             if config.logs(Level::Error) {
                 log!(lprs.logger, Level::Error, "vstream_key = {vstream_key};  {e:#}");
@@ -205,40 +225,64 @@ async fn process_frame(lprs: &Lprs, vstream_key: &str) -> Next {
 }
 
 /// Recognises a frame, then records an event and notifies the callback if anything new is found.
-async fn recognize(lprs: &Lprs, vstream_key: &str, ext_id: &str, id_vstream: i32, config: &VStreamConfig, image_data: &[u8]) -> Result<()> {
+async fn recognize(lprs: &Lprs, stream: StreamLog<'_>, ext_id: &str, id_vstream: i32, config: &VStreamConfig, image_data: &[u8]) -> Result<()> {
+    let vstream_key = stream.key;
+    stream_log!(stream, Level::Trace, "before decoding the image");
     let frame = tokio::task::block_in_place(|| imaging::decode(image_data))?;
+    stream_log!(stream, Level::Trace, "after decoding the image");
     let triton = &lprs.triton;
 
-    let mut vehicles = match pipeline::detect_vehicles(triton, &frame, config).await {
+    stream_log!(stream, Level::Trace, "before doInferenceVdNet");
+    let mut vehicles = match pipeline::detect_vehicles(triton, &frame, config, stream).await {
         Ok(vehicles) => vehicles,
         Err(e) => {
             log!(lprs.logger, Level::Error, "Error! Unable to send inference request: {e:#}");
             Vec::new()
         }
     };
+    stream_log!(stream, Level::Trace, "after doInferenceVdNet");
     if config.flag_process_special {
-        pipeline::classify_special(triton, &frame, config, &mut vehicles).await?;
+        stream_log!(stream, Level::Trace, "before doInferenceVcNet");
+        pipeline::classify_special(triton, &frame, config, &mut vehicles, stream).await?;
+        stream_log!(stream, Level::Trace, "after doInferenceVcNet");
+    }
+    if config.logs(Level::Trace) {
+        for (i, vehicle) in vehicles.iter().enumerate() {
+            stream_log!(stream, Level::Trace, "vehicle {i} confidence: {:.3}", vehicle.confidence);
+        }
     }
 
     let is_special_banned = {
         let mut special_bans = lock(&lprs.workflows.special_bans);
+        let now = Instant::now();
         match special_bans.get(vstream_key) {
-            Some(until) if *until > Instant::now() => true,
+            Some(until) if *until > now => {
+                let left = until.saturating_duration_since(now).as_secs();
+                stream_log!(stream, Level::Trace, "special vehicles are banned ({left}s left)");
+                true
+            }
             Some(_) => {
                 special_bans.remove(vstream_key);
+                stream_log!(stream, Level::Trace, "special vehicles are no longer banned");
                 false
             }
             None => false,
         }
     };
 
-    pipeline::detect_plates(triton, &frame, config, &mut vehicles).await?;
-    pipeline::remove_duplicate_plates(config, &mut vehicles, frame.width(), frame.height());
+    stream_log!(stream, Level::Trace, "before doInferenceLpdNet");
+    pipeline::detect_plates(triton, &frame, config, &mut vehicles, stream).await?;
+    stream_log!(stream, Level::Trace, "after doInferenceLpdNet");
+    pipeline::remove_duplicate_plates(config, &mut vehicles, frame.width(), frame.height(), stream);
     {
         let mut plates: Vec<&mut LicensePlate> = vehicles.iter_mut().flat_map(|v| v.plates.iter_mut()).collect();
         if !plates.is_empty() {
-            pipeline::classify_plates(triton, &frame, config, &mut plates).await?;
-            pipeline::recognize_plates(triton, &frame, config, &mut plates).await?;
+            stream_log!(stream, Level::Trace, "before doInferenceLpcNet");
+            pipeline::classify_plates(triton, &frame, config, &mut plates, stream).await?;
+            stream_log!(stream, Level::Trace, "after doInferenceLpcNet");
+            stream_log!(stream, Level::Trace, "before doInferenceLprNet");
+            pipeline::recognize_plates(triton, &frame, config, &mut plates, stream).await?;
+            stream_log!(stream, Level::Trace, "after doInferenceLprNet");
         }
     }
 
@@ -283,7 +327,7 @@ async fn recognize(lprs: &Lprs, vstream_key: &str, ext_id: &str, id_vstream: i32
     }
 
     if !vehicles_info.is_empty() {
-        record_event(lprs, ext_id, id_vstream, config, image_data, vehicles_info, callback_plates, has_special).await?;
+        record_event(lprs, vstream_key, ext_id, id_vstream, config, image_data, vehicles_info, callback_plates, has_special).await?;
     }
     if has_special {
         lock(&lprs.workflows.special_bans).insert(vstream_key.to_string(), now + config.ban_duration);
@@ -341,6 +385,7 @@ fn is_plate_banned(lprs: &Lprs, vstream_key: &str, number: &str, bbox: &BBox, co
 #[allow(clippy::too_many_arguments)]
 async fn record_event(
     lprs: &Lprs,
+    vstream_key: &str,
     ext_id: &str,
     id_vstream: i32,
     config: &VStreamConfig,
@@ -401,10 +446,15 @@ async fn record_event(
         Ok(response) if matches!(response.status().as_u16(), 200 | 204) => {}
         Ok(_) => {
             if config.logs(Level::Warning) {
-                log!(lprs.logger, Level::Warning, "error sending data to callback {}", config.callback_url);
+                log!(lprs.logger, Level::Warning, "vstream_key = {vstream_key};  error sending data to callback {}", config.callback_url);
             }
         }
-        Err(e) => log!(lprs.logger, Level::Error, "error sending data to callback {};  {e}", config.callback_url),
+        Err(e) => log!(
+            lprs.logger,
+            Level::Error,
+            "vstream_key = {vstream_key};  error sending data to callback {};  {e}",
+            config.callback_url
+        ),
     }
     Ok(())
 }
