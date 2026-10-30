@@ -21,7 +21,7 @@ clap = { version = "4", features = ["derive"] }
 deadpool-postgres = { version = "0.14", default-features = false, features = ["rt_tokio_1"] }
 futures = "0.3"
 hex = "0.4"
-image = { version = "0.25", default-features = false, features = ["jpeg", "png"] }
+image = { version = "0.25", default-features = false, features = ["bmp", "jpeg", "png", "pnm", "tiff", "webp"] }
 md-5 = "0.10"
 mime_guess = "2"
 pg-cluster = { path = "crates/pg-cluster" }
