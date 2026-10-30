@@ -636,6 +636,22 @@ mod tests {
     use super::*;
 
     #[test]
+    fn decodes_supported_formats() {
+        let image = RgbImage::from_fn(5, 4, |x, y| Rgb([(x * 40) as u8, (y * 60) as u8, 7]));
+        for format in [
+            image::ImageFormat::Bmp,
+            image::ImageFormat::Png,
+            image::ImageFormat::Pnm,
+            image::ImageFormat::Tiff,
+            image::ImageFormat::WebP,
+        ] {
+            let mut encoded = Cursor::new(Vec::new());
+            image.write_to(&mut encoded, format).unwrap();
+            assert_eq!(decode(encoded.get_ref()).unwrap(), image, "{format:?}");
+        }
+    }
+
+    #[test]
     fn identity_resize_keeps_pixels() {
         let image = RgbImage::from_fn(5, 4, |x, y| Rgb([(x * 40) as u8, (y * 60) as u8, 7]));
         assert_eq!(resize_linear(&image, 5, 4), image);
