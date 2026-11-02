@@ -546,9 +546,12 @@ async fn save_failed(lprs: &Lprs, ext_id: &str, config: &VStreamConfig, image_da
             let b = vehicle.bbox;
             let color = if vehicle.is_special { Rgb([200, 0, 0]) } else { Rgb([0, 0, 200]) };
             draw_polygon(&mut image, &[[b[0], b[1]], [b[2], b[1]], [b[2], b[3]], [b[0], b[3]]], color);
-            for plate in &vehicle.plates {
+        }
+        // Plates go over all vehicles, and the failed ones over the recognised ones, as in the C++ service
+        for failed in [false, true] {
+            let color = if failed { Rgb([138, 43, 226]) } else { Rgb([255, 105, 2]) };
+            for plate in vehicles.iter().flat_map(|v| &v.plates).filter(|p| p.numbers.is_empty() == failed) {
                 let k = plate.kpts;
-                let color = if plate.numbers.is_empty() { Rgb([138, 43, 226]) } else { Rgb([255, 105, 2]) };
                 draw_polygon(&mut image, &[[k[0], k[1]], [k[2], k[3]], [k[4], k[5]], [k[6], k[7]]], color);
             }
         }
