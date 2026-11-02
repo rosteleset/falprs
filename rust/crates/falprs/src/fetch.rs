@@ -25,10 +25,7 @@ const BASE64: GeneralPurpose = GeneralPurpose::new(
 
 /// Decodes Base64 content, with or without padding.
 pub fn decode_base64(content: &str) -> Option<Vec<u8>> {
-    BASE64
-        .decode(content)
-        .or_else(|_| general_purpose::STANDARD.decode(content.trim()))
-        .ok()
+    BASE64.decode(content).or_else(|_| general_purpose::STANDARD.decode(content.trim())).ok()
 }
 
 /// Decodes `data:<type>;base64,<content>`.
@@ -123,9 +120,7 @@ fn digest_authorization(challenge: &HashMap<String, String>, user: &str, passwor
     } else {
         hash(algorithm, &format!("{ha1}:{nonce}:{ha2}"))
     };
-    let mut header = format!(
-        r#"Digest username="{user}", realm="{realm}", nonce="{nonce}", uri="{uri}", algorithm={algorithm}, response="{response}""#
-    );
+    let mut header = format!(r#"Digest username="{user}", realm="{realm}", nonce="{nonce}", uri="{uri}", algorithm={algorithm}, response="{response}""#);
     if use_qop {
         header += &format!(r#", qop=auth, nc=00000001, cnonce="{cnonce}""#);
     }

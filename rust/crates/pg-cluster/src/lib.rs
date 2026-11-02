@@ -206,7 +206,13 @@ impl Cluster {
         let config = Config::from_str(dsn).map_err(|e| Error::Config(e.to_string()))?;
         let hosts = split_hosts(&config)?
             .into_iter()
-            .map(|(name, host_config)| make_pool(host_config, &settings).map(|pool| Host { name, pool, role: RwLock::new(Role::Unknown) }))
+            .map(|(name, host_config)| {
+                make_pool(host_config, &settings).map(|pool| Host {
+                    name,
+                    pool,
+                    role: RwLock::new(Role::Unknown),
+                })
+            })
             .map(|host| host.map(Arc::new))
             .collect::<Result<Vec<_>>>()?;
         let inner = Arc::new(Inner {
@@ -231,12 +237,7 @@ impl Cluster {
     }
 
     /// Runs a query expected to return at most one row.
-    pub async fn query_opt(
-        &self,
-        host_type: HostType,
-        sql: &str,
-        params: &[&(dyn ToSql + Sync)],
-    ) -> Result<Option<Row>> {
+    pub async fn query_opt(&self, host_type: HostType, sql: &str, params: &[&(dyn ToSql + Sync)]) -> Result<Option<Row>> {
         let client = self.client(host_type).await?;
         let statement = client.prepare_cached(sql).await?;
         Ok(client.query_opt(&statement, params).await?)
@@ -311,9 +312,13 @@ fn split_hosts(config: &Config) -> Result<Vec<(String, Config)>> {
 fn make_pool(config: Config, settings: &ClusterSettings) -> Result<Pool> {
     let mut config = config;
     config.connect_timeout(settings.connect_timeout);
-    let manager = Manager::from_config(config, NoTls, ManagerConfig {
-        recycling_method: RecyclingMethod::Fast,
-    });
+    let manager = Manager::from_config(
+        config,
+        NoTls,
+        ManagerConfig {
+            recycling_method: RecyclingMethod::Fast,
+        },
+    );
     Pool::builder(manager)
         .max_size(settings.max_pool_size)
         .runtime(Runtime::Tokio1)
@@ -328,7 +333,11 @@ mod tests {
     use super::*;
 
     fn names(dsn: &str) -> Vec<String> {
-        split_hosts(&Config::from_str(dsn).unwrap()).unwrap().into_iter().map(|(name, _)| name).collect()
+        split_hosts(&Config::from_str(dsn).unwrap())
+            .unwrap()
+            .into_iter()
+            .map(|(name, _)| name)
+            .collect()
     }
 
     #[test]

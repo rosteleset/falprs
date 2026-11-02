@@ -24,10 +24,7 @@ fn docker(args: &[&str]) -> String {
 }
 
 fn docker_ok(args: &[&str]) -> bool {
-    Command::new("docker")
-        .args(args)
-        .output()
-        .is_ok_and(|output| output.status.success())
+    Command::new("docker").args(args).output().is_ok_and(|output| output.status.success())
 }
 
 fn wait_until(what: &str, mut condition: impl FnMut() -> bool) {
@@ -40,11 +37,7 @@ fn wait_until(what: &str, mut condition: impl FnMut() -> bool) {
 
 fn unique_name(role: &str) -> String {
     static COUNTER: AtomicUsize = AtomicUsize::new(0);
-    format!(
-        "falprs-pg-test-{}-{}-{role}",
-        std::process::id(),
-        COUNTER.fetch_add(1, Ordering::Relaxed)
-    )
+    format!("falprs-pg-test-{}-{}-{role}", std::process::id(), COUNTER.fetch_add(1, Ordering::Relaxed))
 }
 
 /// A container removed when dropped, also when a test fails.
@@ -59,7 +52,10 @@ impl Container {
         docker(&[&["run", "-d", "--name", &name, "-p", "127.0.0.1::5432"], args].concat());
         let published = docker(&["port", &name, "5432/tcp"]);
         let port = published.lines().next().unwrap_or_default().rsplit(':').next().unwrap().to_string();
-        Container { name, address: format!("127.0.0.1:{port}") }
+        Container {
+            name,
+            address: format!("127.0.0.1:{port}"),
+        }
     }
 
     fn is_ready(&self) -> bool {
@@ -100,12 +96,13 @@ impl TestCluster {
         let network = Network { name: unique_name("net") };
         docker(&["network", "create", &network.name]);
 
-        let primary = Container::run(unique_name("primary"), &[
-            "--network", &network.name, "-e", "POSTGRES_PASSWORD=test", IMAGE,
-        ]);
+        let primary = Container::run(unique_name("primary"), &["--network", &network.name, "-e", "POSTGRES_PASSWORD=test", IMAGE]);
         wait_until("primary", || primary.is_ready());
         docker(&[
-            "exec", &primary.name, "bash", "-c",
+            "exec",
+            &primary.name,
+            "bash",
+            "-c",
             "echo 'host replication all all trust' >> \"$PGDATA/pg_hba.conf\" && psql -U postgres -c 'SELECT pg_reload_conf()'",
         ]);
 
@@ -115,14 +112,19 @@ impl TestCluster {
                  chmod 700 {REPLICA_DATA}; exec postgres -D {REPLICA_DATA}",
                 primary.name
             );
-            let replica = Container::run(unique_name("replica"), &[
-                "--network", &network.name, "--user", "postgres", "--entrypoint", "bash", IMAGE, "-c", &script,
-            ]);
+            let replica = Container::run(
+                unique_name("replica"),
+                &["--network", &network.name, "--user", "postgres", "--entrypoint", "bash", IMAGE, "-c", &script],
+            );
             wait_until("replica", || replica.is_ready());
             replica
         });
 
-        TestCluster { primary, replica, _network: network }
+        TestCluster {
+            primary,
+            replica,
+            _network: network,
+        }
     }
 
     fn replica(&self) -> &Container {
@@ -130,10 +132,7 @@ impl TestCluster {
     }
 
     fn dsn(&self) -> String {
-        let hosts: Vec<String> = std::iter::once(&self.primary)
-            .chain(self.replica.as_ref())
-            .map(|c| c.address.clone())
-            .collect();
+        let hosts: Vec<String> = std::iter::once(&self.primary).chain(self.replica.as_ref()).map(|c| c.address.clone()).collect();
         format!("postgresql://postgres:test@{}/postgres", hosts.join(","))
     }
 }
@@ -170,10 +169,7 @@ async fn discovers_roles() {
 
     assert_eq!(
         cluster.topology(),
-        vec![
-            (test.primary.address.clone(), Role::Master),
-            (test.replica().address.clone(), Role::Replica),
-        ]
+        vec![(test.primary.address.clone(), Role::Master), (test.replica().address.clone(), Role::Replica),]
     );
 }
 
@@ -208,10 +204,7 @@ async fn transaction_on_master() {
     transaction.execute("INSERT INTO t VALUES (1)", &[]).await.unwrap();
     transaction.rollback().await.unwrap();
 
-    let rows = cluster
-        .query(HostType::Master, "SELECT to_regclass('t') IS NULL", &[])
-        .await
-        .unwrap();
+    let rows = cluster.query(HostType::Master, "SELECT to_regclass('t') IS NULL", &[]).await.unwrap();
     assert!(rows[0].get::<_, bool>(0), "rolled back table must not exist");
 }
 
@@ -259,8 +252,5 @@ async fn single_host() {
 
     assert!(!in_recovery(&cluster, HostType::Master).await.unwrap());
     assert!(!in_recovery(&cluster, HostType::ReplicaOrMaster).await.unwrap());
-    assert!(matches!(
-        in_recovery(&cluster, HostType::Replica).await,
-        Err(Error::NoHost(HostType::Replica))
-    ));
+    assert!(matches!(in_recovery(&cluster, HostType::Replica).await, Err(Error::NoHost(HostType::Replica))));
 }

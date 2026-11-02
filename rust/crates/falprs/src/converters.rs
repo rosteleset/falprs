@@ -76,10 +76,7 @@ pub fn to_bool(value: Option<&Value>, default: bool) -> bool {
 
 pub fn to_i64(value: Option<&Value>, default: i64) -> i64 {
     match value {
-        Some(Value::Number(number)) => number
-            .as_i64()
-            .or_else(|| number.as_f64().map(|n| n as i64))
-            .unwrap_or(default),
+        Some(Value::Number(number)) => number.as_i64().or_else(|| number.as_f64().map(|n| n as i64)).unwrap_or(default),
         Some(Value::String(text)) => text.trim().parse().unwrap_or(default),
         _ => default,
     }

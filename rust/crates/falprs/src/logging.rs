@@ -161,9 +161,7 @@ impl Logger {
         let init_level: Level = config.level.parse()?;
         let sink = Sink::open(&config.file_path).with_context(|| format!("can't open log file {}", config.file_path))?;
         let (commands, receiver) = mpsc::sync_channel(QUEUE_SIZE);
-        thread::Builder::new()
-            .name(format!("log-{name}"))
-            .spawn(move || run_writer(sink, receiver))?;
+        thread::Builder::new().name(format!("log-{name}")).spawn(move || run_writer(sink, receiver))?;
         Ok(Logger {
             init_level,
             level: AtomicU8::new(init_level as u8),

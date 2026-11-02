@@ -73,11 +73,7 @@ pub struct VStreamConfigRow {
     config: Option<VStreamConfig>,
 }
 
-pub async fn load_vstreams_config(
-    cluster: Cluster,
-    host_type: HostType,
-    since: Option<DateTime<Utc>>,
-) -> Result<Vec<VStreamConfigRow>> {
+pub async fn load_vstreams_config(cluster: Cluster, host_type: HostType, since: Option<DateTime<Utc>>) -> Result<Vec<VStreamConfigRow>> {
     const QUERY: &str = r#"
         select
           concat(vs.id_group, '_', vs.vstream_ext) unique_key,
@@ -140,10 +136,7 @@ pub type Descriptor = Arc<[f32]>;
 
 /// Reads a descriptor stored as raw native-endian floats.
 pub fn descriptor_from_bytes(bytes: &[u8]) -> Vec<f32> {
-    bytes
-        .chunks_exact(4)
-        .map(|b| f32::from_ne_bytes([b[0], b[1], b[2], b[3]]))
-        .collect()
+    bytes.chunks_exact(4).map(|b| f32::from_ne_bytes([b[0], b[1], b[2], b[3]])).collect()
 }
 
 pub fn descriptor_to_bytes(descriptor: &[f32]) -> Vec<u8> {
@@ -172,13 +165,8 @@ pub struct FaceDescriptorRow {
     id_parent: i32,
 }
 
-pub async fn load_face_descriptors(
-    cluster: Cluster,
-    host_type: HostType,
-    since: Option<DateTime<Utc>>,
-) -> Result<Vec<FaceDescriptorRow>> {
-    const QUERY: &str =
-        "select id_descriptor, descriptor_data, flag_deleted, coalesce(id_parent, 0) id_parent from face_descriptors";
+pub async fn load_face_descriptors(cluster: Cluster, host_type: HostType, since: Option<DateTime<Utc>>) -> Result<Vec<FaceDescriptorRow>> {
+    const QUERY: &str = "select id_descriptor, descriptor_data, flag_deleted, coalesce(id_parent, 0) id_parent from face_descriptors";
     let rows = match since {
         None => cluster.query(host_type, QUERY, &[]).await?,
         Some(since) => {
@@ -232,11 +220,7 @@ pub struct VStreamDescriptorRow {
     flag_deleted: bool,
 }
 
-pub async fn load_vstream_descriptors(
-    cluster: Cluster,
-    host_type: HostType,
-    since: Option<DateTime<Utc>>,
-) -> Result<Vec<VStreamDescriptorRow>> {
+pub async fn load_vstream_descriptors(cluster: Cluster, host_type: HostType, since: Option<DateTime<Utc>>) -> Result<Vec<VStreamDescriptorRow>> {
     const QUERY: &str = r#"
         select
           ldv.id_vstream,
@@ -344,11 +328,7 @@ pub struct SGDescriptorRow {
     flag_deleted: bool,
 }
 
-pub async fn load_sg_descriptors(
-    cluster: Cluster,
-    host_type: HostType,
-    since: Option<DateTime<Utc>>,
-) -> Result<Vec<SGDescriptorRow>> {
+pub async fn load_sg_descriptors(cluster: Cluster, host_type: HostType, since: Option<DateTime<Utc>>) -> Result<Vec<SGDescriptorRow>> {
     const QUERY: &str = "select id_sgroup, id_descriptor, flag_deleted from link_descriptor_sgroup";
     let rows = match since {
         None => cluster.query(host_type, QUERY, &[]).await?,

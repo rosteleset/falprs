@@ -13,8 +13,8 @@ use anyhow::Result;
 use pg_cluster::{Cluster, HostType};
 
 use crate::config::CacheConfig;
-use crate::logging::{Level, Logger};
 use crate::log;
+use crate::logging::{Level, Logger};
 
 type Loader<T> = Box<dyn Fn(Cluster, HostType) -> Pin<Box<dyn Future<Output = Result<T>> + Send>> + Send + Sync>;
 
@@ -24,13 +24,7 @@ pub struct PgCache<T> {
 
 impl<T: Send + Sync + 'static> PgCache<T> {
     /// Loads the cache once, failing if that load fails, then keeps reloading it in the background.
-    pub async fn start<F, Fut>(
-        name: &'static str,
-        cluster: Cluster,
-        config: &CacheConfig,
-        logger: Arc<Logger>,
-        load: F,
-    ) -> Result<Arc<Self>>
+    pub async fn start<F, Fut>(name: &'static str, cluster: Cluster, config: &CacheConfig, logger: Arc<Logger>, load: F) -> Result<Arc<Self>>
     where
         F: Fn(Cluster, HostType) -> Fut + Send + Sync + 'static,
         Fut: Future<Output = Result<T>> + Send + 'static,
@@ -94,8 +88,7 @@ impl<T: Send + Sync + 'static> PgCache<T> {
         });
 
         let weak = Arc::downgrade(&cache);
-        let (interval, full_interval, correction) =
-            (config.update_interval, config.full_update_interval, config.update_correction);
+        let (interval, full_interval, correction) = (config.update_interval, config.full_update_interval, config.update_correction);
         tokio::spawn(async move {
             let mut last_full_update = Instant::now();
             loop {

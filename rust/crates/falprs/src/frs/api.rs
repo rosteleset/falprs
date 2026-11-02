@@ -217,9 +217,7 @@ fn require_array<'a>(body: &'a Value, member: &str) -> Result<&'a Vec<Value>, Ap
     match value {
         Value::Null => Err(ApiError::bad_request(format!("Member `{member}` must not be null."))),
         Value::Object(_) => Err(ApiError::bad_request(format!("Member `{member}` must not be an object."))),
-        Value::Array(items) if items.is_empty() => {
-            Err(ApiError::bad_request(format!("Array member `{member}` must not be empty.")))
-        }
+        Value::Array(items) if items.is_empty() => Err(ApiError::bad_request(format!("Array member `{member}` must not be empty."))),
         Value::Array(items) => Ok(items),
         _ => Err(ApiError::bad_request(format!("Member `{member}` must be an array."))),
     }
@@ -262,19 +260,13 @@ fn optional_string(body: &Value, member: &str) -> Result<Option<String>, ApiErro
 fn optional_int(body: &Value, member: &str, default: i32) -> Result<i32, ApiError> {
     match body.get(member) {
         None | Some(Value::Null) => Ok(default),
-        Some(value) => value
-            .as_i64()
-            .and_then(|v| i32::try_from(v).ok())
-            .ok_or_else(ApiError::server_error),
+        Some(value) => value.as_i64().and_then(|v| i32::try_from(v).ok()).ok_or_else(ApiError::server_error),
     }
 }
 
 /// A required string member: present, a non-empty scalar, and a string.
 fn required_string(body: &Value, member: &str) -> Result<String, ApiError> {
-    require_member(body, member)?
-        .as_str()
-        .map(str::to_string)
-        .ok_or_else(ApiError::server_error)
+    require_member(body, member)?.as_str().map(str::to_string).ok_or_else(ApiError::server_error)
 }
 
 /// The stream group's id is an integer member that fits 32 bits.
@@ -567,12 +559,7 @@ async fn best_quality(frs: &Frs, id_group: i32, body: &Value) -> Result<Value, A
         Some(Value::String(text)) => text.clone(),
         Some(_) => return Err(ApiError::server_error()),
     };
-    let do_copy_event_data = frs
-        .config
-        .get()
-        .common
-        .get(&id_group)
-        .is_some_and(|common| common.flag_copy_event_data);
+    let do_copy_event_data = frs.config.get().common.get(&id_group).is_some_and(|common| common.flag_copy_event_data);
 
     let row = match id_log {
         Some(id_log) => frs
@@ -781,9 +768,7 @@ async fn cluster_faces_by_similarity(frs: &Frs, id_group: i32, body: &Value) -> 
     let similarity = require_member(body, "similarity")?;
     let threshold = converters::to_f32(Some(similarity), f32::NAN);
     if !(-1.0..=1.0).contains(&threshold) {
-        return Err(ApiError::bad_request(
-            "Member `similarity` must be a number within the range [-1.0, 1.0].",
-        ));
+        return Err(ApiError::bad_request("Member `similarity` must be a number within the range [-1.0, 1.0]."));
     }
     let mut seen = HashSet::new();
     let faces: Vec<i32> = face_ids(items).into_iter().filter(|id| seen.insert(*id)).collect();
@@ -979,9 +964,7 @@ async fn test_image(frs: &Arc<Frs>, id_group: i32, body: &Value) -> Result<(), A
 async fn process_frame(frs: &Arc<Frs>, id_group: i32, body: &Value) -> Result<Value, ApiError> {
     let has_group_id = body.get("groupId").is_some_and(is_int);
     if !(is_present(body, "streamId") || has_group_id) {
-        return Err(ApiError::bad_request(
-            "Required members `streamId` or `groupId` not found or invalid.",
-        ));
+        return Err(ApiError::bad_request("Required members `streamId` or `groupId` not found or invalid."));
     }
     let url = required_string(body, "url")?;
     let key = match body.get("streamId") {
@@ -1000,12 +983,7 @@ async fn process_frame(frs: &Arc<Frs>, id_group: i32, body: &Value) -> Result<Va
 
 async fn add_special_group(frs: &Frs, id_group: i32, body: &Value) -> Result<Value, ApiError> {
     let group_name = required_string(body, "groupName")?;
-    let mut max_descriptor_count = frs
-        .config
-        .get()
-        .common
-        .get(&id_group)
-        .map_or(1, |common| common.sg_max_descriptor_count);
+    let mut max_descriptor_count = frs.config.get().common.get(&id_group).map_or(1, |common| common.sg_max_descriptor_count);
     if let Some(value) = body.get("maxDescriptorCount") {
         if !is_int(value) {
             return Err(ApiError::bad_request("Member `maxDescriptorCount` is invalid."));
@@ -1145,20 +1123,13 @@ async fn set_config(frs: &Frs, id_group: i32, body: &Value, table: &str) -> Resu
         return Err(ApiError::bad_request("Body is not a valid JSON object."));
     }
     let query = format!("update {table} set config = coalesce(config, $2) || $2 where id_group = $1");
-    frs.cluster
-        .execute(HostType::Master, &query, &[&id_group, body])
-        .await
-        .map_err(db_error(frs))?;
+    frs.cluster.execute(HostType::Master, &query, &[&id_group, body]).await.map_err(db_error(frs))?;
     Ok(())
 }
 
 async fn get_config(frs: &Frs, id_group: i32, table: &str) -> Result<Value, ApiError> {
     let query = format!("select config from {table} where id_group = $1");
-    let row = frs
-        .cluster
-        .query_opt(HostType::Master, &query, &[&id_group])
-        .await
-        .map_err(db_error(frs))?;
+    let row = frs.cluster.query_opt(HostType::Master, &query, &[&id_group]).await.map_err(db_error(frs))?;
     Ok(row.and_then(|row| row.get::<_, Option<Value>>(0)).unwrap_or(Value::Null))
 }
 
@@ -1341,9 +1312,7 @@ async fn sg_search_faces(frs: &Arc<Frs>, id_sgroup: i32, body: &Value) -> Result
     };
     let (flag_logs, flag_events) = (flag_of("useLogs")?, flag_of("useEvents")?);
     if !flag_logs && !flag_events {
-        return Err(ApiError::bad_request(
-            "At least one of the members `useLogs` or `useEvents` must be true.",
-        ));
+        return Err(ApiError::bad_request("At least one of the members `useLogs` or `useEvents` must be true."));
     }
     let date_of = |member: &str| {
         body[member]
@@ -1382,11 +1351,9 @@ async fn sg_search_faces(frs: &Arc<Frs>, id_sgroup: i32, body: &Value) -> Result
         .map_err(db_error(frs))?;
     let descriptors = stored_descriptors(&rows);
     let frs = frs.clone();
-    let results = tokio::task::spawn_blocking(move || {
-        search_files(&frs, id_group, &descriptors, threshold, (date_start, date_end), (flag_logs, flag_events))
-    })
-    .await
-    .map_err(|_| ApiError::server_error())?;
+    let results = tokio::task::spawn_blocking(move || search_files(&frs, id_group, &descriptors, threshold, (date_start, date_end), (flag_logs, flag_events)))
+        .await
+        .map_err(|_| ApiError::server_error())?;
     Ok(Value::Array(
         results
             .into_iter()
@@ -1438,8 +1405,7 @@ fn search_files(
                     event_ids.insert(event_id.clone());
                     let c = id_chars(&event_id);
                     let group_dir = format!("{}group_{id_group}", local.events_path);
-                    let mut json_path =
-                        PathBuf::from(format!("{group_dir}/{}/{}/{}/{}/{event_id}.json", c[0], c[1], c[2], c[3]));
+                    let mut json_path = PathBuf::from(format!("{group_dir}/{}/{}/{}/{}/{event_id}.json", c[0], c[1], c[2], c[3]));
                     if !json_path.exists() {
                         // The shorter path of the old project
                         json_path = PathBuf::from(format!("{group_dir}/{}/{}/{}/{event_id}.json", c[0], c[1], c[2]));
@@ -1486,7 +1452,9 @@ fn search_files(
                     }
                     let stem = path.file_stem().and_then(|s| s.to_str()).unwrap_or_default().to_string();
                     let Some(event) = read_json(&path.with_extension("json")) else { continue };
-                    let Some(event_date) = event.get("event_date").and_then(Value::as_str) else { continue };
+                    let Some(event_date) = event.get("event_date").and_then(Value::as_str) else {
+                        continue;
+                    };
                     let c = id_chars(&stem);
                     if c.len() < 4 {
                         continue;

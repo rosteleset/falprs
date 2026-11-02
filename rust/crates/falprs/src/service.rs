@@ -85,11 +85,7 @@ fn levels_response(init: Level, current: Level) -> Response {
     format!("{body}\n").into_response()
 }
 
-async fn get_log_level(
-    State(loggers): State<Arc<Loggers>>,
-    level: Option<UrlPath<String>>,
-    Query(query): Query<LoggerQuery>,
-) -> Response {
+async fn get_log_level(State(loggers): State<Arc<Loggers>>, level: Option<UrlPath<String>>, Query(query): Query<LoggerQuery>) -> Response {
     if let Some(UrlPath(level)) = level {
         let message = format!("unexpected parameter for log level getting: {level}");
         return (StatusCode::BAD_REQUEST, message).into_response();
@@ -100,11 +96,7 @@ async fn get_log_level(
     levels_response(logger.init_level(), logger.level())
 }
 
-async fn put_log_level(
-    State(loggers): State<Arc<Loggers>>,
-    level: Option<UrlPath<String>>,
-    Query(query): Query<LoggerQuery>,
-) -> Response {
+async fn put_log_level(State(loggers): State<Arc<Loggers>>, level: Option<UrlPath<String>>, Query(query): Query<LoggerQuery>) -> Response {
     let Some(logger) = find_logger(&loggers, &query) else {
         return StatusCode::INTERNAL_SERVER_ERROR.into_response();
     };

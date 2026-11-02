@@ -19,8 +19,8 @@ use super::pipeline::{self, Rect, cosine_similarity, crop, enlarge_face_rect};
 use crate::converters::format_time;
 use crate::fetch::{FetchError, decode_base64, fetch_image};
 use crate::imaging;
-use crate::{log, log_to};
 use crate::logging::{Level, StreamLog};
+use crate::{log, log_to};
 
 pub const MIME_IMAGE: &str = "image/jpeg";
 
@@ -252,13 +252,12 @@ async fn run_pipeline(frs: &Arc<Frs>, task: &mut TaskData) -> (RegistrationResul
             }
         }
     }
-    let url = if task.task_type == TaskType::Recognize { config.url.clone() } else { task.frame_url.clone() };
-    let mut ctx = Run {
-        frs,
-        task,
-        common,
-        config,
+    let url = if task.task_type == TaskType::Recognize {
+        config.url.clone()
+    } else {
+        task.frame_url.clone()
     };
+    let mut ctx = Run { frs, task, common, config };
 
     if ctx.logs(Level::Debug) {
         let frame_url = if url.starts_with("data:") { "data:base64..." } else { url.as_str() };
@@ -424,8 +423,7 @@ async fn pipeline_body(ctx: &mut Run<'_>, url: &str) -> Result<Flow> {
     let screenshot = Screenshot::new(&ctx.config, &frame, &image_data);
     if ctx.config.flag_process_barcodes {
         let is_test = ctx.task.task_type == TaskType::Test;
-        super::barcodes::process(ctx.frs, &ctx.task.vstream_key, is_test, &ctx.common, &ctx.config, &frame, &screenshot)
-            .await;
+        super::barcodes::process(ctx.frs, &ctx.task.vstream_key, is_test, &ctx.common, &ctx.config, &frame, &screenshot).await;
     }
 
     let mut result = RegistrationResult::default();
@@ -474,7 +472,12 @@ async fn pipeline_body(ctx: &mut Run<'_>, url: &str) -> Result<Flow> {
     let common = ctx.common.clone();
 
     if ctx.logs(Level::Trace) {
-        log_to!(frs.logger, Level::Trace, "vstream_key = {key};  process the found faces, quantity: {}", detected.len());
+        log_to!(
+            frs.logger,
+            Level::Trace,
+            "vstream_key = {key};  process the found faces, quantity: {}",
+            detected.len()
+        );
     }
     for face in &detected {
         if ctx.logs(Level::Trace) {
@@ -552,7 +555,11 @@ async fn pipeline_body(ctx: &mut Run<'_>, url: &str) -> Result<Flow> {
         let aligned_face_class = tokio::task::block_in_place(|| pipeline::align_face(&frame, &face.landmarks, fc_w, fc_h));
         let Some(aligned_face_class) = aligned_face_class else {
             if ctx.logs(Level::Trace) {
-                log_to!(frs.logger, Level::Trace, "vstream_key = {key};  failed to do face alignment for inference class");
+                log_to!(
+                    frs.logger,
+                    Level::Trace,
+                    "vstream_key = {key};  failed to do face alignment for inference class"
+                );
             }
             continue;
         };
@@ -567,7 +574,11 @@ async fn pipeline_body(ctx: &mut Run<'_>, url: &str) -> Result<Flow> {
                     face_data[index].face_class_index = class_index as i32;
                     face_data[index].face_class_confidence = score;
                     if ctx.logs(Level::Trace) {
-                        log_to!(frs.logger, Level::Trace, "vstream_key = {key};  face class: {class_index};  probability: {score:.3}");
+                        log_to!(
+                            frs.logger,
+                            Level::Trace,
+                            "vstream_key = {key};  face class: {class_index};  probability: {score:.3}"
+                        );
                     }
                 }
             }
@@ -740,13 +751,7 @@ impl<'a> Screenshot<'a> {
 
 /// Finds the most similar descriptor among the video stream's faces (or the special group's, for
 /// a special group task) and the best matches in the stream group's special groups.
-fn recognize(
-    ctx: &Run<'_>,
-    task: &TaskData,
-    descriptor: &[f32],
-    face: &mut FaceData,
-    has_sgroup_events: &mut bool,
-) -> (f64, i32) {
+fn recognize(ctx: &Run<'_>, task: &TaskData, descriptor: &[f32], face: &mut FaceData, has_sgroup_events: &mut bool) -> (f64, i32) {
     let frs = ctx.frs;
     let config = &ctx.config;
     let vstream_descriptors = frs.vstream_descriptors.get();
@@ -848,8 +853,7 @@ async fn spawn_descriptor(ctx: &Run<'_>, key: &str, descriptor: &[f32], id_paren
         spawned
     };
     if let Some((spawned_descriptor, face_image)) = spawned {
-        let id_spawned =
-            add_face_descriptor(ctx, config.id_group, config.id_vstream, &spawned_descriptor, &face_image, id_parent).await;
+        let id_spawned = add_face_descriptor(ctx, config.id_group, config.id_vstream, &spawned_descriptor, &face_image, id_parent).await;
         if config.logs(Level::Trace) {
             log_to!(
                 frs.logger,
@@ -946,7 +950,12 @@ async fn log_face_event(ctx: &Run<'_>, key: &str, face_data: &[FaceData], best: 
     let frs = ctx.frs;
     let config = &ctx.config;
     if config.logs(Level::Info) {
-        log_to!(frs.logger, Level::Info, "vstream_key = {key};  faces detected: id_vstream = {}", config.id_vstream);
+        log_to!(
+            frs.logger,
+            Level::Info,
+            "vstream_key = {key};  faces detected: id_vstream = {}",
+            config.id_vstream
+        );
     }
     let log_uuid = uuid::Uuid::new_v4();
     let s_uuid = log_uuid.simple().to_string();
@@ -1000,11 +1009,7 @@ async fn log_face_event(ctx: &Run<'_>, key: &str, face_data: &[FaceData], best: 
     let mut dat = Vec::new();
     let mut faces = Vec::new();
     for (i, face) in face_data.iter().enumerate() {
-        let landmarks: Vec<f64> = face
-            .landmarks
-            .iter()
-            .flat_map(|lm| lm.iter().flatten().map(|&v| f64::from(v)))
-            .collect();
+        let landmarks: Vec<f64> = face.landmarks.iter().flat_map(|lm| lm.iter().flatten().map(|&v| f64::from(v))).collect();
         faces.push(json!({
             "left": face.face_rect.x,
             "top": face.face_rect.y,
@@ -1033,8 +1038,8 @@ async fn log_face_event(ctx: &Run<'_>, key: &str, face_data: &[FaceData], best: 
         "best_face_index": best as i32,
         "faces": faces,
     });
-    let written = std::fs::write(format!("{path_prefix}{s_uuid}.dat"), &dat)
-        .and_then(|()| std::fs::write(format!("{path_prefix}{s_uuid}.json"), event.to_string()));
+    let written =
+        std::fs::write(format!("{path_prefix}{s_uuid}.dat"), &dat).and_then(|()| std::fs::write(format!("{path_prefix}{s_uuid}.json"), event.to_string()));
     if let Err(e) = written {
         log_to!(frs.logger, Level::Error, "{e}");
     }
@@ -1133,12 +1138,22 @@ async fn register_descriptor(
     if face.id_descriptor != result.id_descriptor {
         result.comments = common.comments_new_descriptor.clone();
         if config.logs(Level::Info) {
-            log_to!(frs.logger, Level::Info, "vstream_key = {key};  descriptor created: id = {}", result.id_descriptor);
+            log_to!(
+                frs.logger,
+                Level::Info,
+                "vstream_key = {key};  descriptor created: id = {}",
+                result.id_descriptor
+            );
         }
     } else {
         result.comments = common.comments_descriptor_exists.clone();
         if config.logs(Level::Info) {
-            log_to!(frs.logger, Level::Info, "vstream_key = {key};  descriptor already exists: id = {}", result.id_descriptor);
+            log_to!(
+                frs.logger,
+                Level::Info,
+                "vstream_key = {key};  descriptor already exists: id = {}",
+                result.id_descriptor
+            );
         }
     }
     result.face_image_jpeg = imaging::encode_jpeg(&face_image).unwrap_or_default();
@@ -1149,14 +1164,7 @@ async fn register_descriptor(
 }
 
 /// Stores a descriptor with its face image; a descriptor without a parent is attached to the video stream.
-async fn add_face_descriptor(
-    ctx: &Run<'_>,
-    id_group: i32,
-    id_vstream: i32,
-    descriptor: &[f32],
-    face_image: &RgbImage,
-    id_parent: i32,
-) -> i32 {
+async fn add_face_descriptor(ctx: &Run<'_>, id_group: i32, id_vstream: i32, descriptor: &[f32], face_image: &RgbImage, id_parent: i32) -> i32 {
     let frs = ctx.frs;
     let output_size = frs.config.get().common.get(&id_group).map_or(512, |common| common.fr_net.output_size);
     let mut data = descriptor.to_vec();
@@ -1528,7 +1536,9 @@ async fn copy_event(frs: &Frs, row: &pg_cluster::tokio_postgres::Row) -> Result<
     std::fs::write(format!("{target}{s_uuid}.json"), event.to_string())?;
 
     // The descriptors are appended to the stream group's file of the event's local date
-    let Ok(data) = std::fs::read(format!("{source}{s_uuid}.dat")) else { return Ok(()) };
+    let Ok(data) = std::fs::read(format!("{source}{s_uuid}.dat")) else {
+        return Ok(());
+    };
     if data.is_empty() {
         return Ok(());
     }
@@ -1571,11 +1581,7 @@ mod tests {
     fn unknown_descriptors_are_pruned() {
         let now = Instant::now();
         let (past, future) = (now - Duration::from_secs(1), now + Duration::from_secs(5));
-        let mut map = HashMap::from([
-            (1, vec![unknown(past), unknown(future)]),
-            (2, vec![unknown(past)]),
-            (3, vec![unknown(future)]),
-        ]);
+        let mut map = HashMap::from([(1, vec![unknown(past), unknown(future)]), (2, vec![unknown(past)]), (3, vec![unknown(future)])]);
         // Video stream 3 was removed
         prune_unknown_descriptors(&mut map, &HashSet::from([1, 2]), now);
         assert_eq!(map.keys().copied().collect::<Vec<_>>(), vec![1]);

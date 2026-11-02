@@ -125,13 +125,25 @@ fn area_taps(src_len: u32, dst_len: u32, scale: f64) -> Vec<AreaTap> {
         let s2 = (fs2.floor() as i64).min(src_len as i64 - 1);
         let s1 = (fs1.ceil() as i64).min(s2);
         if s1 as f64 - fs1 > 1e-3 {
-            taps.push(AreaTap { dst: d, src: (s1 - 1) as usize, weight: ((s1 as f64 - fs1) / cell) as f32 });
+            taps.push(AreaTap {
+                dst: d,
+                src: (s1 - 1) as usize,
+                weight: ((s1 as f64 - fs1) / cell) as f32,
+            });
         }
         for s in s1..s2 {
-            taps.push(AreaTap { dst: d, src: s as usize, weight: (1.0 / cell) as f32 });
+            taps.push(AreaTap {
+                dst: d,
+                src: s as usize,
+                weight: (1.0 / cell) as f32,
+            });
         }
         if fs2 - s2 as f64 > 1e-3 {
-            taps.push(AreaTap { dst: d, src: s2 as usize, weight: ((fs2 - s2 as f64).min(1.0).min(cell) / cell) as f32 });
+            taps.push(AreaTap {
+                dst: d,
+                src: s2 as usize,
+                weight: ((fs2 - s2 as f64).min(1.0).min(cell) / cell) as f32,
+            });
         }
     }
     taps
@@ -412,11 +424,7 @@ pub fn warp_perspective(src: &RgbImage, m: &Homography, width: u32, height: u32)
     };
     let mut dst = RgbImage::new(width, height);
     for y in 0..height {
-        let (x0, y0, w0) = (
-            inv[1] * y as f64 + inv[2],
-            inv[4] * y as f64 + inv[5],
-            inv[7] * y as f64 + inv[8],
-        );
+        let (x0, y0, w0) = (inv[1] * y as f64 + inv[2], inv[4] * y as f64 + inv[5], inv[7] * y as f64 + inv[8]);
         for x in 0..width {
             let w = w0 + inv[6] * x as f64;
             let w = if w != 0.0 { INTER_TAB_SIZE / w } else { 0.0 };
@@ -451,14 +459,15 @@ fn remap_linear(src: &RgbImage, qx: i64, qy: i64) -> [u8; 3] {
     // Products of (1 - t, t) at 1/32 steps are exact in 15-bit fixed point
     let weights = [(32 - ax) * (32 - ay) * 32, ax * (32 - ay) * 32, (32 - ax) * ay * 32, ax * ay * 32];
     let pixel = |x: i64, y: i64, c: usize| -> i32 {
-        if x < 0 || y < 0 || x >= w || y >= h { 0 } else { src.get_pixel(x as u32, y as u32)[c] as i32 }
+        if x < 0 || y < 0 || x >= w || y >= h {
+            0
+        } else {
+            src.get_pixel(x as u32, y as u32)[c] as i32
+        }
     };
     let mut out = [0; 3];
     for (c, value) in out.iter_mut().enumerate() {
-        let sum = pixel(sx, sy, c) * weights[0]
-            + pixel(sx + 1, sy, c) * weights[1]
-            + pixel(sx, sy + 1, c) * weights[2]
-            + pixel(sx + 1, sy + 1, c) * weights[3];
+        let sum = pixel(sx, sy, c) * weights[0] + pixel(sx + 1, sy, c) * weights[1] + pixel(sx, sy + 1, c) * weights[2] + pixel(sx + 1, sy + 1, c) * weights[3];
         *value = ((sum + (1 << (COEF_BITS - 1))) >> COEF_BITS).clamp(0, 255) as u8;
     }
     out
@@ -583,7 +592,11 @@ pub fn prepare_scrfd(image: &RgbImage, width: u32, height: u32) -> (Vec<f32>, f3
 
 /// ArcFace input: resized to the model input, `(pixel - 127.5) / 127.5`.
 pub fn prepare_arcface(face: &RgbImage, width: u32, height: u32) -> Vec<f32> {
-    let face = if face.dimensions() == (width, height) { face.clone() } else { resize_linear(face, width, height) };
+    let face = if face.dimensions() == (width, height) {
+        face.clone()
+    } else {
+        resize_linear(face, width, height)
+    };
     to_tensor(&face, 1.0 / 127.5, 127.5)
 }
 
@@ -591,7 +604,11 @@ pub fn prepare_arcface(face: &RgbImage, width: u32, height: u32) -> Vec<f32> {
 pub fn prepare_genet(face: &RgbImage, width: u32, height: u32) -> Vec<f32> {
     const MEAN: [f32; 3] = [0.485, 0.456, 0.406];
     const STD: [f32; 3] = [0.229, 0.224, 0.225];
-    let face = if face.dimensions() == (width, height) { face.clone() } else { resize_area(face, width, height) };
+    let face = if face.dimensions() == (width, height) {
+        face.clone()
+    } else {
+        resize_area(face, width, height)
+    };
     let plane = (width * height) as usize;
     let mut tensor = vec![0.0; plane * 3];
     for (i, pixel) in face.pixels().enumerate() {
@@ -744,5 +761,3 @@ mod tests {
         assert_eq!(letterbox.tensor.len(), 3 * 320 * 192);
     }
 }
-
-

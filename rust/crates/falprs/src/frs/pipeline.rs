@@ -120,13 +120,7 @@ fn nms_faces(mut faces: Vec<FaceDetection>, threshold: f32) -> Vec<FaceDetection
 /// Output tensors of SCRFD per stride 8, 16, 32: scores, boxes, key points.
 const SCRFD_OUTPUTS: [[&str; 3]; 3] = [["448", "451", "454"], ["471", "474", "477"], ["494", "497", "500"]];
 
-pub async fn detect_faces(
-    triton: &Triton,
-    frame: &RgbImage,
-    common: &CommonConfig,
-    config: &VStreamConfig,
-    log: StreamLog<'_>,
-) -> Result<Vec<FaceDetection>> {
+pub async fn detect_faces(triton: &Triton, frame: &RgbImage, common: &CommonConfig, config: &VStreamConfig, log: StreamLog<'_>) -> Result<Vec<FaceDetection>> {
     let model = &common.fd_net;
     let (width, height) = (model.input_width, model.input_height);
     stream_log!(log, Level::Trace, "before image preprocessing for face detection");
@@ -294,7 +288,13 @@ pub fn cosine_similarity(a: &[f32], b: &[f32]) -> f64 {
             }
         }
     }
-    let tail: f32 = a.chunks_exact(32).remainder().iter().zip(b.chunks_exact(32).remainder()).map(|(x, y)| x * y).sum();
+    let tail: f32 = a
+        .chunks_exact(32)
+        .remainder()
+        .iter()
+        .zip(b.chunks_exact(32).remainder())
+        .map(|(x, y)| x * y)
+        .sum();
     let lanes: f32 = (0..8).map(|lane| sums[0][lane] + sums[1][lane] + sums[2][lane] + sums[3][lane]).sum();
     f64::from(lanes + tail)
 }

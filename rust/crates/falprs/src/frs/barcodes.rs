@@ -18,10 +18,10 @@ use super::pipeline::{Rect, crop};
 use super::workflow::Screenshot;
 use crate::converters::format_time;
 use crate::imaging;
-use crate::{log, log_to};
 use crate::logging::{Level, StreamLog};
 use crate::stream_log;
 use crate::triton::{InferRequest, Tensor};
+use crate::{log, log_to};
 
 /// A detected barcode: absolute x_min, y_min, x_max, y_max and confidence.
 #[derive(Debug, Clone, Copy)]
@@ -189,7 +189,11 @@ pub async fn process(
     let logs = |level: Level| config.logs(level) || is_test;
     let key = vstream_key;
     if logs(Level::Trace) {
-        log_to!(frs.logger, Level::Trace, "vstream_key = {key};  before image preprocessing for barcode detection");
+        log_to!(
+            frs.logger,
+            Level::Trace,
+            "vstream_key = {key};  before image preprocessing for barcode detection"
+        );
     }
     let stream = StreamLog {
         logger: &frs.logger,
@@ -307,7 +311,11 @@ pub async fn old_log_barcodes_maintenance(frs: &Frs) {
     let before = SystemTime::now() - frs.local.log_barcodes_ttl;
     let result = frs
         .cluster
-        .execute(HostType::Master, "delete from log_barcodes where log_date < $1", &[&DateTime::<Utc>::from(before)])
+        .execute(
+            HostType::Master,
+            "delete from log_barcodes where log_date < $1",
+            &[&DateTime::<Utc>::from(before)],
+        )
         .await;
     if let Err(e) = result {
         log_to!(frs.logger, Level::Error, "{e}");

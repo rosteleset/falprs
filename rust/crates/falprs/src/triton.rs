@@ -11,9 +11,9 @@ mod proto {
     tonic::include_proto!("inference");
 }
 
+use proto::ModelInferRequest;
 use proto::grpc_inference_service_client::GrpcInferenceServiceClient;
 use proto::model_infer_request::{InferInputTensor, InferRequestedOutputTensor};
-use proto::ModelInferRequest;
 
 /// A tensor with its contents in Triton's raw little-endian layout.
 #[derive(Debug, Clone)]
