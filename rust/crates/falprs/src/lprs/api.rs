@@ -21,7 +21,7 @@ use crate::converters;
 use crate::http_api::{ApiError, ApiResult, data_response, no_content, require_member};
 use crate::fetch::{FetchError, fetch_image};
 use crate::imaging;
-use crate::log;
+use crate::{log, log_to};
 use crate::logging::{Level, StreamLog};
 use crate::stream_log;
 
@@ -246,7 +246,7 @@ async fn set_stream_default_config(lprs: &Lprs, id_group: i32, body: &Value) -> 
         )
         .await;
     if let Err(e) = result {
-        log!(lprs.logger, Level::Error, "{e}");
+        log_to!(lprs.logger, Level::Error, "{e}");
         return Err(ApiError::server_error());
     }
     Ok(no_content())
@@ -318,7 +318,7 @@ async fn detect_vehicles_obb(lprs: &Lprs, id_group: i32, body: &Value) -> ApiRes
     };
     if config.logs(Level::Debug) {
         let frame_url = if url.starts_with("data:") { "data:base64..." } else { url.as_str() };
-        log!(lprs.logger, Level::Debug, "Start detectVehiclesObb: vstream_key = {key};  frame_url = {frame_url}");
+        log_to!(lprs.logger, Level::Debug, "Start detectVehiclesObb: vstream_key = {key};  frame_url = {frame_url}");
     }
     stream_log!(stream, Level::Trace, "before image acquisition");
     let data = fetch_image(&lprs.http, &url, config.max_capture_error_count, config.capture_timeout)
@@ -326,7 +326,7 @@ async fn detect_vehicles_obb(lprs: &Lprs, id_group: i32, body: &Value) -> ApiRes
         .map_err(|e| match e {
             FetchError::Base64 => {
                 if config.logs(Level::Error) {
-                    log!(lprs.logger, Level::Error, "Error decoding image from BASE64: vstream_key = {key};");
+                    log_to!(lprs.logger, Level::Error, "Error decoding image from BASE64: vstream_key = {key};");
                 }
                 ApiError::bad_request("Failed to decode Base64-encoded image from parameter screenshotUrl")
             }
@@ -353,7 +353,7 @@ async fn detect_vehicles_obb(lprs: &Lprs, id_group: i32, body: &Value) -> ApiRes
     };
     stream_log!(stream, Level::Trace, "after doInferenceOvdNet");
     if config.logs(Level::Debug) {
-        log!(lprs.logger, Level::Debug, "End detectVehiclesObb: vstream_key = {key};");
+        log_to!(lprs.logger, Level::Debug, "End detectVehiclesObb: vstream_key = {key};");
     }
 
     let vehicles = vehicles

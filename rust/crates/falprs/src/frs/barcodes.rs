@@ -18,7 +18,7 @@ use super::pipeline::{Rect, crop};
 use super::workflow::Screenshot;
 use crate::converters::format_time;
 use crate::imaging;
-use crate::log;
+use crate::{log, log_to};
 use crate::logging::{Level, StreamLog};
 use crate::stream_log;
 use crate::triton::{InferRequest, Tensor};
@@ -189,7 +189,7 @@ pub async fn process(
     let logs = |level: Level| config.logs(level) || is_test;
     let key = vstream_key;
     if logs(Level::Trace) {
-        log!(frs.logger, Level::Trace, "vstream_key = {key};  before image preprocessing for barcode detection");
+        log_to!(frs.logger, Level::Trace, "vstream_key = {key};  before image preprocessing for barcode detection");
     }
     let stream = StreamLog {
         logger: &frs.logger,
@@ -205,12 +205,12 @@ pub async fn process(
         }
     };
     if logs(Level::Trace) {
-        log!(frs.logger, Level::Trace, "vstream_key = {key};  before decoding barcodes");
+        log_to!(frs.logger, Level::Trace, "vstream_key = {key};  before decoding barcodes");
     }
     let barcodes = tokio::task::block_in_place(|| barcodes_json(frame, &detections));
     if logs(Level::Trace) {
-        log!(frs.logger, Level::Trace, "vstream_key = {key};  after decoding barcodes");
-        log!(frs.logger, Level::Trace, "vstream_key = {key};  found barcodes: {}", barcodes.len());
+        log_to!(frs.logger, Level::Trace, "vstream_key = {key};  after decoding barcodes");
+        log_to!(frs.logger, Level::Trace, "vstream_key = {key};  found barcodes: {}", barcodes.len());
     }
     if barcodes.is_empty() {
         return;
@@ -230,7 +230,7 @@ pub async fn process(
 
     let path = PathBuf::from(format!("{}{path_suffix}{uuid}.jpg", local.barcodes_path));
     if let Err(e) = write_screenshot(&path, screenshot.data()) {
-        log!(frs.logger, Level::Error, "{e}");
+        log_to!(frs.logger, Level::Error, "{e}");
     }
 
     if id_log > 0 && !config.callback_url_barcodes.is_empty() {
@@ -257,7 +257,7 @@ pub async fn process(
         };
         if delivered {
             if config.logs(Level::Info) {
-                log!(
+                log_to!(
                     frs.logger,
                     Level::Info,
                     "vstream_key = {key};  barcode recognition event sent: id_vstream = {};",
@@ -265,7 +265,7 @@ pub async fn process(
                 );
             }
         } else if config.logs(Level::Warning) {
-            log!(
+            log_to!(
                 frs.logger,
                 Level::Warning,
                 "vstream_key = {key};  error sending data to callback {}",
@@ -310,7 +310,7 @@ pub async fn old_log_barcodes_maintenance(frs: &Frs) {
         .execute(HostType::Master, "delete from log_barcodes where log_date < $1", &[&DateTime::<Utc>::from(before)])
         .await;
     if let Err(e) = result {
-        log!(frs.logger, Level::Error, "{e}");
+        log_to!(frs.logger, Level::Error, "{e}");
         return;
     }
     log!(frs.logger, Level::Info, "Removing outdated barcode screenshots");
