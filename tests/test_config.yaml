@@ -24,7 +24,7 @@ components_manager:
         server:
             listener:                                  # configuring the main listening socket...
                 port: 9071                             # ...to listen on this port and...
-                task_processor: main-task-processor    # ...process incoming requests on this task processor.
+                task_processor: fs-task-processor      # ...process incoming requests on this task processor.
             listener-monitor:
                 port: 9072                             # Listen on localhost:8186 for developer/utility requests
                 connection:
@@ -126,7 +126,7 @@ components_manager:
         lprs-api-http:
             path: /lprs/api/{method}
             method: POST
-            task_processor: main-task-processor  # Run it on CPU bound task processor
+            task_processor: fs-task-processor  # Keep API requests apart from the CPU bound workflows
 
         lprs-postgresql-database:
             dbconnection: 'postgresql://test_falprs:123@localhost:5432/test_lprs'
@@ -164,7 +164,7 @@ components_manager:
         frs-api-http:
             path: /frs/api/{method}
             method: POST
-            task_processor: main-task-processor  # Run it on CPU bound task processor
+            task_processor: fs-task-processor  # Keep API requests apart from the CPU bound workflows
 
         frs-postgresql-database:
             dbconnection: 'postgresql://test_falprs:123@localhost:5432/test_frs'
