@@ -39,7 +39,7 @@ impl<T: Send + Sync + 'static> PgCache<T> {
 
         let weak = Arc::downgrade(&cache);
         let (interval, host_type) = (config.update_interval, config.host_type);
-        tokio::spawn(async move {
+        crate::tasks::spawn(async move {
             loop {
                 tokio::time::sleep(interval).await;
                 let Some(cache) = weak.upgrade() else {
@@ -89,7 +89,7 @@ impl<T: Send + Sync + 'static> PgCache<T> {
 
         let weak = Arc::downgrade(&cache);
         let (interval, full_interval, correction) = (config.update_interval, config.full_update_interval, config.update_correction);
-        tokio::spawn(async move {
+        crate::tasks::spawn(async move {
             let mut last_full_update = Instant::now();
             loop {
                 tokio::time::sleep(interval).await;

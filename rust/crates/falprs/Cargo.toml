@@ -32,6 +32,7 @@ sha2.workspace = true
 swash.workspace = true
 thiserror.workspace = true
 tokio.workspace = true
+tokio-util.workspace = true
 tonic.workspace = true
 tonic-prost.workspace = true
 uuid.workspace = true

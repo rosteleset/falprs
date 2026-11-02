@@ -93,7 +93,7 @@ pub fn start_workflow(lprs: &Arc<Lprs>, vstream_key: String) {
         lock(&lprs.workflows.timeouts).insert(vstream_key.clone(), Instant::now() + workflow_timeout);
     }
     if is_new {
-        tokio::spawn(run(lprs.clone(), vstream_key));
+        crate::tasks::spawn(run(lprs.clone(), vstream_key));
     }
 }
 
