@@ -8,6 +8,7 @@ mod logging;
 mod lprs;
 mod osd;
 mod service;
+mod tasks;
 
 use std::net::{Ipv6Addr, SocketAddr};
 use std::path::PathBuf;
@@ -105,22 +106,23 @@ async fn main() -> Result<()> {
         servers.spawn(serve(port, service::monitor_router(loggers.clone()), shutdown));
     }
 
-    tokio::select! {
-        result = wait_for_termination() => result?,
-        Some(result) = servers.join_next() => {
-            // A listener stopped on its own: report why and shut down the rest
-            result??;
-        }
-    }
+    let stopped = tokio::select! {
+        result = wait_for_termination() => result,
+        // A listener stopped on its own: report why after shutting down the rest
+        Some(result) = servers.join_next() => result.map_err(Into::into).and_then(|served| served),
+    };
     log!(logger, Level::Info, "stopping service");
     let _ = stop.send(true);
+    let mut served = Ok(());
     while let Some(result) = servers.join_next().await {
-        result??;
+        served = served.and(result.map_err(Into::into).and_then(|served| served));
     }
+    // The workflows end before the inference statistics are saved and before the runtime shuts down
+    tasks::shutdown().await;
     if let Some(frs) = frs_subsystem {
         frs.shutdown().await;
     }
-    Ok(())
+    stopped.and(served)
 }
 
 #[cfg(test)]

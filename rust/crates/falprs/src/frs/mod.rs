@@ -102,7 +102,7 @@ impl Frs {
             return;
         }
         let weak: Weak<Self> = Arc::downgrade(self);
-        tokio::spawn(async move {
+        crate::tasks::spawn(async move {
             loop {
                 tokio::time::sleep(interval).await;
                 let Some(frs) = weak.upgrade() else { return };

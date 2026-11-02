@@ -98,7 +98,7 @@ impl Lprs {
         let interval = self.settings.ban_maintenance_interval;
         if !interval.is_zero() {
             let weak = weak.clone();
-            tokio::spawn(async move {
+            crate::tasks::spawn(async move {
                 loop {
                     tokio::time::sleep(interval).await;
                     let Some(lprs) = weak.upgrade() else { return };
@@ -108,7 +108,7 @@ impl Lprs {
         }
         let interval = self.settings.events_log_maintenance_interval;
         if !interval.is_zero() {
-            tokio::spawn(async move {
+            crate::tasks::spawn(async move {
                 loop {
                     tokio::time::sleep(interval).await;
                     let Some(lprs) = weak.upgrade() else { return };

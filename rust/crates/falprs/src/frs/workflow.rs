@@ -141,7 +141,7 @@ pub fn start_workflow(frs: &Arc<Frs>, vstream_key: String, duration: Duration) {
     }
     if do_pipeline {
         let task = TaskData::new(id_group, vstream_key, TaskType::Recognize, String::new());
-        tokio::spawn(recognize_loop(frs.clone(), task));
+        crate::tasks::spawn(recognize_loop(frs.clone(), task));
     }
 }
 
