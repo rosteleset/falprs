@@ -24,7 +24,7 @@ components_manager:
         server:
             listener:                                  # configuring the main listening socket...
                 port: 9051                             # ...to listen on this port and...
-                task_processor: main-task-processor    # ...process incoming requests on this task processor.
+                task_processor: fs-task-processor      # ...process incoming requests on this task processor.
             listener-monitor:
                 port: 9052                             # Listen on localhost:9052 for developer/utility requests
                 connection:
@@ -106,7 +106,7 @@ components_manager:
         lprs-api-http:
             path: /lprs/api/{method}
             method: POST
-            task_processor: main-task-processor                              # Run it on CPU bound task processor
+            task_processor: fs-task-processor                                # Keep API requests apart from the CPU bound workflows
             max_request_size: 5242880                                        # 5 Mb
 
         lprs-postgresql-database:
@@ -148,7 +148,7 @@ components_manager:
         frs-api-http:
             path: /frs/api/{method}
             method: POST
-            task_processor: main-task-processor                              # Run it on CPU bound task processor
+            task_processor: fs-task-processor                                # Keep API requests apart from the CPU bound workflows
             max_request_size: 5242880                                        # 5 Mb
 
         frs-postgresql-database:
