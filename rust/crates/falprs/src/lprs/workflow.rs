@@ -19,7 +19,7 @@ use super::vstream_config::VStreamConfig;
 use crate::converters;
 use crate::fetch::{FetchError, fetch_image};
 use crate::imaging;
-use crate::log;
+use crate::{log, log_to};
 use crate::logging::{Level, StreamLog};
 use crate::stream_log;
 
@@ -151,7 +151,7 @@ async fn run(lprs: Arc<Lprs>, vstream_key: String) {
             }
         };
         if timed_out {
-            log!(lprs.logger, Level::Info, "Stopping a workflow by timeout: vstream_key = {vstream_key};");
+            log_to!(lprs.logger, Level::Info, "Stopping a workflow by timeout: vstream_key = {vstream_key};");
         }
         if !proceed {
             return;
@@ -172,7 +172,7 @@ async fn process_frame(lprs: &Lprs, vstream_key: &str) -> Next {
             Next::Stop
         } else {
             if config.logs(Level::Error) {
-                log!(lprs.logger, Level::Error, "vstream_key = {vstream_key};  delay for {}ms", config.delay_after_error.as_millis());
+                log_to!(lprs.logger, Level::Error, "vstream_key = {vstream_key};  delay for {}ms", config.delay_after_error.as_millis());
             }
             Next::After(config.delay_after_error)
         }
@@ -186,20 +186,20 @@ async fn process_frame(lprs: &Lprs, vstream_key: &str) -> Next {
     };
     if config.logs(Level::Debug) {
         let frame_url = if config.screenshot_url.starts_with("data:") { "data:base64..." } else { config.screenshot_url.as_str() };
-        log!(lprs.logger, Level::Debug, "Start processPipeline: vstream_key = {vstream_key};  frame_url = {frame_url}");
+        log_to!(lprs.logger, Level::Debug, "Start processPipeline: vstream_key = {vstream_key};  frame_url = {frame_url}");
     }
     stream_log!(stream, Level::Trace, "before image acquisition");
     let image_data = match fetch_image(&lprs.http, &config.screenshot_url, config.max_capture_error_count, config.capture_timeout).await {
         Ok(data) => data,
         Err(FetchError::Base64) => {
             if config.logs(Level::Error) {
-                log!(lprs.logger, Level::Error, "Error decoding image from BASE64: vstream_key = {vstream_key};");
+                log_to!(lprs.logger, Level::Error, "Error decoding image from BASE64: vstream_key = {vstream_key};");
             }
             return Next::Stop;
         }
         Err(FetchError::Http(e)) => {
             if config.logs(Level::Error) {
-                log!(lprs.logger, Level::Error, "vstream_key = {vstream_key};  url = {};  {e}", config.screenshot_url);
+                log_to!(lprs.logger, Level::Error, "vstream_key = {vstream_key};  url = {};  {e}", config.screenshot_url);
             }
             return after_error();
         }
@@ -211,13 +211,13 @@ async fn process_frame(lprs: &Lprs, vstream_key: &str) -> Next {
     match recognize(lprs, stream, &entry.ext_id, entry.id_vstream, config, &image_data).await {
         Ok(()) => {
             if config.logs(Level::Debug) {
-                log!(lprs.logger, Level::Debug, "End processPipeline: vstream_key = {vstream_key};");
+                log_to!(lprs.logger, Level::Debug, "End processPipeline: vstream_key = {vstream_key};");
             }
             Next::After(config.delay_between_frames)
         }
         Err(e) => {
             if config.logs(Level::Error) {
-                log!(lprs.logger, Level::Error, "vstream_key = {vstream_key};  {e:#}");
+                log_to!(lprs.logger, Level::Error, "vstream_key = {vstream_key};  {e:#}");
             }
             after_error()
         }
@@ -301,7 +301,7 @@ async fn recognize(lprs: &Lprs, stream: StreamLog<'_>, ext_id: &str, id_vstream:
                     continue;
                 }
                 if config.logs(Level::Info) {
-                    log!(lprs.logger, Level::Info, "vstream_key = {vstream_key};  plate number: {}", number.number);
+                    log_to!(lprs.logger, Level::Info, "vstream_key = {vstream_key};  plate number: {}", number.number);
                 }
                 let plate_type = PLATE_CLASSES.get(number.plate_class as usize).copied().unwrap_or_default();
                 plates_info.push(json!({
@@ -357,7 +357,7 @@ fn is_plate_banned(lprs: &Lprs, vstream_key: &str, number: &str, bbox: &BBox, co
             is_banned = true;
             if config.logs(Level::Debug) {
                 let left = existing.full_until.saturating_duration_since(now).as_secs();
-                log!(lprs.logger, Level::Debug, "vstream_key = {vstream_key};  plate number {number} is banned at the first stage ({left}s left)");
+                log_to!(lprs.logger, Level::Debug, "vstream_key = {vstream_key};  plate number {number} is banned at the first stage ({left}s left)");
             }
         } else {
             // Area ban: ignored while the plate stays where it was
@@ -369,7 +369,7 @@ fn is_plate_banned(lprs: &Lprs, vstream_key: &str, number: &str, bbox: &BBox, co
             }
             if config.logs(Level::Debug) {
                 let state = if is_banned { "is banned at the second stage" } else { "was removed from the the second stage ban" };
-                log!(
+                log_to!(
                     lprs.logger,
                     Level::Debug,
                     "vstream_key = {vstream_key};  plate_number {number} {state} (iou = {iou_value:.2}, threshold = {:.2})",
@@ -446,7 +446,7 @@ async fn record_event(
         Ok(response) if matches!(response.status().as_u16(), 200 | 204) => {}
         Ok(_) => {
             if config.logs(Level::Warning) {
-                log!(lprs.logger, Level::Warning, "vstream_key = {vstream_key};  error sending data to callback {}", config.callback_url);
+                log_to!(lprs.logger, Level::Warning, "vstream_key = {vstream_key};  error sending data to callback {}", config.callback_url);
             }
         }
         Err(e) => log!(

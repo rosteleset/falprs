@@ -197,10 +197,16 @@ impl Logger {
         level != Level::None && level >= self.level()
     }
 
+    /// Logs if the logger's level allows `level`, like userver's `LOG_*_TO`.
     pub fn log(&self, level: Level, module: &str, text: fmt::Arguments<'_>) {
-        if !self.should_log(level) {
-            return;
+        if self.should_log(level) {
+            self.write(level, module, text);
         }
+    }
+
+    /// Logs regardless of the logger's level, like userver's `USERVER_IMPL_LOG_TO`:
+    /// the caller has already checked the video stream's own log level.
+    pub fn write(&self, level: Level, module: &str, text: fmt::Arguments<'_>) {
         let timestamp = chrono::Local::now().format("%Y-%m-%dT%H:%M:%S%.6f");
         let line = format!(
             "tskv\ttimestamp={timestamp}\tlevel={}\tmodule={}\ttext={}\n",
@@ -222,6 +228,7 @@ impl Logger {
     }
 }
 
+/// Escapes a TSKV value as userver does: `=` is escaped only in keys, never in values.
 fn escape_tskv(value: &str) -> String {
     let mut escaped = String::with_capacity(value.len());
     for c in value.chars() {
@@ -229,8 +236,8 @@ fn escape_tskv(value: &str) -> String {
             '\t' => escaped.push_str("\\t"),
             '\n' => escaped.push_str("\\n"),
             '\r' => escaped.push_str("\\r"),
+            '\0' => escaped.push_str("\\0"),
             '\\' => escaped.push_str("\\\\"),
-            '=' => escaped.push_str("\\="),
             _ => escaped.push(c),
         }
     }
@@ -267,10 +274,20 @@ impl Loggers {
     }
 }
 
+/// Logs if the logger's level allows it, like userver's `LOG_*_TO`.
 #[macro_export]
 macro_rules! log {
     ($logger:expr, $level:expr, $($arg:tt)+) => {
         $logger.log($level, module_path!(), format_args!($($arg)+))
+    };
+}
+
+/// Logs regardless of the logger's level, like userver's `USERVER_IMPL_LOG_TO`.
+/// Workflow logs are gated by the video stream's log level instead.
+#[macro_export]
+macro_rules! log_to {
+    ($logger:expr, $level:expr, $($arg:tt)+) => {
+        $logger.write($level, module_path!(), format_args!($($arg)+))
     };
 }
 
@@ -295,7 +312,7 @@ impl StreamLog<'_> {
 macro_rules! stream_log {
     ($stream:expr, $level:expr, $($arg:tt)+) => {
         if $stream.logs($level) {
-            $crate::log!($stream.logger, $level, "vstream_key = {};  {}", $stream.key, format_args!($($arg)+))
+            $crate::log_to!($stream.logger, $level, "vstream_key = {};  {}", $stream.key, format_args!($($arg)+))
         }
     };
 }
@@ -305,11 +322,11 @@ mod tests {
     use super::*;
 
     #[test]
-    fn stream_log_prefixes_the_key_and_follows_the_stream_level() {
+    fn stream_log_follows_the_stream_level_regardless_of_the_logger_level() {
         let path = std::env::temp_dir().join(format!("falprs-stream-log-{}.txt", std::process::id()));
         let config = LoggerConfig {
             file_path: path.to_string_lossy().into_owned(),
-            level: "trace".to_string(),
+            level: "info".to_string(),
         };
         let logger = Logger::new("test", &config).unwrap();
         let stream = StreamLog {
@@ -318,18 +335,23 @@ mod tests {
             level: Level::Debug,
             always: false,
         };
-        crate::stream_log!(stream, Level::Trace, "hidden");
+        crate::stream_log!(stream, Level::Trace, "hidden by the stream");
         crate::stream_log!(stream, Level::Debug, "plate count: {}", 2);
         let test = StreamLog { always: true, ..stream };
         crate::stream_log!(test, Level::Trace, "shown");
+        crate::log!(logger, Level::Debug, "hidden by the logger");
         // Reopening waits for the queued lines to be written
         logger.reopen();
 
         let text = std::fs::read_to_string(&path).unwrap();
         let _ = std::fs::remove_file(&path);
-        // TSKV escapes `=` in values
-        assert!(text.contains("\ttext=vstream_key \\= 1_cam;  plate count: 2\n"));
-        assert!(text.contains("\ttext=vstream_key \\= 1_cam;  shown\n"));
+        assert!(text.contains("\tlevel=DEBUG\tmodule=falprs::logging::tests\ttext=vstream_key = 1_cam;  plate count: 2\n"));
+        assert!(text.contains("\tlevel=TRACE\tmodule=falprs::logging::tests\ttext=vstream_key = 1_cam;  shown\n"));
         assert!(!text.contains("hidden"));
+    }
+
+    #[test]
+    fn tskv_values_are_escaped_like_userver() {
+        assert_eq!(escape_tskv("a = b\tc\nd\re\\f\0g"), "a = b\\tc\\nd\\re\\\\f\\0g");
     }
 }

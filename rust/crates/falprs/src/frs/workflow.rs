@@ -19,7 +19,7 @@ use super::pipeline::{self, Rect, cosine_similarity, crop, enlarge_face_rect};
 use crate::converters::format_time;
 use crate::fetch::{FetchError, decode_base64, fetch_image};
 use crate::imaging;
-use crate::log;
+use crate::{log, log_to};
 use crate::logging::{Level, StreamLog};
 
 pub const MIME_IMAGE: &str = "image/jpeg";
@@ -187,7 +187,7 @@ async fn recognize_loop(frs: Arc<Frs>, mut task: TaskData) {
             }
         };
         if is_timeout {
-            log!(frs.logger, Level::Info, "Stopping a workflow by timeout: vstream_key = {};", task.vstream_key);
+            log_to!(frs.logger, Level::Info, "Stopping a workflow by timeout: vstream_key = {};", task.vstream_key);
         }
         if !do_next {
             return;
@@ -262,7 +262,7 @@ async fn run_pipeline(frs: &Arc<Frs>, task: &mut TaskData) -> (RegistrationResul
 
     if ctx.logs(Level::Debug) {
         let frame_url = if url.starts_with("data:") { "data:base64..." } else { url.as_str() };
-        log!(
+        log_to!(
             frs.logger,
             Level::Debug,
             "Start processPipeline: vstream_key = {};  task_type = {};  url = {frame_url}",
@@ -277,7 +277,7 @@ async fn run_pipeline(frs: &Arc<Frs>, task: &mut TaskData) -> (RegistrationResul
         Ok(Flow::Done(result)) => result,
         Err(e) => {
             if ctx.logs(Level::Error) {
-                log!(frs.logger, Level::Error, "vstream_key = {};  {e:#}", ctx.task.vstream_key);
+                log_to!(frs.logger, Level::Error, "vstream_key = {};  {e:#}", ctx.task.vstream_key);
             }
             if !ctx.is(TaskType::Recognize) {
                 return (RegistrationResult::comments("Error during pipeline execution"), None);
@@ -287,7 +287,7 @@ async fn run_pipeline(frs: &Arc<Frs>, task: &mut TaskData) -> (RegistrationResul
                 return (RegistrationResult::comments("Error during pipeline execution"), None);
             }
             if ctx.logs(Level::Error) {
-                log!(
+                log_to!(
                     frs.logger,
                     Level::Error,
                     "vstream_key = {};  delay for {}ms",
@@ -300,7 +300,7 @@ async fn run_pipeline(frs: &Arc<Frs>, task: &mut TaskData) -> (RegistrationResul
         }
     };
     if ctx.logs(Level::Debug) {
-        log!(frs.logger, Level::Debug, "End processPipeline: vstream_key = {};", ctx.task.vstream_key);
+        log_to!(frs.logger, Level::Debug, "End processPipeline: vstream_key = {};", ctx.task.vstream_key);
     }
     let next = ctx.is(TaskType::Recognize).then_some(delay_between_frames);
     (result, next)
@@ -316,7 +316,7 @@ async fn acquire_image(ctx: &Run<'_>, url: &str) -> Result<Vec<u8>, Flow> {
         }
         return decode_base64(&url[comma + 1..]).ok_or_else(|| {
             if ctx.logs(Level::Error) {
-                log!(frs.logger, Level::Error, "Error decoding image from BASE64: vstream_key = {key};");
+                log_to!(frs.logger, Level::Error, "Error decoding image from BASE64: vstream_key = {key};");
             }
             // A recognition loop stops: the frame of its video stream will not get better
             if ctx.is(TaskType::Recognize) {
@@ -327,12 +327,12 @@ async fn acquire_image(ctx: &Run<'_>, url: &str) -> Result<Vec<u8>, Flow> {
     }
 
     if ctx.logs(Level::Trace) {
-        log!(frs.logger, Level::Trace, "vstream_key = {key};  before image acquisition");
+        log_to!(frs.logger, Level::Trace, "vstream_key = {key};  before image acquisition");
     }
     let config = &ctx.config;
     let fetched = fetch_image(&frs.http, url, config.max_capture_error_count, config.capture_timeout).await;
     if ctx.logs(Level::Trace) {
-        log!(frs.logger, Level::Trace, "vstream_key = {key};  after image acquisition");
+        log_to!(frs.logger, Level::Trace, "vstream_key = {key};  after image acquisition");
     }
     match fetched {
         Ok(data) => Ok(data.to_vec()),
@@ -348,7 +348,7 @@ async fn acquire_image(ctx: &Run<'_>, url: &str) -> Result<Vec<u8>, Flow> {
             if !config.delay_after_error.is_zero() {
                 if ctx.is(TaskType::Recognize) {
                     if config.logs(Level::Error) {
-                        log!(
+                        log_to!(
                             frs.logger,
                             Level::Error,
                             "vstream_key = {key};  delay for {}ms",
@@ -402,12 +402,12 @@ async fn pipeline_body(ctx: &mut Run<'_>, url: &str) -> Result<Flow> {
         Err(flow) => return Ok(flow),
     };
     if ctx.logs(Level::Trace) {
-        log!(frs.logger, Level::Trace, "vstream_key = {key};  image size = {} bytes", image_data.len());
-        log!(frs.logger, Level::Trace, "vstream_key = {key};  before decoding the image");
+        log_to!(frs.logger, Level::Trace, "vstream_key = {key};  image size = {} bytes", image_data.len());
+        log_to!(frs.logger, Level::Trace, "vstream_key = {key};  before decoding the image");
     }
     let frame = tokio::task::block_in_place(|| imaging::decode(&image_data))?;
     if ctx.logs(Level::Trace) {
-        log!(frs.logger, Level::Trace, "vstream_key = {key};  after decoding the image");
+        log_to!(frs.logger, Level::Trace, "vstream_key = {key};  after decoding the image");
     }
     let (cols, rows) = (frame.width() as i32, frame.height() as i32);
 
@@ -448,7 +448,7 @@ async fn pipeline_body(ctx: &mut Run<'_>, url: &str) -> Result<Flow> {
         Ok(detected) => detected,
         Err(e) => {
             if ctx.logs(Level::Error) {
-                log!(frs.logger, Level::Error, "Error! {e:#}");
+                log_to!(frs.logger, Level::Error, "Error! {e:#}");
             }
             if task.task_type == TaskType::RegisterDescriptor {
                 result.id_descriptor = 0;
@@ -474,11 +474,11 @@ async fn pipeline_body(ctx: &mut Run<'_>, url: &str) -> Result<Flow> {
     let common = ctx.common.clone();
 
     if ctx.logs(Level::Trace) {
-        log!(frs.logger, Level::Trace, "vstream_key = {key};  process the found faces, quantity: {}", detected.len());
+        log_to!(frs.logger, Level::Trace, "vstream_key = {key};  process the found faces, quantity: {}", detected.len());
     }
     for face in &detected {
         if ctx.logs(Level::Trace) {
-            log!(frs.logger, Level::Trace, "vstream_key = {key};  face probability: {:.3}", face.confidence);
+            log_to!(frs.logger, Level::Trace, "vstream_key = {key};  face probability: {:.3}", face.confidence);
         }
         let margin = f64::from(config.margin);
         let mut work_region = Rect::new(
@@ -502,19 +502,19 @@ async fn pipeline_body(ctx: &mut Run<'_>, url: &str) -> Result<Flow> {
 
         if work_region.intersect(&face_rect) != face_rect {
             if ctx.logs(Level::Trace) {
-                log!(frs.logger, Level::Trace, "vstream_key = {key};  the person is not in the work area");
+                log_to!(frs.logger, Level::Trace, "vstream_key = {key};  the person is not in the work area");
             }
             continue;
         }
         face_data[index].is_work_area = true;
         if ctx.logs(Level::Trace) {
-            log!(frs.logger, Level::Trace, "vstream_key = {key};  the person is in the work area");
+            log_to!(frs.logger, Level::Trace, "vstream_key = {key};  the person is in the work area");
         }
         face_data[index].landmarks = Some(face.landmarks);
 
         if !pipeline::is_frontal_face(&face.landmarks) {
             if ctx.logs(Level::Trace) {
-                log!(frs.logger, Level::Trace, "vstream_key = {key};  face is not frontal according to markers");
+                log_to!(frs.logger, Level::Trace, "vstream_key = {key};  face is not frontal according to markers");
             }
             continue;
         }
@@ -523,7 +523,7 @@ async fn pipeline_body(ctx: &mut Run<'_>, url: &str) -> Result<Flow> {
         let aligned_face = tokio::task::block_in_place(|| pipeline::align_face(&frame, &face.landmarks, fr_w, fr_h));
         let Some(aligned_face) = aligned_face else {
             if ctx.logs(Level::Trace) {
-                log!(frs.logger, Level::Trace, "vstream_key = {key};  failed to do face alignment to get descriptor");
+                log_to!(frs.logger, Level::Trace, "vstream_key = {key};  failed to do face alignment to get descriptor");
             }
             continue;
         };
@@ -535,24 +535,24 @@ async fn pipeline_body(ctx: &mut Run<'_>, url: &str) -> Result<Flow> {
         let laplacian = imaging::variance_of_laplacian(&aligned_face);
         face_data[index].laplacian = laplacian;
         if ctx.logs(Level::Trace) {
-            log!(frs.logger, Level::Trace, "vstream_key = {key};  laplacian = {laplacian:.2}");
+            log_to!(frs.logger, Level::Trace, "vstream_key = {key};  laplacian = {laplacian:.2}");
         }
         if laplacian < f64::from(config.blur) || laplacian > f64::from(config.blur_max) {
             if ctx.logs(Level::Trace) {
-                log!(frs.logger, Level::Trace, "vstream_key = {key};  the face is blurry or too clear");
+                log_to!(frs.logger, Level::Trace, "vstream_key = {key};  the face is blurry or too clear");
             }
             continue;
         }
         face_data[index].is_non_blurry = true;
         if ctx.logs(Level::Trace) {
-            log!(frs.logger, Level::Trace, "vstream_key = {key};  the face is not blurry");
+            log_to!(frs.logger, Level::Trace, "vstream_key = {key};  the face is not blurry");
         }
 
         let (fc_w, fc_h) = (common.fc_net.input_width, common.fc_net.input_height);
         let aligned_face_class = tokio::task::block_in_place(|| pipeline::align_face(&frame, &face.landmarks, fc_w, fc_h));
         let Some(aligned_face_class) = aligned_face_class else {
             if ctx.logs(Level::Trace) {
-                log!(frs.logger, Level::Trace, "vstream_key = {key};  failed to do face alignment for inference class");
+                log_to!(frs.logger, Level::Trace, "vstream_key = {key};  failed to do face alignment for inference class");
             }
             continue;
         };
@@ -567,13 +567,13 @@ async fn pipeline_body(ctx: &mut Run<'_>, url: &str) -> Result<Flow> {
                     face_data[index].face_class_index = class_index as i32;
                     face_data[index].face_class_confidence = score;
                     if ctx.logs(Level::Trace) {
-                        log!(frs.logger, Level::Trace, "vstream_key = {key};  face class: {class_index};  probability: {score:.3}");
+                        log_to!(frs.logger, Level::Trace, "vstream_key = {key};  face class: {class_index};  probability: {score:.3}");
                     }
                 }
             }
             Err(e) => {
                 if ctx.logs(Level::Error) {
-                    log!(frs.logger, Level::Error, "Error! {e:#}");
+                    log_to!(frs.logger, Level::Error, "Error! {e:#}");
                 }
             }
         }
@@ -596,7 +596,7 @@ async fn pipeline_body(ctx: &mut Run<'_>, url: &str) -> Result<Flow> {
             Ok(None) => continue,
             Err(e) => {
                 if ctx.logs(Level::Error) {
-                    log!(frs.logger, Level::Error, "Error! {e:#}");
+                    log_to!(frs.logger, Level::Error, "Error! {e:#}");
                 }
                 continue;
             }
@@ -607,15 +607,15 @@ async fn pipeline_body(ctx: &mut Run<'_>, url: &str) -> Result<Flow> {
         normalize(&mut normalized);
 
         if ctx.logs(Level::Trace) {
-            log!(frs.logger, Level::Trace, "vstream_key = {key};  before recognition");
+            log_to!(frs.logger, Level::Trace, "vstream_key = {key};  before recognition");
         }
         let (max_similarity, id_descriptor) = recognize(ctx, &task, &normalized, &mut face_data[index], &mut has_sgroup_events);
         if ctx.logs(Level::Trace) {
-            log!(frs.logger, Level::Trace, "vstream_key = {key};  after recognition");
+            log_to!(frs.logger, Level::Trace, "vstream_key = {key};  after recognition");
         }
         face_data[index].cosine_similarity = max_similarity;
         if ctx.logs(Level::Trace) {
-            log!(
+            log_to!(
                 frs.logger,
                 Level::Trace,
                 "vstream_key = {key};  most similar data: cosine_similarity = {max_similarity:.3};  id_descriptor = {id_descriptor}"
@@ -630,7 +630,7 @@ async fn pipeline_body(ctx: &mut Run<'_>, url: &str) -> Result<Flow> {
             }
             if config.flag_spawned_descriptors && task.task_type == TaskType::Recognize {
                 if config.logs(Level::Trace) {
-                    log!(frs.logger, Level::Trace, "vstream_key = {key};  add an unknown descriptor");
+                    log_to!(frs.logger, Level::Trace, "vstream_key = {key};  add an unknown descriptor");
                 }
                 let r = enlarge_face_rect(&face_rect, f64::from(config.face_enlarge_scale)).intersect(&Rect::new(0, 0, cols, rows));
                 let face_image = crop(&frame, &r);
@@ -697,7 +697,7 @@ async fn pipeline_body(ctx: &mut Run<'_>, url: &str) -> Result<Flow> {
         draw_test_markers(&mut frame, &face_data);
         let frame_index = std::time::UNIX_EPOCH.elapsed().unwrap_or_default().as_millis();
         write_test_image(&format!("frame_{frame_index}.jpg"), &frame);
-        log!(
+        log_to!(
             frs.logger,
             Level::Info,
             "vstream_key = {key};  task_type = {};  frame index: {frame_index}",
@@ -769,7 +769,7 @@ fn recognize(
     }
     if let Some(&id_parent) = face_descriptors.spawned_to_parent.get(&id_descriptor) {
         if ctx.logs(Level::Trace) {
-            log!(
+            log_to!(
                 frs.logger,
                 Level::Trace,
                 "vstream_key = {};  spawned id_descriptor = {id_descriptor};  parent id_descriptor = {id_parent}",
@@ -831,7 +831,7 @@ async fn spawn_descriptor(ctx: &Run<'_>, key: &str, descriptor: &[f32], id_paren
         let spawned = match best {
             Some((similarity, i)) if similarity > f64::from(config.tolerance) => {
                 if config.logs(Level::Trace) {
-                    log!(
+                    log_to!(
                         frs.logger,
                         Level::Trace,
                         "vstream_key = {key};  unknown descriptors cosine similarity = {similarity:.3};  index = {i};  size = {}",
@@ -851,7 +851,7 @@ async fn spawn_descriptor(ctx: &Run<'_>, key: &str, descriptor: &[f32], id_paren
         let id_spawned =
             add_face_descriptor(ctx, config.id_group, config.id_vstream, &spawned_descriptor, &face_image, id_parent).await;
         if config.logs(Level::Trace) {
-            log!(
+            log_to!(
                 frs.logger,
                 Level::Trace,
                 "vstream_key = {key};  created spawned descriptor with id = {id_spawned};  id_parent = {id_parent}"
@@ -946,7 +946,7 @@ async fn log_face_event(ctx: &Run<'_>, key: &str, face_data: &[FaceData], best: 
     let frs = ctx.frs;
     let config = &ctx.config;
     if config.logs(Level::Info) {
-        log!(frs.logger, Level::Info, "vstream_key = {key};  faces detected: id_vstream = {}", config.id_vstream);
+        log_to!(frs.logger, Level::Info, "vstream_key = {key};  faces detected: id_vstream = {}", config.id_vstream);
     }
     let log_uuid = uuid::Uuid::new_v4();
     let s_uuid = log_uuid.simple().to_string();
@@ -970,14 +970,14 @@ async fn log_face_event(ctx: &Run<'_>, key: &str, face_data: &[FaceData], best: 
     let path_prefix = format!("{}{suffix}", local.screenshots_path);
     let screenshot = PathBuf::from(format!("{path_prefix}{s_uuid}.jpg"));
     if let Err(e) = write_shared_file(&screenshot, image_data) {
-        log!(frs.logger, Level::Error, "{e}");
+        log_to!(frs.logger, Level::Error, "{e}");
     }
 
     if id_log > 0 && best_face.id_descriptor > 0 && !config.callback_url.is_empty() {
         let body = json!({"faceId": best_face.id_descriptor, "eventId": id_log});
         if send_callback(ctx, &config.callback_url, &body).await {
             if config.logs(Level::Info) {
-                log!(
+                log_to!(
                     frs.logger,
                     Level::Info,
                     "vstream_key = {key};  facial recognition event sent: id_vstream = {}; id_descriptor = {}",
@@ -1036,7 +1036,7 @@ async fn log_face_event(ctx: &Run<'_>, key: &str, face_data: &[FaceData], best: 
     let written = std::fs::write(format!("{path_prefix}{s_uuid}.dat"), &dat)
         .and_then(|()| std::fs::write(format!("{path_prefix}{s_uuid}.json"), event.to_string()));
     if let Err(e) = written {
-        log!(frs.logger, Level::Error, "{e}");
+        log_to!(frs.logger, Level::Error, "{e}");
     }
 }
 
@@ -1065,7 +1065,7 @@ async fn log_special_group_events(ctx: &Run<'_>, key: &str, face_data: &[FaceDat
             .await;
             let screenshot = PathBuf::from(format!("{}{suffix}{s_uuid}.jpg", local.screenshots_path));
             if let Err(e) = write_shared_file(&screenshot, image_data) {
-                log!(frs.logger, Level::Error, "{e}");
+                log_to!(frs.logger, Level::Error, "{e}");
             }
 
             let callback_url = frs.sg_config.get().by_id(id_sgroup).map(|sg| sg.callback_url.clone()).unwrap_or_default();
@@ -1073,7 +1073,7 @@ async fn log_special_group_events(ctx: &Run<'_>, key: &str, face_data: &[FaceDat
                 let body = json!({"faceId": id_descriptor, "screenshot": screenshot_url, "date": format_time(log_date)});
                 if send_callback(ctx, &callback_url, &body).await {
                     if config.logs(Level::Info) {
-                        log!(
+                        log_to!(
                             frs.logger,
                             Level::Info,
                             "vstream_key = {key};  an event was sent about facial recognition in a special group: id_sgroup = {id_sgroup}; id_vstream = {}; id_descriptor = {id_descriptor}",
@@ -1133,12 +1133,12 @@ async fn register_descriptor(
     if face.id_descriptor != result.id_descriptor {
         result.comments = common.comments_new_descriptor.clone();
         if config.logs(Level::Info) {
-            log!(frs.logger, Level::Info, "vstream_key = {key};  descriptor created: id = {}", result.id_descriptor);
+            log_to!(frs.logger, Level::Info, "vstream_key = {key};  descriptor created: id = {}", result.id_descriptor);
         }
     } else {
         result.comments = common.comments_descriptor_exists.clone();
         if config.logs(Level::Info) {
-            log!(frs.logger, Level::Info, "vstream_key = {key};  descriptor already exists: id = {}", result.id_descriptor);
+            log_to!(frs.logger, Level::Info, "vstream_key = {key};  descriptor already exists: id = {}", result.id_descriptor);
         }
     }
     result.face_image_jpeg = imaging::encode_jpeg(&face_image).unwrap_or_default();
@@ -1352,7 +1352,7 @@ pub async fn save_dnn_stats(frs: &Frs) {
         "data": data,
     });
     if let Err(e) = tokio::fs::write(dnn_stats_path(), json.to_string()).await {
-        log!(frs.logger, Level::Error, "{e}");
+        log_to!(frs.logger, Level::Error, "{e}");
     }
 }
 
@@ -1375,7 +1375,7 @@ pub fn remove_old_files(frs: &Frs, dir: &str, extensions: &[&str], before: Syste
             let old = entry.metadata().and_then(|m| m.modified()).is_ok_and(|modified| modified < before);
             if file_type.is_file() && matches && old {
                 if let Err(e) = std::fs::remove_file(&path) {
-                    log!(frs.logger, Level::Error, "{e}");
+                    log_to!(frs.logger, Level::Error, "{e}");
                 }
             }
         }
@@ -1390,7 +1390,7 @@ pub async fn old_log_faces_maintenance(frs: &Frs) {
         .execute(HostType::Master, "delete from log_faces where log_date < $1", &[&DateTime::<Utc>::from(before)])
         .await;
     if let Err(e) = result {
-        log!(frs.logger, Level::Error, "{e}");
+        log_to!(frs.logger, Level::Error, "{e}");
         return;
     }
     log!(frs.logger, Level::Info, "Removing outdated face screenshots and data");
@@ -1419,7 +1419,7 @@ pub async fn flag_deleted_maintenance(frs: &Frs) {
     }
     .await;
     if let Err(e) = result {
-        log!(frs.logger, Level::Error, "{e:#}");
+        log_to!(frs.logger, Level::Error, "{e:#}");
     }
     clean_up_workflow_data(frs);
 }
@@ -1490,7 +1490,7 @@ pub async fn copy_events_maintenance(frs: &Frs) {
     };
     for row in rows {
         if let Err(e) = copy_event(frs, &row).await {
-            log!(frs.logger, Level::Error, "{e:#}");
+            log_to!(frs.logger, Level::Error, "{e:#}");
         }
     }
 }
