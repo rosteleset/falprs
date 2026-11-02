@@ -196,20 +196,20 @@ impl Logger {
     }
 
     /// Logs if the logger's level allows `level`, like userver's `LOG_*_TO`.
-    pub fn log(&self, level: Level, module: &str, text: fmt::Arguments<'_>) {
+    pub fn log(&self, level: Level, location: Location, text: fmt::Arguments<'_>) {
         if self.should_log(level) {
-            self.write(level, module, text);
+            self.write(level, location, text);
         }
     }
 
     /// Logs regardless of the logger's level, like userver's `USERVER_IMPL_LOG_TO`:
     /// the caller has already checked the video stream's own log level.
-    pub fn write(&self, level: Level, module: &str, text: fmt::Arguments<'_>) {
+    pub fn write(&self, level: Level, location: Location, text: fmt::Arguments<'_>) {
         let timestamp = chrono::Local::now().format("%Y-%m-%dT%H:%M:%S%.6f");
         let line = format!(
             "tskv\ttimestamp={timestamp}\tlevel={}\tmodule={}\ttext={}\n",
             level.tskv_name(),
-            escape_tskv(module),
+            escape_tskv(&location.to_string()),
             escape_tskv(&text.to_string())
         );
         // Drop the line if the writer can't keep up, like userver's `overflow_behavior: discard`
@@ -224,6 +224,52 @@ impl Logger {
             let _ = wait.recv();
         }
     }
+}
+
+/// Where a log line comes from, written as userver does: `function ( file:line )`.
+#[derive(Clone, Copy)]
+pub struct Location {
+    /// The type name of a function nested in the logging one, see [`location!`](crate::location).
+    pub nested_fn: &'static str,
+    pub file: &'static str,
+    pub line: u32,
+}
+
+impl Location {
+    /// The name of the logging function, without its path and the closures and async blocks around the call.
+    fn function(&self) -> &'static str {
+        let mut name = self.nested_fn.strip_suffix("::f").unwrap_or(self.nested_fn);
+        while let Some(outer) = name.strip_suffix("::{{closure}}") {
+            name = outer;
+        }
+        name.rsplit("::").next().unwrap_or(name)
+    }
+
+    /// The file path relative to the crate's `src` directory, which tells `frs/workflow.rs` from `lprs/workflow.rs`.
+    fn file(&self) -> &'static str {
+        self.file.rsplit_once("src/").map_or(self.file, |(_, file)| file)
+    }
+}
+
+impl fmt::Display for Location {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{} ( {}:{} )", self.function(), self.file(), self.line)
+    }
+}
+
+/// The [`Location`] of the macro call; nested in other macros, it is the location of the outermost call.
+#[macro_export]
+macro_rules! location {
+    () => {
+        $crate::logging::Location {
+            nested_fn: {
+                fn f() {}
+                std::any::type_name_of_val(&f)
+            },
+            file: file!(),
+            line: line!(),
+        }
+    };
 }
 
 /// Escapes a TSKV value as userver does: `=` is escaped only in keys, never in values.
@@ -276,7 +322,7 @@ impl Loggers {
 #[macro_export]
 macro_rules! log {
     ($logger:expr, $level:expr, $($arg:tt)+) => {
-        $logger.log($level, module_path!(), format_args!($($arg)+))
+        $logger.log($level, $crate::location!(), format_args!($($arg)+))
     };
 }
 
@@ -285,7 +331,7 @@ macro_rules! log {
 #[macro_export]
 macro_rules! log_to {
     ($logger:expr, $level:expr, $($arg:tt)+) => {
-        $logger.write($level, module_path!(), format_args!($($arg)+))
+        $logger.write($level, $crate::location!(), format_args!($($arg)+))
     };
 }
 
@@ -334,6 +380,7 @@ mod tests {
             always: false,
         };
         crate::stream_log!(stream, Level::Trace, "hidden by the stream");
+        let line = line!() + 1;
         crate::stream_log!(stream, Level::Debug, "plate count: {}", 2);
         let test = StreamLog { always: true, ..stream };
         crate::stream_log!(test, Level::Trace, "shown");
@@ -343,9 +390,18 @@ mod tests {
 
         let text = std::fs::read_to_string(&path).unwrap();
         let _ = std::fs::remove_file(&path);
-        assert!(text.contains("\tlevel=DEBUG\tmodule=falprs::logging::tests\ttext=vstream_key = 1_cam;  plate count: 2\n"));
-        assert!(text.contains("\tlevel=TRACE\tmodule=falprs::logging::tests\ttext=vstream_key = 1_cam;  shown\n"));
+        let module = format!("module=stream_log_follows_the_stream_level_regardless_of_the_logger_level ( logging.rs:{line} )");
+        assert!(text.contains(&format!("\tlevel=DEBUG\t{module}\ttext=vstream_key = 1_cam;  plate count: 2\n")));
+        assert!(text.contains("\tlevel=TRACE\tmodule=stream_log_follows_the_stream_level_regardless_of_the_logger_level ( logging.rs:"));
         assert!(!text.contains("hidden"));
+    }
+
+    #[test]
+    fn location_names_the_function_outside_closures_and_async_blocks() {
+        let in_closure = || crate::location!();
+        let location = futures::executor::block_on(async { in_closure() });
+        assert_eq!(location.function(), "location_names_the_function_outside_closures_and_async_blocks");
+        assert_eq!(location.file(), "logging.rs");
     }
 
     #[test]
