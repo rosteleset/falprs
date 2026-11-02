@@ -60,26 +60,15 @@ impl Frs {
         let (name, c, cfg, l) = start("frs-config-pg-cache", &config.config_cache);
         let common_config = PgCache::start(name, c, cfg, l, caches::load_config).await?;
         let (name, c, cfg, l) = start("frs-vstreams-config-pg-cache", &config.vstreams_config_cache);
-        let vstreams_config =
-            PgCache::start_incremental(name, c, cfg, l, caches::load_vstreams_config, caches::apply_vstreams_config).await?;
+        let vstreams_config = PgCache::start_incremental(name, c, cfg, l, caches::load_vstreams_config, caches::apply_vstreams_config).await?;
         let (name, c, cfg, l) = start("frs-face-descriptor-pg-cache", &config.face_descriptor_cache);
-        let face_descriptors =
-            PgCache::start_incremental(name, c, cfg, l, caches::load_face_descriptors, caches::apply_face_descriptors).await?;
+        let face_descriptors = PgCache::start_incremental(name, c, cfg, l, caches::load_face_descriptors, caches::apply_face_descriptors).await?;
         let (name, c, cfg, l) = start("frs-vstream-descriptors-pg-cache", &config.vstream_descriptors_cache);
-        let vstream_descriptors = PgCache::start_incremental(
-            name,
-            c,
-            cfg,
-            l,
-            caches::load_vstream_descriptors,
-            caches::apply_vstream_descriptors,
-        )
-        .await?;
+        let vstream_descriptors = PgCache::start_incremental(name, c, cfg, l, caches::load_vstream_descriptors, caches::apply_vstream_descriptors).await?;
         let (name, c, cfg, l) = start("frs-sg-config-pg-cache", &config.sg_config_cache);
         let sg_config = PgCache::start(name, c, cfg, l, caches::load_sg_config).await?;
         let (name, c, cfg, l) = start("frs-sg-descriptors-pg-cache", &config.sg_descriptors_cache);
-        let sg_descriptors =
-            PgCache::start_incremental(name, c, cfg, l, caches::load_sg_descriptors, caches::apply_sg_descriptors).await?;
+        let sg_descriptors = PgCache::start_incremental(name, c, cfg, l, caches::load_sg_descriptors, caches::apply_sg_descriptors).await?;
 
         let frs = Arc::new(Self {
             cluster,
@@ -132,7 +121,10 @@ impl Frs {
             workflow::copy_events_maintenance(&frs).await
         });
         self.every(local.clear_old_events, |frs| async move { workflow::old_events_maintenance(&frs).await });
-        self.every(local.clear_old_log_barcodes, |frs| async move { barcodes::old_log_barcodes_maintenance(&frs).await });
+        self.every(
+            local.clear_old_log_barcodes,
+            |frs| async move { barcodes::old_log_barcodes_maintenance(&frs).await },
+        );
     }
 
     /// Saves the inference statistics, as the C++ service does when it stops.

@@ -216,8 +216,7 @@ fn parse_host_type(text: &str) -> Result<HostType> {
 
 fn cache_config(name: &str, cache: Option<Cache>, defaults: &Map<String, Value>) -> Result<CacheConfig> {
     let cache = cache.ok_or_else(|| anyhow!("component {name} is required"))?;
-    let update_interval =
-        parse_duration(&cache.update_interval).ok_or_else(|| anyhow!("{name}: invalid update-interval"))?;
+    let update_interval = parse_duration(&cache.update_interval).ok_or_else(|| anyhow!("{name}: invalid update-interval"))?;
     let full_update_interval = match cache.update_types.as_deref() {
         None | Some("only-full") => None,
         Some("full-and-incremental") => {
@@ -274,8 +273,7 @@ impl Config {
             .as_ref()
             .and_then(|defaults| defaults.max_request_size)
             .unwrap_or(DEFAULT_MAX_REQUEST_SIZE);
-        let max_request_size =
-            |handler: Option<&Handler>| handler.and_then(|h| h.max_request_size).unwrap_or(default_max_request_size);
+        let max_request_size = |handler: Option<&Handler>| handler.and_then(|h| h.max_request_size).unwrap_or(default_max_request_size);
         let lprs = match components.lprs_database {
             None => None,
             Some(database) => Some(LprsConfig {
@@ -285,16 +283,8 @@ impl Config {
                 },
                 api_max_request_size: max_request_size(components.lprs_api.as_ref()),
                 groups_cache: cache_config("lprs-groups-pg-cache", components.lprs_groups_cache, &defaults)?,
-                vstreams_config_cache: cache_config(
-                    "lprs-vstreams-config-pg-cache",
-                    components.lprs_vstreams_config_cache,
-                    &defaults,
-                )?,
-                vstream_group_cache: cache_config(
-                    "lprs-vstream-group-pg-cache",
-                    components.lprs_vstream_group_cache,
-                    &defaults,
-                )?,
+                vstreams_config_cache: cache_config("lprs-vstreams-config-pg-cache", components.lprs_vstreams_config_cache, &defaults)?,
+                vstream_group_cache: cache_config("lprs-vstream-group-pg-cache", components.lprs_vstream_group_cache, &defaults)?,
                 workflow: components.lprs_workflow.map(|w| w.config).unwrap_or_default(),
             }),
         };
@@ -313,27 +303,11 @@ impl Config {
                     .is_some_and(|methods| methods.split(',').any(|method| method.trim() == "GET")),
                 groups_cache: cache_config("frs-groups-pg-cache", components.frs_groups_cache, &defaults)?,
                 config_cache: cache_config("frs-config-pg-cache", components.frs_config_cache, &defaults)?,
-                vstreams_config_cache: cache_config(
-                    "frs-vstreams-config-pg-cache",
-                    components.frs_vstreams_config_cache,
-                    &defaults,
-                )?,
-                face_descriptor_cache: cache_config(
-                    "frs-face-descriptor-pg-cache",
-                    components.frs_face_descriptor_cache,
-                    &defaults,
-                )?,
-                vstream_descriptors_cache: cache_config(
-                    "frs-vstream-descriptors-pg-cache",
-                    components.frs_vstream_descriptors_cache,
-                    &defaults,
-                )?,
+                vstreams_config_cache: cache_config("frs-vstreams-config-pg-cache", components.frs_vstreams_config_cache, &defaults)?,
+                face_descriptor_cache: cache_config("frs-face-descriptor-pg-cache", components.frs_face_descriptor_cache, &defaults)?,
+                vstream_descriptors_cache: cache_config("frs-vstream-descriptors-pg-cache", components.frs_vstream_descriptors_cache, &defaults)?,
                 sg_config_cache: cache_config("frs-sg-config-pg-cache", components.frs_sg_config_cache, &defaults)?,
-                sg_descriptors_cache: cache_config(
-                    "frs-sg-descriptors-pg-cache",
-                    components.frs_sg_descriptors_cache,
-                    &defaults,
-                )?,
+                sg_descriptors_cache: cache_config("frs-sg-descriptors-pg-cache", components.frs_sg_descriptors_cache, &defaults)?,
                 workflow: components.frs_workflow.map(|w| w.config).unwrap_or_default(),
             }),
         };

@@ -49,7 +49,14 @@ impl Lprs {
             .await
             .context("can't connect to the LPRS database")?;
 
-        let groups = PgCache::start("lprs-groups-pg-cache", cluster.clone(), &config.groups_cache, logger.clone(), caches::load_groups).await?;
+        let groups = PgCache::start(
+            "lprs-groups-pg-cache",
+            cluster.clone(),
+            &config.groups_cache,
+            logger.clone(),
+            caches::load_groups,
+        )
+        .await?;
         let vstreams_config = PgCache::start(
             "lprs-vstreams-config-pg-cache",
             cluster.clone(),
@@ -67,8 +74,7 @@ impl Lprs {
         )
         .await?;
 
-        let allow_group_id_without_auth =
-            converters::to_i64(config.workflow.get("allow-group-id-without-auth"), 0) as i32;
+        let allow_group_id_without_auth = converters::to_i64(config.workflow.get("allow-group-id-without-auth"), 0) as i32;
         let lprs = Arc::new(Self {
             cluster,
             logger,

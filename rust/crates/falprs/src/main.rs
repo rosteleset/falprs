@@ -40,9 +40,7 @@ struct Args {
 async fn serve(port: u16, router: Router, mut shutdown: watch::Receiver<bool>) -> Result<()> {
     // Dual-stack listener, like userver's default
     let address = SocketAddr::from((Ipv6Addr::UNSPECIFIED, port));
-    let listener = TcpListener::bind(address)
-        .await
-        .with_context(|| format!("can't listen on port {port}"))?;
+    let listener = TcpListener::bind(address).await.with_context(|| format!("can't listen on port {port}"))?;
     axum::serve(listener, router.into_make_service_with_connect_info::<SocketAddr>())
         .with_graceful_shutdown(async move {
             let _ = shutdown.wait_for(|stop| *stop).await;

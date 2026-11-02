@@ -10,10 +10,10 @@ use image::RgbImage;
 
 use super::geometry::{BBox, area, distance, has_intersection, intersection_area, iou};
 use super::vstream_config::{ModelConfig, VStreamConfig, WorkAreaPolygon};
+use crate::imaging::{crop, perspective_transform, prepare_lpc, prepare_vc, prepare_yolo, warp_perspective};
 use crate::log;
 use crate::logging::{Level, StreamLog};
 use crate::stream_log;
-use crate::imaging::{crop, perspective_transform, prepare_lpc, prepare_vc, prepare_yolo, warp_perspective};
 use crate::triton::{InferRequest, Tensor, Triton};
 
 pub const PLATE_CLASSES: [&str; 4] = ["ru_1", "ru_1a", "by", "am"];
@@ -116,9 +116,7 @@ pub async fn detect_vehicles(triton: &Triton, image: &RgbImage, config: &VStream
     let input = tokio::task::block_in_place(|| prepare_yolo(image, config.vd_net.input_width, config.vd_net.input_height));
     stream_log!(log, Level::Trace, "after preprocess image for VDNet");
     stream_log!(log, Level::Trace, "before inference VDNet");
-    let outputs = triton
-        .infer(request(&config.vd_net, nchw(&config.vd_net), &input.tensor, config))
-        .await?;
+    let outputs = triton.infer(request(&config.vd_net, nchw(&config.vd_net), &input.tensor, config)).await?;
     stream_log!(log, Level::Trace, "after inference VDNet");
     let Some(output) = outputs.first() else {
         log!(log.logger, Level::Error, "Error! Unable to receive inference result");
@@ -253,7 +251,12 @@ pub async fn detect_plates(triton: &Triton, image: &RgbImage, config: &VStreamCo
         let inv_scale = 1.0 / input.scale as f32;
         let (shift_x, shift_y) = input.shift;
         let [bx, by, _, _] = vehicle.bbox;
-        stream_log!(log, Level::Trace, "license plate confidence threshold (vindex = {vindex}): {}", config.plate_confidence);
+        stream_log!(
+            log,
+            Level::Trace,
+            "license plate confidence threshold (vindex = {vindex}): {}",
+            config.plate_confidence
+        );
         let mut plates: Vec<LicensePlate> = data
             .chunks_exact(COLUMNS)
             .filter(|row| row[4] > config.plate_confidence)
@@ -279,7 +282,9 @@ pub async fn detect_plates(triton: &Triton, image: &RgbImage, config: &VStreamCo
             .collect();
         stream_log!(log, Level::Trace, "before nms_plates count (vindex = {vindex}): {}", plates.len());
         sort_by_confidence(&mut plates, |p| p.confidence);
-        suppress(&mut plates, |a, b| a.plate_class_common == b.plate_class_common && has_intersection(&a.bbox, &b.bbox));
+        suppress(&mut plates, |a, b| {
+            a.plate_class_common == b.plate_class_common && has_intersection(&a.bbox, &b.bbox)
+        });
         stream_log!(log, Level::Trace, "after nms_plates count (vindex = {vindex}): {}", plates.len());
 
         if !work_area.is_empty() || config.min_plate_height > 0.0 {
@@ -302,10 +307,15 @@ pub async fn detect_plates(triton: &Triton, image: &RgbImage, config: &VStreamCo
                         return false;
                     }
                 }
-                let too_small = config.min_plate_height > 0.0
-                    && distance(corners[0], corners[3]).min(distance(corners[1], corners[2])) < config.min_plate_height;
+                let too_small =
+                    config.min_plate_height > 0.0 && distance(corners[0], corners[3]).min(distance(corners[1], corners[2])) < config.min_plate_height;
                 if too_small {
-                    stream_log!(log, Level::Trace, "license plate height is too small;  key points: {}", format_key_points(&plate.kpts));
+                    stream_log!(
+                        log,
+                        Level::Trace,
+                        "license plate height is too small;  key points: {}",
+                        format_key_points(&plate.kpts)
+                    );
                 }
                 !too_small
             });
@@ -369,7 +379,12 @@ fn remove_duplicates_of_pair(vehicles: &mut [Vehicle], i: usize, j: usize, log: 
             } else {
                 remaining_i > remaining_j
             };
-            stream_log!(log, Level::Trace, "remove duplicate plate number from vehicle {}", if remove_from_i { i } else { j });
+            stream_log!(
+                log,
+                Level::Trace,
+                "remove duplicate plate number from vehicle {}",
+                if remove_from_i { i } else { j }
+            );
             if remove_from_i {
                 remove_i[m] = true;
                 remaining_i -= 1;
@@ -543,8 +558,8 @@ fn validate_plate_number(plate: &mut PlateNumber) -> bool {
 }
 
 const LABELS: [&str; 37] = [
-    "0", "1", "2", "3", "4", "5", "6", "7", "8", "9", "A", "B", "C", "D", "E", "F", "G", "H", "I", "J", "K", "L", "M",
-    "N", "O", "P", "Q", "R", "S", "T", "U", "V", "W", "X", "Y", "Z", "",
+    "0", "1", "2", "3", "4", "5", "6", "7", "8", "9", "A", "B", "C", "D", "E", "F", "G", "H", "I", "J", "K", "L", "M", "N", "O", "P", "Q", "R", "S", "T", "U",
+    "V", "W", "X", "Y", "Z", "",
 ];
 
 /// Height to width ratio of the straightened plate image, by plate class.
@@ -600,8 +615,7 @@ pub async fn recognize_plates(triton: &Triton, image: &RgbImage, config: &VStrea
                 let height = width * HEIGHT_RATIO_BY_PLATE_CLASS[class];
                 let dst = [[0.0, 0.0], [width - 1.0, 0.0], [width - 1.0, height - 1.0], [0.0, height - 1.0]];
                 let transform = perspective_transform(plate.corners(), dst).context("degenerate plate corners")?;
-                let straightened = warp_perspective(image, &transform, model.input_width, height as u32)
-                    .context("degenerate plate transform")?;
+                let straightened = warp_perspective(image, &transform, model.input_width, height as u32).context("degenerate plate transform")?;
                 let input = prepare_yolo(&straightened, model.input_width, model.input_height);
                 stream_log!(log, Level::Trace, "after preprocess image {pindex} for LPRNet");
                 Ok(input)
@@ -635,7 +649,9 @@ pub async fn recognize_plates(triton: &Triton, image: &RgbImage, config: &VStrea
             .collect();
         stream_log!(log, Level::Trace, "before nms_chars count (pindex = {pindex}): {}", chars.len());
         sort_by_confidence(&mut chars, |c| c.confidence);
-        suppress(&mut chars, |a, b| a.char_class == b.char_class && iou(&a.bbox, &b.bbox) > config.char_iou_threshold);
+        suppress(&mut chars, |a, b| {
+            a.char_class == b.char_class && iou(&a.bbox, &b.bbox) > config.char_iou_threshold
+        });
         stream_log!(log, Level::Trace, "after nms_chars count (pindex = {pindex}): {}", chars.len());
         sort_chars(&mut chars);
 

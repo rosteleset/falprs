@@ -84,7 +84,12 @@ async fn detect_faces(triton: &Triton, image: &RgbImage) -> Result<Vec<Face>> {
                     landmarks[2 * j + 1] = (py + kps[anchor * 10 + 2 * j + 1] * s) / scale;
                 }
                 faces.push(Face {
-                    bbox: [(px - b[0] * s) / scale, (py - b[1] * s) / scale, (px + b[2] * s) / scale, (py + b[3] * s) / scale],
+                    bbox: [
+                        (px - b[0] * s) / scale,
+                        (py - b[1] * s) / scale,
+                        (px + b[2] * s) / scale,
+                        (py + b[3] * s) / scale,
+                    ],
                     confidence: scores[anchor],
                     landmarks,
                 });
@@ -124,7 +129,11 @@ fn cosine(a: &[f32], b: &[f32]) -> f64 {
 async fn detect(dir: &str, out: &str) -> Result<()> {
     let triton = Triton::default();
     let mut lines = Vec::new();
-    let mut files: Vec<_> = std::fs::read_dir(dir)?.flatten().map(|e| e.path()).filter(|p| p.extension().is_some_and(|e| e == "bgr")).collect();
+    let mut files: Vec<_> = std::fs::read_dir(dir)?
+        .flatten()
+        .map(|e| e.path())
+        .filter(|p| p.extension().is_some_and(|e| e == "bgr"))
+        .collect();
     files.sort();
     for path in files {
         let image = read_bgr(&path)?;
@@ -156,7 +165,10 @@ async fn compare(dir: &str, landmarks_file: &str, matrices_file: &str, aligned_d
         let (file, index) = (parts[0], parts[1]);
         let values: Vec<f32> = parts[2..12].iter().map(|v| v.parse()).collect::<Result<_, _>>()?;
         let landmarks: Vec<[f32; 2]> = values.chunks_exact(2).map(|p| [p[0], p[1]]).collect();
-        let template: Vec<[f32; 2]> = TEMPLATE.iter().map(|p| [p[0] / 112.0 * FACE_SIZE as f32, p[1] / 112.0 * FACE_SIZE as f32]).collect();
+        let template: Vec<[f32; 2]> = TEMPLATE
+            .iter()
+            .map(|p| [p[0] / 112.0 * FACE_SIZE as f32, p[1] / 112.0 * FACE_SIZE as f32])
+            .collect();
 
         let image = read_bgr(&Path::new(dir).join(file))?;
         let Some(m) = estimate_affine_partial_lmeds(&landmarks, &template) else {
@@ -185,7 +197,11 @@ async fn compare(dir: &str, landmarks_file: &str, matrices_file: &str, aligned_d
     }
     let min = cosines.iter().copied().fold(f64::INFINITY, f64::min);
     let mean = cosines.iter().sum::<f64>() / cosines.len() as f64;
-    println!("\nfaces: {}, cosine min {min:.6}, mean {mean:.6}: {}", cosines.len(), if min > 0.99 { "PASS" } else { "FAIL" });
+    println!(
+        "\nfaces: {}, cosine min {min:.6}, mean {mean:.6}: {}",
+        cosines.len(),
+        if min > 0.99 { "PASS" } else { "FAIL" }
+    );
     Ok(())
 }
 

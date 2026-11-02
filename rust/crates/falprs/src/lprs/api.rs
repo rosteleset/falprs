@@ -18,17 +18,16 @@ use super::caches::vstream_key;
 use super::obb;
 use super::workflow;
 use crate::converters;
-use crate::http_api::{ApiError, ApiResult, data_response, no_content, require_member};
 use crate::fetch::{FetchError, fetch_image};
+use crate::http_api::{ApiError, ApiResult, data_response, no_content, require_member};
 use crate::imaging;
-use crate::{log, log_to};
 use crate::logging::{Level, StreamLog};
 use crate::stream_log;
+use crate::{log, log_to};
 
 pub fn router(lprs: Arc<Lprs>) -> Router {
     Router::new().route("/lprs/api/{method}", post(handle)).with_state(lprs)
 }
-
 
 async fn handle(
     State(lprs): State<Arc<Lprs>>,
@@ -201,7 +200,11 @@ async fn get_event_data(lprs: &Lprs, id_group: i32, body: &Value) -> ApiResult {
     let date = require_member(body, "date")?.as_str().ok_or_else(ApiError::server_error)?;
     let Some((id_vstream, before, after)) = lprs.vstreams_config.get().get(&vstream_key(id_group, &ext_id)).map(|entry| {
         let config = &entry.config;
-        (entry.id_vstream, config.event_log_before.as_millis() as i64, config.event_log_after.as_millis() as i64)
+        (
+            entry.id_vstream,
+            config.event_log_before.as_millis() as i64,
+            config.event_log_after.as_millis() as i64,
+        )
     }) else {
         return Ok(no_content());
     };
@@ -255,11 +258,7 @@ async fn set_stream_default_config(lprs: &Lprs, id_group: i32, body: &Value) -> 
 async fn get_stream_default_config(lprs: &Lprs, id_group: i32) -> ApiResult {
     let rows = lprs
         .cluster
-        .query(
-            HostType::Master,
-            "select config from default_vstream_config where id_group = $1",
-            &[&id_group],
-        )
+        .query(HostType::Master, "select config from default_vstream_config where id_group = $1", &[&id_group])
         .await
         .inspect_err(|e| log!(lprs.logger, Level::Error, "{e}"))?;
     let config = rows.first().and_then(|row| row.get::<_, Option<Value>>(0));
@@ -318,7 +317,11 @@ async fn detect_vehicles_obb(lprs: &Lprs, id_group: i32, body: &Value) -> ApiRes
     };
     if config.logs(Level::Debug) {
         let frame_url = if url.starts_with("data:") { "data:base64..." } else { url.as_str() };
-        log_to!(lprs.logger, Level::Debug, "Start detectVehiclesObb: vstream_key = {key};  frame_url = {frame_url}");
+        log_to!(
+            lprs.logger,
+            Level::Debug,
+            "Start detectVehiclesObb: vstream_key = {key};  frame_url = {frame_url}"
+        );
     }
     stream_log!(stream, Level::Trace, "before image acquisition");
     let data = fetch_image(&lprs.http, &url, config.max_capture_error_count, config.capture_timeout)

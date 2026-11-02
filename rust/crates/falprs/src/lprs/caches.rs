@@ -79,8 +79,6 @@ pub async fn load_vstreams_config(cluster: Cluster, host_type: HostType) -> Resu
 pub type VStreamGroupData = HashMap<i32, i32>;
 
 pub async fn load_vstream_group(cluster: Cluster, host_type: HostType) -> Result<VStreamGroupData> {
-    let rows = cluster
-        .query(host_type, "select id_vstream, id_group from vstreams", &[])
-        .await?;
+    let rows = cluster.query(host_type, "select id_vstream, id_group from vstreams", &[]).await?;
     Ok(rows.iter().filter_map(|row| Some((row.get(0), row.get::<_, Option<i32>>(1)?))).collect())
 }
