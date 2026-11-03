@@ -275,28 +275,12 @@ pub async fn extract_face_descriptor(
 }
 
 /// Dot product of two normalized descriptors, or -1 for descriptors of different or zero size.
+/// Floats beyond the last whole 32-float block are ignored.
 pub fn cosine_similarity(a: &[f32], b: &[f32]) -> f64 {
     if a.len() != b.len() || a.is_empty() {
         return -1.0;
     }
-    let mut sums = [[0f32; 8]; 4];
-    let blocks = a.chunks_exact(32).zip(b.chunks_exact(32));
-    for (block_a, block_b) in blocks {
-        for (k, sum) in sums.iter_mut().enumerate() {
-            for (lane, s) in sum.iter_mut().enumerate() {
-                *s += block_a[k * 8 + lane] * block_b[k * 8 + lane];
-            }
-        }
-    }
-    let tail: f32 = a
-        .chunks_exact(32)
-        .remainder()
-        .iter()
-        .zip(b.chunks_exact(32).remainder())
-        .map(|(x, y)| x * y)
-        .sum();
-    let lanes: f32 = (0..8).map(|lane| sums[0][lane] + sums[1][lane] + sums[2][lane] + sums[3][lane]).sum();
-    f64::from(lanes + tail)
+    falprs::similarity::dot(a, b)
 }
 
 #[cfg(test)]

@@ -43,36 +43,10 @@ impl EventData {
     }
 }
 
-/// Sum of 8 lanes in the order of the C++ service's AVX horizontal adds.
-fn reduce_sum(lanes: &[f32; 8]) -> f32 {
-    ((lanes[0] + lanes[1]) + (lanes[2] + lanes[3])) + ((lanes[4] + lanes[5]) + (lanes[6] + lanes[7]))
-}
-
 /// Cosine similarity of two descriptors, accumulated in single precision like the C++ service's
-/// AVX version: four 8-lane accumulators per sum over 32-float blocks. Floats beyond the last
-/// whole block are ignored, as there.
+/// AVX version. Floats beyond the last whole 32-float block are ignored, as there.
 pub fn cosine_similarity(a: &[f32], b: &[f32]) -> f64 {
-    let mut dot = [[0f32; 8]; 4];
-    let mut sqr_a = [[0f32; 8]; 4];
-    let mut sqr_b = [[0f32; 8]; 4];
-    for (block_a, block_b) in a.chunks_exact(32).zip(b.chunks_exact(32)) {
-        for k in 0..4 {
-            for lane in 0..8 {
-                let (x, y) = (block_a[k * 8 + lane], block_b[k * 8 + lane]);
-                dot[k][lane] += x * y;
-                sqr_a[k][lane] += x * x;
-                sqr_b[k][lane] += y * y;
-            }
-        }
-    }
-    let combine = |sums: &[[f32; 8]; 4]| {
-        let mut lanes = [0f32; 8];
-        for lane in 0..8 {
-            lanes[lane] = (sums[0][lane] + sums[1][lane]) + (sums[2][lane] + sums[3][lane]);
-        }
-        reduce_sum(&lanes)
-    };
-    f64::from(combine(&dot)) / f64::from(combine(&sqr_a)).sqrt() / f64::from(combine(&sqr_b)).sqrt()
+    falprs::similarity::cosine(a, b)
 }
 
 #[cfg(test)]
