@@ -388,7 +388,7 @@ async fn add_stream(frs: &Frs, id_group: i32, body: &Value) -> Result<(), ApiErr
     }
 
     let mut client = frs.cluster.client(HostType::Master).await.map_err(db_error(frs))?;
-    let result: Result<(), pg_cluster::tokio_postgres::Error> = async {
+    let result: Result<(), pg_cluster::Error> = async {
         let transaction = client.transaction().await?;
         let existing = transaction
             .query_opt(
@@ -441,7 +441,7 @@ async fn add_stream(frs: &Frs, id_group: i32, body: &Value) -> Result<(), ApiErr
         transaction.commit().await
     }
     .await;
-    result.map_err(pg_error(frs))
+    result.map_err(db_error(frs))
 }
 
 async fn list_streams(frs: &Frs, id_group: i32) -> Result<Value, ApiError> {
@@ -473,10 +473,10 @@ async fn list_streams(frs: &Frs, id_group: i32) -> Result<Value, ApiError> {
             )
             .await?;
         transaction.commit().await?;
-        Ok::<_, pg_cluster::tokio_postgres::Error>((streams, faces))
+        Ok::<_, pg_cluster::Error>((streams, faces))
     }
     .await
-    .map_err(pg_error(frs))?;
+    .map_err(db_error(frs))?;
 
     let mut faces_by_stream: HashMap<String, Vec<i32>> = HashMap::new();
     for row in &faces {
@@ -672,7 +672,7 @@ async fn add_faces(frs: &Frs, id_group: i32, body: &Value) -> Result<(), ApiErro
         transaction.commit().await
     }
     .await
-    .map_err(pg_error(frs))
+    .map_err(db_error(frs))
 }
 
 async fn remove_faces(frs: &Frs, id_group: i32, body: &Value) -> Result<(), ApiError> {
@@ -697,7 +697,7 @@ async fn remove_faces(frs: &Frs, id_group: i32, body: &Value) -> Result<(), ApiE
         transaction.commit().await
     }
     .await
-    .map_err(pg_error(frs))
+    .map_err(db_error(frs))
 }
 
 async fn remove_stream(frs: &Frs, id_group: i32, body: &Value) -> Result<(), ApiError> {
@@ -724,7 +724,7 @@ async fn remove_stream(frs: &Frs, id_group: i32, body: &Value) -> Result<(), Api
         transaction.commit().await
     }
     .await
-    .map_err(pg_error(frs))
+    .map_err(db_error(frs))
 }
 
 async fn list_all_faces(frs: &Frs, id_group: i32) -> Result<Value, ApiError> {
@@ -863,7 +863,7 @@ async fn delete_faces(frs: &Frs, id_group: i32, body: &Value) -> Result<(), ApiE
         transaction.commit().await
     }
     .await
-    .map_err(pg_error(frs))
+    .map_err(db_error(frs))
 }
 
 async fn get_events(frs: &Frs, id_group: i32, body: &Value) -> Result<Value, ApiError> {
@@ -1087,7 +1087,7 @@ async fn delete_special_group(frs: &Frs, id_group: i32, body: &Value) -> Result<
         transaction.commit().await
     }
     .await
-    .map_err(pg_error(frs))
+    .map_err(db_error(frs))
 }
 
 async fn list_special_groups(frs: &Frs, id_group: i32) -> Result<Value, ApiError> {
@@ -1186,7 +1186,7 @@ async fn sg_delete_faces(frs: &Frs, id_sgroup: i32, body: &Value) -> Result<(), 
         transaction.commit().await
     }
     .await
-    .map_err(pg_error(frs))
+    .map_err(db_error(frs))
 }
 
 async fn sg_list_faces(frs: &Frs, id_sgroup: i32) -> Result<Value, ApiError> {

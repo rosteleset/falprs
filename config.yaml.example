@@ -55,6 +55,24 @@ components_manager:
                 POSTGRES_DEFAULT_COMMAND_CONTROL:
                     network_timeout_ms: 5000
                     statement_timeout_ms: 5000
+                # The settings below are read by the Rust implementation only; the C++ one ignores them
+                FALPRS_PG_TOPOLOGY_SETTINGS:                                 # Per database component
+                    lprs-postgresql-database:
+                        discovery_timeout_ms: 2000                           # Time limit for checking the role (master or replica) of one host
+                    frs-postgresql-database:
+                        discovery_timeout_ms: 2000
+                FALPRS_PG_CACHE_HOST_TYPES:                                  # Hosts cache updates read from: master, replica or replica-or-master
+                    # Keep master: updating large caches from a replica failed, see docs/adr/0001-api-reads-from-master-only.md
+                    lprs-groups-pg-cache: master
+                    lprs-vstreams-config-pg-cache: master
+                    lprs-vstream-group-pg-cache: master
+                    frs-groups-pg-cache: master
+                    frs-config-pg-cache: master
+                    frs-vstreams-config-pg-cache: master
+                    frs-face-descriptor-pg-cache: master
+                    frs-vstream-descriptors-pg-cache: master
+                    frs-sg-config-pg-cache: master
+                    frs-sg-descriptors-pg-cache: master
 
         dns-client:
             fs-task-processor: fs-task-processor

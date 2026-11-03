@@ -15,7 +15,7 @@ use std::time::Duration;
 use anyhow::{Context, Result};
 use axum::Router;
 use axum::extract::DefaultBodyLimit;
-use pg_cluster::{Cluster, ClusterSettings};
+use pg_cluster::Cluster;
 
 use crate::cache::PgCache;
 use crate::config::FrsConfig;
@@ -45,12 +45,9 @@ pub struct Frs {
 }
 
 impl Frs {
-    pub async fn start(config: &FrsConfig, logger: Arc<Logger>) -> Result<Arc<Self>> {
-        let mut settings = ClusterSettings::default();
-        if let Some(max_pool_size) = config.database.max_pool_size {
-            settings.max_pool_size = max_pool_size;
-        }
-        let cluster = Cluster::connect(&config.database.dsn, settings)
+    /// Starts the subsystem; `default_logger` gets the messages of its database cluster.
+    pub async fn start(config: &FrsConfig, logger: Arc<Logger>, default_logger: Arc<Logger>) -> Result<Arc<Self>> {
+        let cluster = crate::database::connect(&config.database, default_logger)
             .await
             .context("can't connect to the FRS database")?;
 

@@ -1,22 +1,33 @@
 //! In-memory caches reloaded from PostgreSQL on a fixed interval, like userver's `PostgreCache`:
 //! either fully on every update (`update-types: only-full`), or incrementally in between full
 //! updates (`update-types: full-and-incremental`).
+//!
+//! As in userver, the requests of an update are bounded by the cache's own network timeout,
+//! `full-update-op-timeout` or `incremental-update-op-timeout`, and their statement timeout is off.
 
 use std::future::Future;
 use std::pin::Pin;
 use std::sync::{Arc, RwLock};
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 use chrono::{DateTime, Utc};
 
 use anyhow::Result;
-use pg_cluster::{Cluster, HostType};
+use pg_cluster::{Cluster, CommandControl, HostType};
 
 use crate::config::CacheConfig;
 use crate::log;
 use crate::logging::{Level, Logger};
 
 type Loader<T> = Box<dyn Fn(Cluster, HostType) -> Pin<Box<dyn Future<Output = Result<T>> + Send>> + Send + Sync>;
+
+/// The cluster with the timeouts of a cache update whose requests have `network_timeout`.
+fn update_cluster(cluster: &Cluster, network_timeout: Duration) -> Cluster {
+    cluster.with_command_control(CommandControl {
+        network_timeout,
+        statement_timeout: None,
+    })
+}
 
 pub struct PgCache<T> {
     data: RwLock<Arc<T>>,
@@ -30,6 +41,7 @@ impl<T: Send + Sync + 'static> PgCache<T> {
         Fut: Future<Output = Result<T>> + Send + 'static,
     {
         let load: Loader<T> = Box::new(move |cluster, host_type| Box::pin(load(cluster, host_type)));
+        let cluster = update_cluster(&cluster, config.full_update_timeout);
         let initial = load(cluster.clone(), config.host_type)
             .await
             .map_err(|e| e.context(format!("first update of cache {name} failed")))?;
@@ -80,7 +92,11 @@ impl<T: Send + Sync + 'static> PgCache<T> {
             data
         };
         let mut last_update = Utc::now();
-        let rows = load(cluster.clone(), host_type, None)
+        let (full_cluster, incremental_cluster) = (
+            update_cluster(&cluster, config.full_update_timeout),
+            update_cluster(&cluster, config.incremental_update_timeout),
+        );
+        let rows = load(full_cluster.clone(), host_type, None)
             .await
             .map_err(|e| e.context(format!("first update of cache {name} failed")))?;
         let cache = Arc::new(Self {
@@ -99,6 +115,7 @@ impl<T: Send + Sync + 'static> PgCache<T> {
                 let is_full = full_interval.is_none_or(|full_interval| last_full_update.elapsed() >= full_interval);
                 let since = (!is_full).then(|| last_update - chrono::TimeDelta::from_std(correction).unwrap_or_default());
                 let started = (Utc::now(), Instant::now());
+                let cluster = if is_full { &full_cluster } else { &incremental_cluster };
                 match load(cluster.clone(), host_type, since).await {
                     Ok(rows) => {
                         let data = if is_full {

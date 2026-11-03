@@ -3,10 +3,11 @@
 
 use std::process::Command;
 use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::{Duration, Instant};
 
-use pg_cluster::{Cluster, ClusterSettings, Error, HostType, Role};
+use pg_cluster::{Cluster, ClusterSettings, CommandControl, Error, HostType, LogSink, Role};
 
 const IMAGE: &str = "postgres:16";
 const REPLICA_DATA: &str = "/tmp/replica";
@@ -65,6 +66,19 @@ impl Container {
 
     fn stop(&self) {
         docker(&["stop", "-t", "1", &self.name]);
+    }
+
+    /// Freezes the server: the kernel still accepts and acknowledges TCP, but nothing answers.
+    fn pause(&self) {
+        docker(&["pause", &self.name]);
+    }
+
+    fn unpause(&self) {
+        docker(&["unpause", &self.name]);
+    }
+
+    fn port(&self) -> u16 {
+        self.address.rsplit(':').next().unwrap().parse().unwrap()
     }
 }
 
@@ -140,9 +154,43 @@ impl TestCluster {
 fn settings() -> ClusterSettings {
     ClusterSettings {
         discovery_interval: Duration::from_millis(500),
+        discovery_timeout: Duration::from_secs(1),
         connect_timeout: Duration::from_secs(1),
         ..ClusterSettings::default()
     }
+}
+
+/// Timeouts long enough for the slow statements of a test.
+fn long_command_control() -> CommandControl {
+    CommandControl {
+        network_timeout: Duration::from_secs(60),
+        statement_timeout: None,
+    }
+}
+
+/// Collects the cluster's messages.
+fn log_lines() -> (LogSink, Arc<Mutex<Vec<String>>>) {
+    let lines = Arc::new(Mutex::new(Vec::new()));
+    let sink = {
+        let lines = lines.clone();
+        LogSink::new(move |record| lines.lock().unwrap().push(record.text.to_string()))
+    };
+    (sink, lines)
+}
+
+/// Established TCP connections of this machine to `port` on 127.0.0.1, i.e. the client sides of
+/// connections to a container.
+fn connections_to(port: u16) -> usize {
+    let peer = format!("0100007F:{port:04X}");
+    std::fs::read_to_string("/proc/net/tcp")
+        .unwrap()
+        .lines()
+        .skip(1)
+        .filter(|line| {
+            let fields: Vec<&str> = line.split_whitespace().collect();
+            fields[2] == peer && fields[3] == "01"
+        })
+        .count()
 }
 
 /// Whether the host serving `host_type` is in recovery, i.e. is a replica.
@@ -215,10 +263,10 @@ async fn replica_or_master_falls_back_to_master() {
 
     test.replica().stop();
     eventually("fallback to the master", async || {
-        (in_recovery(&cluster, HostType::ReplicaOrMaster).await.ok()? == false).then_some(())
+        (!in_recovery(&cluster, HostType::ReplicaOrMaster).await.ok()?).then_some(())
     })
     .await;
-    assert!(matches!(in_recovery(&cluster, HostType::Replica).await, Err(_)));
+    assert!(in_recovery(&cluster, HostType::Replica).await.is_err());
     assert!(!in_recovery(&cluster, HostType::Master).await.unwrap());
 }
 
@@ -232,7 +280,7 @@ async fn follows_failover() {
     docker(&["exec", &test.replica().name, "pg_ctl", "promote", "-D", REPLICA_DATA]);
 
     eventually("the promoted replica to serve the master", async || {
-        (in_recovery(&cluster, HostType::Master).await.ok()? == false).then_some(())
+        (!in_recovery(&cluster, HostType::Master).await.ok()?).then_some(())
     })
     .await;
     cluster.execute(HostType::Master, "CREATE TABLE after_failover (v integer)", &[]).await.unwrap();
@@ -253,4 +301,138 @@ async fn single_host() {
     assert!(!in_recovery(&cluster, HostType::Master).await.unwrap());
     assert!(!in_recovery(&cluster, HostType::ReplicaOrMaster).await.unwrap());
     assert!(matches!(in_recovery(&cluster, HostType::Replica).await, Err(Error::NoHost(HostType::Replica))));
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn follows_failover_from_a_hung_master() {
+    let test = TestCluster::start(true);
+    let (log, lines) = log_lines();
+    let cluster = Cluster::connect(&test.dsn(), ClusterSettings { log, ..settings() }).await.unwrap();
+    assert!(!in_recovery(&cluster, HostType::Master).await.unwrap());
+
+    // A master that stops answering without closing connections, as behind a network partition
+    test.primary.pause();
+    docker(&["exec", &test.replica().name, "pg_ctl", "promote", "-D", REPLICA_DATA]);
+
+    eventually("the promoted replica to serve the master", async || {
+        (!in_recovery(&cluster, HostType::Master).await.ok()?).then_some(())
+    })
+    .await;
+    cluster.execute(HostType::Master, "CREATE TABLE after_failover (v integer)", &[]).await.unwrap();
+    assert_eq!(cluster.topology()[0].1, Role::Unavailable);
+    let promoted = format!("PostgreSQL host {}/postgres: replica -> master", test.replica().address);
+    assert!(lines.lock().unwrap().contains(&promoted), "{:?}", lines.lock().unwrap());
+    test.primary.unpause();
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn statement_timeout_cancels_the_statement_only() {
+    let test = TestCluster::start(false);
+    let (log, lines) = log_lines();
+    let command_control = CommandControl {
+        network_timeout: Duration::from_secs(5),
+        statement_timeout: Some(Duration::from_millis(300)),
+    };
+    let cluster = Cluster::connect(
+        &test.dsn(),
+        ClusterSettings {
+            command_control,
+            log,
+            ..settings()
+        },
+    )
+    .await
+    .unwrap();
+
+    let error = cluster.query(HostType::Master, "SELECT pg_sleep(2)", &[]).await.unwrap_err();
+    assert!(error.is_query_cancelled(), "{error}");
+    assert!(lines.lock().unwrap().iter().any(
+        |line| line.starts_with(&format!("Statement was cancelled on PostgreSQL host {}/postgres: ", test.primary.address))
+            && line.ends_with("Statement timeout was 300ms")
+    ));
+    // The connection and the host stay usable
+    assert_eq!(cluster.topology()[0].1, Role::Master);
+    assert!(!in_recovery(&cluster, HostType::Master).await.unwrap());
+
+    // A view without a statement timeout, as cache updates use, sets it off for its requests only
+    let unlimited = cluster.with_command_control(long_command_control());
+    unlimited.query(HostType::Master, "SELECT pg_sleep(1)", &[]).await.unwrap();
+    let mut client = unlimited.client(HostType::Master).await.unwrap();
+    let transaction = client.transaction().await.unwrap();
+    let row = transaction.query_one("SHOW statement_timeout", &[]).await.unwrap();
+    assert_eq!(row.get::<_, String>(0), "0");
+    drop(transaction);
+    drop(client);
+    let rows = cluster.query(HostType::Master, "SHOW statement_timeout", &[]).await.unwrap();
+    assert_eq!(rows[0].get::<_, String>(0), "300ms");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn network_timeout_closes_connections_to_a_hung_host() {
+    let test = TestCluster::start(false);
+    let (log, lines) = log_lines();
+    let command_control = CommandControl {
+        network_timeout: Duration::from_millis(1000),
+        statement_timeout: Some(Duration::from_secs(5)),
+    };
+    let settings = ClusterSettings {
+        max_pool_size: 10,
+        command_control,
+        log,
+        ..settings()
+    };
+    let cluster = Cluster::connect(&test.dsn(), settings).await.unwrap();
+
+    // Fill the pool with connections
+    let sleeps = (0..10).map(|_| cluster.query(HostType::Master, "SELECT pg_sleep(0.3)", &[]));
+    for result in futures::future::join_all(sleeps).await {
+        result.unwrap();
+    }
+    let port = test.primary.port();
+    assert!(connections_to(port) >= 10);
+
+    test.primary.pause();
+    let started = Instant::now();
+    let requests = (0..10).map(|_| cluster.query(HostType::Master, "SELECT 1", &[]));
+    for result in futures::future::join_all(requests).await {
+        assert!(matches!(result, Err(Error::NetworkTimeout(_))), "{result:?}");
+    }
+    assert!(started.elapsed() < Duration::from_secs(5));
+    assert_eq!(cluster.topology()[0].1, Role::Unavailable);
+    assert!(lines.lock().unwrap().iter().any(|line| line.starts_with(&format!(
+        "Network timeout error: no response from PostgreSQL host {}/postgres.",
+        test.primary.address
+    )) && line.ends_with("Network timeout was 1000ms")));
+    // The connections that timed out are closed, not left waiting for the server; discovery may
+    // hold one more while it tries the host
+    // Sockets close as soon as the runtime drops the aborted connection tasks
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    assert!(connections_to(port) <= 1, "{} connections left", connections_to(port));
+    // Requests fail fast while the host stays down
+    let started = Instant::now();
+    assert!(cluster.query(HostType::Master, "SELECT 1", &[]).await.is_err());
+    assert!(started.elapsed() < Duration::from_secs(3));
+
+    test.primary.unpause();
+    eventually("the host to come back", async || {
+        (!in_recovery(&cluster, HostType::Master).await.ok()?).then_some(())
+    })
+    .await;
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn lost_connection_fails_the_request_at_once() {
+    let test = TestCluster::start(false);
+    let cluster = Cluster::connect(&test.dsn(), settings()).await.unwrap();
+    let unlimited = cluster.with_command_control(long_command_control());
+
+    let started = Instant::now();
+    let request = tokio::spawn(async move { unlimited.query(HostType::Master, "SELECT pg_sleep(30)", &[]).await });
+    tokio::time::sleep(Duration::from_secs(1)).await;
+    docker(&["kill", &test.primary.name]);
+
+    let result = request.await.unwrap();
+    assert!(matches!(result, Err(Error::Db(_))), "{result:?}");
+    assert!(started.elapsed() < Duration::from_secs(10));
+    assert_eq!(cluster.topology()[0].1, Role::Unavailable);
 }

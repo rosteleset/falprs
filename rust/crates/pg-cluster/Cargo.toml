@@ -13,3 +13,6 @@ deadpool-postgres.workspace = true
 thiserror.workspace = true
 tokio.workspace = true
 tokio-postgres.workspace = true
+
+[dev-dependencies]
+futures.workspace = true
