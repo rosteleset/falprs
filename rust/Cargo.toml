@@ -27,7 +27,7 @@ mime_guess = "2"
 pg-cluster = { path = "crates/pg-cluster" }
 prost = "0.14"
 protox = "0.10"
-# Runtime SIMD dispatch (AVX2 + FMA or scalar); see docs/adr/0002
+# Runtime SIMD dispatch (AVX2 + FMA or scalar) without unsafe code in the workspace crates
 pulp = { version = "0.22", default-features = false, features = ["std", "x86-v3"] }
 reqwest = { version = "0.13", default-features = false, features = ["rustls-no-provider"] }
 rxing = { version = "0.9", default-features = false, features = ["qrcode", "decoders", "multi_barcode_readers", "encoding_rs"] }
