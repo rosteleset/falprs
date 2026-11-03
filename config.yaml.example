@@ -62,7 +62,8 @@ components_manager:
                     frs-postgresql-database:
                         discovery_timeout_ms: 2000
                 FALPRS_PG_CACHE_HOST_TYPES:                                  # Hosts cache updates read from: master, replica or replica-or-master
-                    # Keep master: updating large caches from a replica failed, see docs/adr/0001-api-reads-from-master-only.md
+                    # Keep master: full updates of large caches failed on a replica with a PostgreSQL error (likely a recovery conflict),
+                    # and incremental updates silently miss rows on a replica lagging more than update-correction
                     lprs-groups-pg-cache: master
                     lprs-vstreams-config-pg-cache: master
                     lprs-vstream-group-pg-cache: master

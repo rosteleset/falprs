@@ -1,4 +1,5 @@
-# Dependency policy, see docs/adr/0002-rust-port-pure-rust-no-unsafe.md
+# Dependency policy: pure Rust dependencies, no FFI wrappers over C/C++ libraries and no *-sys crates,
+# except `ring` as the TLS provider for outgoing HTTPS
 
 [graph]
 targets = ["x86_64-unknown-linux-gnu"]
@@ -25,7 +26,7 @@ allow-wildcard-paths = true
 # A build script is how C/C++ code gets compiled or linked (every *-sys crate has one),
 # so every crate that has one must be reviewed and listed here.
 # `ring` is the only crate allowed to build C code (TLS for outgoing HTTPS); `pulp` generates
-# x86-64 assembly from Rust (`global_asm!`), see the 2026-11-03 addendum of the ADR.
+# x86-64 assembly from Rust (`global_asm!`) for runtime SIMD dispatch, compiling no C/C++.
 include-dependencies = true
 executables = "deny"
 allow-build-scripts = [

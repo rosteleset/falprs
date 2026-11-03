@@ -3,8 +3,8 @@
 //!
 //! Given a multi-host connection string, the cluster keeps a connection pool per host, periodically
 //! discovers which host is the master and which are replicas, follows a failover without a restart,
-//! and routes every request to the host type the caller names. See
-//! `docs/adr/0001-api-reads-from-master-only.md` for which requests may go to replicas.
+//! and routes every request to the host type the caller names. The service sends every request
+//! to the master: its cluster is there for failover, not to spread load.
 //!
 //! Every request is bounded as userver's `CommandControl` bounds it: by a network timeout, how long
 //! the client waits for each response, and by a statement timeout, how long the server may execute
