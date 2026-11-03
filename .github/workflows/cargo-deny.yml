@@ -2,8 +2,8 @@
 # policy (pure Rust, no *-sys crates except ring), licenses and sources.
 #
 # GitHub runs scheduled workflows only from the default branch. While the Rust implementation
-# lives in the `rust` branch, a scheduled run checks out `rust` explicitly; other runs check the
-# commit that triggered them.
+# lives in the `rust` branch, every run from `main` (scheduled, manual or a push there) checks out
+# `rust`, since `main` has no Rust workspace; other runs check the commit that triggered them.
 name: cargo-deny
 
 on:
@@ -35,7 +35,7 @@ jobs:
     steps:
       - uses: actions/checkout@v5
         with:
-          ref: ${{ github.event_name == 'schedule' && 'rust' || '' }}
+          ref: ${{ github.ref == 'refs/heads/main' && 'rust' || '' }}
       - uses: EmbarkStudios/cargo-deny-action@v2
         with:
           command: check ${{ matrix.checks }}
