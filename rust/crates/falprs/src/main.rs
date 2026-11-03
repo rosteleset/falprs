@@ -1,6 +1,7 @@
 mod cache;
 mod config;
 mod converters;
+mod database;
 mod fetch;
 mod frs;
 mod http_api;
@@ -89,12 +90,12 @@ async fn main() -> Result<()> {
     let mut frs_subsystem = None;
     if let Some(lprs_config) = &config.lprs {
         let lprs_logger = loggers.get("lprs").unwrap_or_else(|| logger.clone());
-        let lprs = lprs::Lprs::start(lprs_config, lprs_logger).await?;
+        let lprs = lprs::Lprs::start(lprs_config, lprs_logger, logger.clone()).await?;
         main_router = main_router.merge(lprs.router());
     }
     if let Some(frs_config) = &config.frs {
         let frs_logger = loggers.get("frs").unwrap_or_else(|| logger.clone());
-        let frs = frs::Frs::start(frs_config, frs_logger).await?;
+        let frs = frs::Frs::start(frs_config, frs_logger, logger.clone()).await?;
         main_router = main_router.merge(frs.router());
         frs_subsystem = Some(frs);
     }

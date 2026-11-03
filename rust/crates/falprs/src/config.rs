@@ -9,7 +9,7 @@ use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 use anyhow::{Context, Result, anyhow, bail};
-use pg_cluster::HostType;
+use pg_cluster::{CommandControl, HostType};
 use serde::Deserialize;
 use serde_json::{Map, Value};
 
@@ -17,6 +17,21 @@ use crate::converters::parse_duration;
 
 /// Dynamic config key mapping cache component names to the host type their fills read from.
 const CACHE_HOST_TYPES_KEY: &str = "FALPRS_PG_CACHE_HOST_TYPES";
+
+/// Dynamic config key mapping database component names to topology settings only this service reads.
+const TOPOLOGY_SETTINGS_KEY: &str = "FALPRS_PG_TOPOLOGY_SETTINGS";
+
+/// Dynamic config key of the network and statement timeouts of database requests.
+const DEFAULT_COMMAND_CONTROL_KEY: &str = "POSTGRES_DEFAULT_COMMAND_CONTROL";
+
+/// The default time limit for checking the role of one database host.
+const DEFAULT_DISCOVERY_TIMEOUT: Duration = Duration::from_secs(2);
+
+/// userver's default `full-update-op-timeout` of a PostgreSQL cache.
+const DEFAULT_FULL_UPDATE_TIMEOUT: Duration = Duration::from_secs(60);
+
+/// userver's default `incremental-update-op-timeout` of a PostgreSQL cache.
+const DEFAULT_INCREMENTAL_UPDATE_TIMEOUT: Duration = Duration::from_secs(1);
 
 /// userver's default `max_request_size` of a handler.
 const DEFAULT_MAX_REQUEST_SIZE: usize = 1024 * 1024;
@@ -47,6 +62,10 @@ fn default_log_level() -> String {
 pub struct DatabaseConfig {
     pub dsn: String,
     pub max_pool_size: Option<usize>,
+    /// Timeouts of requests other than cache updates.
+    pub command_control: CommandControl,
+    /// Time limit for checking the role of one host.
+    pub discovery_timeout: Duration,
 }
 
 #[derive(Debug, Clone)]
@@ -57,6 +76,10 @@ pub struct CacheConfig {
     /// How far back from the previous update's start an incremental update looks.
     pub update_correction: Duration,
     pub host_type: HostType,
+    /// Network timeout of the requests of a full update; their statement timeout is off.
+    pub full_update_timeout: Duration,
+    /// Network timeout of the requests of an incremental update; their statement timeout is off.
+    pub incremental_update_timeout: Duration,
 }
 
 #[derive(Debug, Clone)]
@@ -197,6 +220,10 @@ struct Cache {
     update_correction: Option<String>,
     #[serde(rename = "update-types")]
     update_types: Option<String>,
+    #[serde(rename = "full-update-op-timeout")]
+    full_update_op_timeout: Option<String>,
+    #[serde(rename = "incremental-update-op-timeout")]
+    incremental_update_op_timeout: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -227,10 +254,17 @@ fn cache_config(name: &str, cache: Option<Cache>, defaults: &Map<String, Value>)
         }
         Some(other) => bail!("{name}: unsupported update-types {other:?}"),
     };
-    let update_correction = match cache.update_correction {
-        None => Duration::ZERO,
-        Some(text) => parse_duration(&text).ok_or_else(|| anyhow!("{name}: invalid update-correction"))?,
+    let optional_duration = |text: Option<String>, key: &str, default: Duration| match text {
+        None => Ok(default),
+        Some(text) => parse_duration(&text).ok_or_else(|| anyhow!("{name}: invalid {key}")),
     };
+    let update_correction = optional_duration(cache.update_correction, "update-correction", Duration::ZERO)?;
+    let full_update_timeout = optional_duration(cache.full_update_op_timeout, "full-update-op-timeout", DEFAULT_FULL_UPDATE_TIMEOUT)?;
+    let incremental_update_timeout = optional_duration(
+        cache.incremental_update_op_timeout,
+        "incremental-update-op-timeout",
+        DEFAULT_INCREMENTAL_UPDATE_TIMEOUT,
+    )?;
     let host_type = match defaults.get(CACHE_HOST_TYPES_KEY).and_then(|types| types.get(name)) {
         None => HostType::Master,
         Some(Value::String(text)) => parse_host_type(text).with_context(|| format!("{CACHE_HOST_TYPES_KEY}.{name}"))?,
@@ -241,6 +275,51 @@ fn cache_config(name: &str, cache: Option<Cache>, defaults: &Map<String, Value>)
         full_update_interval,
         update_correction,
         host_type,
+        full_update_timeout,
+        incremental_update_timeout,
+    })
+}
+
+/// A positive number of milliseconds of a dynamic config value.
+fn milliseconds(value: &Value, path: &str) -> Result<Duration> {
+    match value.as_u64() {
+        Some(ms) if ms > 0 => Ok(Duration::from_millis(ms)),
+        _ => bail!("{path} must be a positive number of milliseconds"),
+    }
+}
+
+/// userver's built-in command control with the fields `POSTGRES_DEFAULT_COMMAND_CONTROL` sets.
+fn command_control(defaults: &Map<String, Value>) -> Result<CommandControl> {
+    let mut result = CommandControl::default();
+    let Some(settings) = defaults.get(DEFAULT_COMMAND_CONTROL_KEY) else {
+        return Ok(result);
+    };
+    let settings = settings.as_object().ok_or_else(|| anyhow!("{DEFAULT_COMMAND_CONTROL_KEY} must be a map"))?;
+    if let Some(value) = settings.get("network_timeout_ms") {
+        result.network_timeout = milliseconds(value, &format!("{DEFAULT_COMMAND_CONTROL_KEY}.network_timeout_ms"))?;
+    }
+    if let Some(value) = settings.get("statement_timeout_ms") {
+        result.statement_timeout = Some(milliseconds(value, &format!("{DEFAULT_COMMAND_CONTROL_KEY}.statement_timeout_ms"))?);
+    }
+    Ok(result)
+}
+
+fn discovery_timeout(defaults: &Map<String, Value>, database: &str) -> Result<Duration> {
+    match defaults.get(TOPOLOGY_SETTINGS_KEY).and_then(|settings| settings.get(database)) {
+        None => Ok(DEFAULT_DISCOVERY_TIMEOUT),
+        Some(settings) => match settings.get("discovery_timeout_ms") {
+            None => Ok(DEFAULT_DISCOVERY_TIMEOUT),
+            Some(value) => milliseconds(value, &format!("{TOPOLOGY_SETTINGS_KEY}.{database}.discovery_timeout_ms")),
+        },
+    }
+}
+
+fn database_config(database: Database, defaults: &Map<String, Value>, name: &str) -> Result<DatabaseConfig> {
+    Ok(DatabaseConfig {
+        dsn: database.dbconnection,
+        max_pool_size: max_pool_size(defaults, name),
+        command_control: command_control(defaults)?,
+        discovery_timeout: discovery_timeout(defaults, name)?,
     })
 }
 
@@ -277,10 +356,7 @@ impl Config {
         let lprs = match components.lprs_database {
             None => None,
             Some(database) => Some(LprsConfig {
-                database: DatabaseConfig {
-                    dsn: database.dbconnection,
-                    max_pool_size: max_pool_size(&defaults, "lprs-postgresql-database"),
-                },
+                database: database_config(database, &defaults, "lprs-postgresql-database")?,
                 api_max_request_size: max_request_size(components.lprs_api.as_ref()),
                 groups_cache: cache_config("lprs-groups-pg-cache", components.lprs_groups_cache, &defaults)?,
                 vstreams_config_cache: cache_config("lprs-vstreams-config-pg-cache", components.lprs_vstreams_config_cache, &defaults)?,
@@ -291,10 +367,7 @@ impl Config {
         let frs = match components.frs_database {
             None => None,
             Some(database) => Some(FrsConfig {
-                database: DatabaseConfig {
-                    dsn: database.dbconnection,
-                    max_pool_size: max_pool_size(&defaults, "frs-postgresql-database"),
-                },
+                database: database_config(database, &defaults, "frs-postgresql-database")?,
                 api_max_request_size: max_request_size(components.frs_api.as_ref()),
                 api_allows_get: components
                     .frs_api
@@ -397,5 +470,57 @@ mod tests {
             1,
         );
         assert!(Config::parse(&invalid).is_err());
+    }
+
+    fn with_defaults(defaults: &str) -> String {
+        test_config_text().replacen("            defaults:\n", &format!("            defaults:\n{defaults}"), 1)
+    }
+
+    #[test]
+    fn database_timeouts_default_to_userver_ones() {
+        let lprs = Config::parse(&test_config_text()).unwrap().lprs.unwrap();
+        assert_eq!(lprs.database.command_control, CommandControl::default());
+        assert_eq!(lprs.database.discovery_timeout, Duration::from_secs(2));
+        assert_eq!(lprs.groups_cache.full_update_timeout, Duration::from_secs(60));
+        assert_eq!(lprs.groups_cache.incremental_update_timeout, Duration::from_secs(1));
+    }
+
+    #[test]
+    fn database_timeouts_from_config() {
+        let text = with_defaults(
+            "                POSTGRES_DEFAULT_COMMAND_CONTROL:\n                    network_timeout_ms: 5000\n\
+             \x20               FALPRS_PG_TOPOLOGY_SETTINGS:\n                    frs-postgresql-database:\n                        discovery_timeout_ms: 700\n",
+        );
+        let config = Config::parse(&text).unwrap();
+        let (lprs, frs) = (config.lprs.unwrap(), config.frs.unwrap());
+        // Fields the dynamic config leaves out keep userver's built-in values
+        let expected = CommandControl {
+            network_timeout: Duration::from_millis(5000),
+            statement_timeout: Some(Duration::from_millis(250)),
+        };
+        assert_eq!(lprs.database.command_control, expected);
+        assert_eq!(frs.database.command_control, expected);
+        assert_eq!(lprs.database.discovery_timeout, Duration::from_secs(2));
+        assert_eq!(frs.database.discovery_timeout, Duration::from_millis(700));
+
+        let text = test_config_text().replacen(
+            "            update-interval: 5s\n",
+            "            update-interval: 5s\n            full-update-op-timeout: 3m\n            incremental-update-op-timeout: 2s\n",
+            1,
+        );
+        let lprs = Config::parse(&text).unwrap().lprs.unwrap();
+        assert_eq!(lprs.groups_cache.full_update_timeout, Duration::from_secs(180));
+        assert_eq!(lprs.groups_cache.incremental_update_timeout, Duration::from_secs(2));
+    }
+
+    #[test]
+    fn rejects_invalid_database_timeouts() {
+        for defaults in [
+            "                POSTGRES_DEFAULT_COMMAND_CONTROL:\n                    statement_timeout_ms: 0\n",
+            "                POSTGRES_DEFAULT_COMMAND_CONTROL:\n                    network_timeout_ms: 5s\n",
+            "                FALPRS_PG_TOPOLOGY_SETTINGS:\n                    lprs-postgresql-database:\n                        discovery_timeout_ms: -1\n",
+        ] {
+            assert!(Config::parse(&with_defaults(defaults)).is_err(), "{defaults}");
+        }
     }
 }

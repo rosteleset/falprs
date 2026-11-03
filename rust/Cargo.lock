@@ -1671,6 +1671,7 @@ name = "pg-cluster"
 version = "1.1.7"
 dependencies = [
  "deadpool-postgres",
+ "futures",
  "thiserror",
  "tokio",
  "tokio-postgres",
