@@ -1,0 +1,42 @@
+# Checks the Rust dependencies with cargo-deny: security advisories (RustSec), the dependency
+# policy (pure Rust, no *-sys crates except ring), licenses and sources.
+#
+# GitHub runs scheduled workflows only from the default branch. While the Rust implementation
+# lives in the `rust` branch, a scheduled run checks out `rust` explicitly; other runs check the
+# commit that triggered them.
+name: cargo-deny
+
+on:
+  push:
+    paths:
+      - "rust/**"
+      - ".github/workflows/cargo-deny.yml"
+  pull_request:
+    paths:
+      - "rust/**"
+      - ".github/workflows/cargo-deny.yml"
+  schedule:
+    # New advisories appear without changes to the code
+    - cron: "17 3 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  cargo-deny:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        checks:
+          - advisories
+          - bans licenses sources
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event_name == 'schedule' && 'rust' || '' }}
+      - uses: EmbarkStudios/cargo-deny-action@v2
+        with:
+          command: check ${{ matrix.checks }}
+          manifest-path: rust/Cargo.toml
