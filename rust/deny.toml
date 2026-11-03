@@ -5,6 +5,10 @@ targets = ["x86_64-unknown-linux-gnu"]
 
 [advisories]
 version = 2
+ignore = [
+    # `paste` is unmaintained; a compile-time macro of `pulp` with no runtime code
+    { id = "RUSTSEC-2024-0436", reason = "unmaintained compile-time macro of pulp" },
+]
 
 [licenses]
 version = 2
@@ -20,7 +24,8 @@ allow-wildcard-paths = true
 [bans.build]
 # A build script is how C/C++ code gets compiled or linked (every *-sys crate has one),
 # so every crate that has one must be reviewed and listed here.
-# `ring` is the only crate allowed to build C/asm code (TLS for outgoing HTTPS).
+# `ring` is the only crate allowed to build C code (TLS for outgoing HTTPS); `pulp` generates
+# x86-64 assembly from Rust (`global_asm!`), see the 2026-11-03 addendum of the ADR.
 include-dependencies = true
 executables = "deny"
 allow-build-scripts = [
@@ -35,10 +40,12 @@ allow-build-scripts = [
     { crate = "httparse" },
     { crate = "icu_normalizer_data" },
     { crate = "icu_properties_data" },
+    { crate = "libm" },
     { crate = "libc" }, # Rust declarations of the system libc that std already links
     { crate = "mime_guess" },
     { crate = "num-traits" },
     { crate = "parking_lot_core" },
+    { crate = "paste" },
     { crate = "prettyplease" }, # `links` only guards against two copies of the crate, no native library
     { crate = "proc-macro2" },
     { crate = "pulldown-cmark" },
@@ -52,6 +59,9 @@ allow-build-scripts = [
     { crate = "thiserror" },
     { crate = "zerocopy" },
     { crate = "zmij" },
-    # The only dependency with C/asm code, allowed as the TLS crypto provider: HTTPS cameras need outgoing TLS
+    # Runtime SIMD dispatch: generates masked load/store routines as `global_asm!`, assembled by
+    # rustc; no C/C++ compiler, no external objects
+    { crate = "pulp" },
+    # The only dependency with C code (and its asm), allowed as the TLS crypto provider: HTTPS cameras need outgoing TLS
     { crate = "ring" },
 ]
