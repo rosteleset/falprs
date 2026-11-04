@@ -339,7 +339,8 @@ def test_barcode_callback(receiver, images, stream):
 
 def mean_difference(original, screenshot, box):
     """Mean absolute difference of the grey levels of two images in a box."""
-    pairs = zip(original.convert("L").crop(box).getdata(), screenshot.convert("L").crop(box).getdata(), strict=True)
+    # In mode "L" every pixel is one byte, so the raw bytes are the grey levels
+    pairs = zip(original.convert("L").crop(box).tobytes(), screenshot.convert("L").crop(box).tobytes(), strict=True)
     differences = [abs(a - b) for a, b in pairs]
     return sum(differences) / len(differences)
 
