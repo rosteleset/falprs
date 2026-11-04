@@ -247,7 +247,10 @@ pub fn stop_workflow(frs: &Frs, vstream_key: &str, is_internal: bool) {
 async fn recognize_loop(frs: Arc<Frs>, mut task: TaskData, generation: u64) {
     let loops = &frs.workflows.recognition_loops;
     loop {
-        let (_, next) = run_pipeline(&frs, &mut task).await;
+        let (_, next) = {
+            let _slot = frs.pipeline_slots.acquire().await;
+            run_pipeline(&frs, &mut task).await
+        };
         let Some(delay) = next else {
             // The pipeline ended the workflow: an internal stop, limited to this loop
             if loops.forget_own(&task.vstream_key, generation) {

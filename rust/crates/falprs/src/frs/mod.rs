@@ -19,7 +19,8 @@ use pg_cluster::Cluster;
 
 use crate::cache::PgCache;
 use crate::config::FrsConfig;
-use crate::logging::Logger;
+use crate::logging::{Level, Logger};
+use crate::pipeline_slots::PipelineSlots;
 use crate::triton::Triton;
 use caches::{ConfigData, FaceDescriptorData, GroupsData, SGConfigData, SGDescriptorsData, VStreamDescriptorsData, VStreamsConfigData};
 use config::LocalConfig;
@@ -41,6 +42,8 @@ pub struct Frs {
     sg_descriptors: Arc<PgCache<SGDescriptorsData>>,
     triton: Triton,
     http: reqwest::Client,
+    /// Bounds the recognition loops' pipelines running at once.
+    pipeline_slots: PipelineSlots,
     workflows: Workflows,
 }
 
@@ -67,6 +70,8 @@ impl Frs {
         let (name, c, cfg, l) = start("frs-sg-descriptors-pg-cache", &config.sg_descriptors_cache);
         let sg_descriptors = PgCache::start_incremental(name, c, cfg, l, caches::load_sg_descriptors, caches::apply_sg_descriptors).await?;
 
+        let pipeline_slots = PipelineSlots::from_config(&config.workflow);
+        crate::log!(logger, Level::Info, "recognition pipeline slots: {}", pipeline_slots.count());
         let frs = Arc::new(Self {
             cluster,
             logger,
@@ -82,6 +87,7 @@ impl Frs {
             sg_descriptors,
             triton: Triton::default(),
             http: reqwest::Client::builder().build().context("can't create HTTP client")?,
+            pipeline_slots,
             workflows: Workflows::default(),
         });
         workflow::load_dnn_stats(&frs);

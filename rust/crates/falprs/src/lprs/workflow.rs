@@ -121,7 +121,11 @@ enum Next {
 
 async fn run(lprs: Arc<Lprs>, vstream_key: String) {
     loop {
-        let delay = match process_frame(&lprs, &vstream_key).await {
+        let next = {
+            let _slot = lprs.pipeline_slots.acquire().await;
+            process_frame(&lprs, &vstream_key).await
+        };
+        let delay = match next {
             Next::After(delay) => delay,
             Next::Stop => {
                 stop_workflow(&lprs, &vstream_key, true);
