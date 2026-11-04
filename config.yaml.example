@@ -164,6 +164,7 @@ components_manager:
                 failed-ttl: 60d                                              # Time to live for the unrecognized license plates screenshots (default - 60 days)
                 # Rust implementation only, the C++ one rejects it:
                 # pipelines-per-cpu: 16                                      # Recognition pipelines running at once per CPU (default - 16). Video streams beyond them wait their turn in the order they became ready
+                                                                             # If under overload the TRACE log shows "waited for a pipeline slot" near zero, lower it so that streams wait their turn
 
 # FRS
         frs-api-http:
@@ -243,3 +244,4 @@ components_manager:
                 log-barcodes-ttl: 4h                                                     # TTL of logs from the log_barcodes table
                 # Rust implementation only, the C++ one rejects it:
                 # pipelines-per-cpu: 16                                                  # Recognition pipelines running at once per CPU (default - 16). Video streams beyond them wait their turn in the order they became ready
+                                                                                         # If under overload the TRACE log shows "waited for a pipeline slot" near zero, lower it so that streams wait their turn

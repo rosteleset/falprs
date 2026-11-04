@@ -21,7 +21,7 @@ use crate::converters::format_time;
 use crate::fetch::{FetchError, decode_base64, fetch_image};
 use crate::imaging;
 use crate::logging::{Level, StreamLog};
-use crate::{log, log_to};
+use crate::{log, log_to, stream_log};
 
 pub const MIME_IMAGE: &str = "image/jpeg";
 
@@ -248,8 +248,8 @@ async fn recognize_loop(frs: Arc<Frs>, mut task: TaskData, generation: u64) {
     let loops = &frs.workflows.recognition_loops;
     loop {
         let (_, next) = {
-            let _slot = frs.pipeline_slots.acquire().await;
-            run_pipeline(&frs, &mut task).await
+            let slot = frs.pipeline_slots.acquire().await;
+            run_pipeline(&frs, &mut task, Some(slot.waited)).await
         };
         let Some(delay) = next else {
             // The pipeline ended the workflow: an internal stop, limited to this loop
@@ -283,7 +283,7 @@ async fn recognize_loop(frs: Arc<Frs>, mut task: TaskData, generation: u64) {
 
 /// Runs the pipeline once for a task other than recognition.
 pub async fn process_pipeline(frs: &Arc<Frs>, mut task: TaskData) -> RegistrationResult {
-    run_pipeline(frs, &mut task).await.0
+    run_pipeline(frs, &mut task, None).await.0
 }
 
 /// How a pipeline run ended: with a result to return at once (and, for recognition, the delay
@@ -320,7 +320,8 @@ impl Run<'_> {
     }
 }
 
-async fn run_pipeline(frs: &Arc<Frs>, task: &mut TaskData) -> (RegistrationResult, Option<Duration>) {
+/// `slot_wait` is how long a recognition loop waited for its pipeline slot.
+async fn run_pipeline(frs: &Arc<Frs>, task: &mut TaskData, slot_wait: Option<Duration>) -> (RegistrationResult, Option<Duration>) {
     let (common, mut config) = {
         let cache = frs.config.get();
         (
@@ -357,6 +358,9 @@ async fn run_pipeline(frs: &Arc<Frs>, task: &mut TaskData) -> (RegistrationResul
             ctx.task.vstream_key,
             ctx.task.task_type as i32
         );
+    }
+    if let Some(waited) = slot_wait {
+        stream_log!(ctx.stream(), Level::Trace, "waited for a pipeline slot {:.3}ms", waited.as_secs_f64() * 1000.0);
     }
 
     let mut delay_between_frames = ctx.config.delay_between_frames;
