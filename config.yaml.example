@@ -162,6 +162,8 @@ components_manager:
                 screenshots-url-prefix: 'http://localhost:9051/lprs/'        # Web URL prefix for event screenshots. Replace localhost with IP address if you need access to screenshots from outside
                 failed-path: '/opt/falprs/static/lprs/failed/'               # Local path for saving unrecognized license plates screenshots
                 failed-ttl: 60d                                              # Time to live for the unrecognized license plates screenshots (default - 60 days)
+                # Rust implementation only, the C++ one rejects it:
+                # pipelines-per-cpu: 16                                      # Recognition pipelines running at once per CPU (default - 16). Video streams beyond them wait their turn in the order they became ready
 
 # FRS
         frs-api-http:
@@ -239,3 +241,5 @@ components_manager:
                 barcodes-url-prefix: 'http://localhost:9051/frs/barcodes/'               # Web URL prefix for barcode screenshots. Replace localhost with IP address if you need access to barcode screenshots from outside
                 clear-old-log-barcodes: 1h                                               # Period for launching cleaning of outdated logs from the log_barcodes table
                 log-barcodes-ttl: 4h                                                     # TTL of logs from the log_barcodes table
+                # Rust implementation only, the C++ one rejects it:
+                # pipelines-per-cpu: 16                                                  # Recognition pipelines running at once per CPU (default - 16). Video streams beyond them wait their turn in the order they became ready

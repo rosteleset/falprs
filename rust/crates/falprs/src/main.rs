@@ -8,6 +8,7 @@ mod http_api;
 mod logging;
 mod lprs;
 mod osd;
+mod pipeline_slots;
 mod service;
 mod tasks;
 

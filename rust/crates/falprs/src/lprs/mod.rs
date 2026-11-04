@@ -18,7 +18,8 @@ use pg_cluster::Cluster;
 use crate::cache::PgCache;
 use crate::config::LprsConfig;
 use crate::converters;
-use crate::logging::Logger;
+use crate::logging::{Level, Logger};
+use crate::pipeline_slots::PipelineSlots;
 use crate::triton::Triton;
 use caches::{GroupsData, VStreamGroupData, VStreamsConfigData};
 use workflow::{WorkflowSettings, Workflows};
@@ -35,6 +36,8 @@ pub struct Lprs {
     vstream_group: Arc<PgCache<VStreamGroupData>>,
     triton: Triton,
     http: reqwest::Client,
+    /// Bounds the workflows' pipelines running at once.
+    pipeline_slots: PipelineSlots,
     settings: WorkflowSettings,
     workflows: Workflows,
 }
@@ -72,6 +75,8 @@ impl Lprs {
         .await?;
 
         let allow_group_id_without_auth = converters::to_i64(config.workflow.get("allow-group-id-without-auth"), 0) as i32;
+        let pipeline_slots = PipelineSlots::from_config(&config.workflow);
+        crate::log!(logger, Level::Info, "recognition pipeline slots: {}", pipeline_slots.count());
         let lprs = Arc::new(Self {
             cluster,
             logger,
@@ -82,6 +87,7 @@ impl Lprs {
             vstream_group,
             triton: Triton::default(),
             http: reqwest::Client::builder().build().context("can't create HTTP client")?,
+            pipeline_slots,
             settings: WorkflowSettings::from_config(&config.workflow),
             workflows: Workflows::default(),
         });
