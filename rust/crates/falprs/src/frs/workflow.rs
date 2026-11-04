@@ -3,6 +3,7 @@
 
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant, SystemTime};
 
@@ -104,11 +105,96 @@ struct UnknownDescriptor {
     face_image: RgbImage,
 }
 
+/// A recognition loop of a video stream.
+#[derive(Debug, Clone, Copy)]
+struct RecognitionLoop {
+    /// Tells this loop from the ones started for the stream before or after it.
+    generation: u64,
+    /// `false` asks the loop to stop after its current frame.
+    active: bool,
+}
+
+/// What a recognition loop does after the delay between frames.
+#[derive(Debug, PartialEq, Eq)]
+enum NextFrame {
+    Process,
+    /// The loop was asked to stop or timed out; it forgot itself.
+    Stop {
+        timed_out: bool,
+    },
+    /// The loop was forgotten, possibly replaced by a newer one; it leaves the stream to it.
+    Gone,
+}
+
+/// The recognition loops by video stream key, at most one per stream.
+///
+/// A loop acts on the stream's entry only while it holds the loop's generation: a loop forgotten
+/// by an internal stop and replaced by a new one while it waits between frames ends on waking
+/// instead of running beside its successor.
+#[derive(Default)]
+struct RecognitionLoops {
+    loops: Mutex<HashMap<String, RecognitionLoop>>,
+    next_generation: AtomicU64,
+}
+
+impl RecognitionLoops {
+    /// Asks the stream's loop to go on, or registers a new one and returns its generation.
+    fn start(&self, vstream_key: &str) -> Option<u64> {
+        let mut loops = lock(&self.loops);
+        if let Some(running) = loops.get_mut(vstream_key) {
+            running.active = true;
+            return None;
+        }
+        let generation = self.next_generation.fetch_add(1, Ordering::Relaxed);
+        loops.insert(vstream_key.to_string(), RecognitionLoop { generation, active: true });
+        Some(generation)
+    }
+
+    /// Asks the stream's loop to stop after its current frame.
+    fn request_stop(&self, vstream_key: &str) {
+        if let Some(running) = lock(&self.loops).get_mut(vstream_key) {
+            running.active = false;
+        }
+    }
+
+    /// Forgets the stream's loop at once, whichever it is.
+    fn forget(&self, vstream_key: &str) {
+        lock(&self.loops).remove(vstream_key);
+    }
+
+    /// Forgets the loop of `generation` if the stream still has it.
+    fn forget_own(&self, vstream_key: &str, generation: u64) -> bool {
+        let mut loops = lock(&self.loops);
+        let own = loops.get(vstream_key).is_some_and(|running| running.generation == generation);
+        if own {
+            loops.remove(vstream_key);
+        }
+        own
+    }
+
+    /// Decides whether the loop of `generation` processes another frame. `timed_out` is asked only
+    /// when the stream still has this loop, so a successor's timeout is left alone.
+    fn next_frame(&self, vstream_key: &str, generation: u64, timed_out: impl FnOnce() -> bool) -> NextFrame {
+        let mut loops = lock(&self.loops);
+        match loops.get(vstream_key) {
+            Some(running) if running.generation == generation => {
+                let timed_out = timed_out();
+                if running.active && !timed_out {
+                    NextFrame::Process
+                } else {
+                    loops.remove(vstream_key);
+                    NextFrame::Stop { timed_out }
+                }
+            }
+            _ => NextFrame::Gone,
+        }
+    }
+}
+
 /// State of the running workflows.
 #[derive(Default)]
 pub struct Workflows {
-    /// Video streams with a running recognition loop; `false` asks the loop to stop.
-    being_processed: Mutex<HashMap<String, bool>>,
+    recognition_loops: RecognitionLoops,
     timeouts: Mutex<HashMap<String, Instant>>,
     unknown_descriptors: Mutex<HashMap<i32, Vec<UnknownDescriptor>>>,
     dnn_stats: Mutex<BTreeMap<i32, DnnStats>>,
@@ -132,65 +218,62 @@ pub fn start_workflow(frs: &Arc<Frs>, vstream_key: String, duration: Duration) {
     if id_group <= 0 {
         return;
     }
-    let do_pipeline = lock(&frs.workflows.being_processed).insert(vstream_key.clone(), true).is_none();
+    let generation = frs.workflows.recognition_loops.start(&vstream_key);
     if !duration.is_zero() {
         workflow_timeout = duration;
     }
     if !workflow_timeout.is_zero() {
         lock(&frs.workflows.timeouts).insert(vstream_key.clone(), Instant::now() + workflow_timeout);
     }
-    if do_pipeline {
+    if let Some(generation) = generation {
         let task = TaskData::new(id_group, vstream_key, TaskType::Recognize, String::new());
-        crate::tasks::spawn(recognize_loop(frs.clone(), task));
+        crate::tasks::spawn(recognize_loop(frs.clone(), task, generation));
     }
 }
 
 /// Stops a video stream's workflow: an internal stop forgets it at once, an external one lets the
 /// running loop finish its current frame.
 pub fn stop_workflow(frs: &Frs, vstream_key: &str, is_internal: bool) {
-    {
-        let mut being_processed = lock(&frs.workflows.being_processed);
-        if being_processed.contains_key(vstream_key) {
-            if is_internal {
-                being_processed.remove(vstream_key);
-            } else {
-                being_processed.insert(vstream_key.to_string(), false);
-            }
-        }
+    if is_internal {
+        frs.workflows.recognition_loops.forget(vstream_key);
+    } else {
+        frs.workflows.recognition_loops.request_stop(vstream_key);
     }
     lock(&frs.workflows.timeouts).remove(vstream_key);
 }
 
-async fn recognize_loop(frs: Arc<Frs>, mut task: TaskData) {
+/// Processes frames of a video stream until its loop is stopped, times out, is forgotten, or
+/// its pipeline ends the workflow.
+async fn recognize_loop(frs: Arc<Frs>, mut task: TaskData, generation: u64) {
+    let loops = &frs.workflows.recognition_loops;
     loop {
         let (_, next) = run_pipeline(&frs, &mut task).await;
-        let Some(delay) = next else { return };
+        let Some(delay) = next else {
+            // The pipeline ended the workflow: an internal stop, limited to this loop
+            if loops.forget_own(&task.vstream_key, generation) {
+                lock(&frs.workflows.timeouts).remove(&task.vstream_key);
+            }
+            return;
+        };
         tokio::time::sleep(delay).await;
 
-        let is_timeout = {
+        let next_frame = loops.next_frame(&task.vstream_key, generation, || {
             let mut timeouts = lock(&frs.workflows.timeouts);
             let expired = timeouts.get(&task.vstream_key).is_some_and(|deadline| *deadline < Instant::now());
             if expired {
                 timeouts.remove(&task.vstream_key);
             }
             expired
-        };
-        let do_next = {
-            let mut being_processed = lock(&frs.workflows.being_processed);
-            match being_processed.get(&task.vstream_key) {
-                Some(true) if !is_timeout => true,
-                Some(_) => {
-                    being_processed.remove(&task.vstream_key);
-                    false
+        });
+        match next_frame {
+            NextFrame::Process => {}
+            NextFrame::Stop { timed_out } => {
+                if timed_out {
+                    log_to!(frs.logger, Level::Info, "Stopping a workflow by timeout: vstream_key = {};", task.vstream_key);
                 }
-                None => false,
+                return;
             }
-        };
-        if is_timeout {
-            log_to!(frs.logger, Level::Info, "Stopping a workflow by timeout: vstream_key = {};", task.vstream_key);
-        }
-        if !do_next {
-            return;
+            NextFrame::Gone => return,
         }
     }
 }
@@ -246,7 +329,10 @@ async fn run_pipeline(frs: &Arc<Frs>, task: &mut TaskData) -> (RegistrationResul
         match frs.vstreams_config.get().get(&task.vstream_key) {
             Some(stream_config) => config = VStreamConfig::clone(stream_config),
             None => {
-                stop_workflow(frs, &task.vstream_key, true);
+                // A recognition loop forgets itself when it gets no delay
+                if task.task_type != TaskType::Recognize {
+                    stop_workflow(frs, &task.vstream_key, true);
+                }
                 let comments = format!("Invalid video stream key: {}", task.vstream_key);
                 return (RegistrationResult::comments(comments), None);
             }
@@ -282,7 +368,6 @@ async fn run_pipeline(frs: &Arc<Frs>, task: &mut TaskData) -> (RegistrationResul
                 return (RegistrationResult::comments("Error during pipeline execution"), None);
             }
             if ctx.config.delay_after_error.is_zero() {
-                stop_workflow(frs, &ctx.task.vstream_key, true);
                 return (RegistrationResult::comments("Error during pipeline execution"), None);
             }
             if ctx.logs(Level::Error) {
@@ -318,9 +403,6 @@ async fn acquire_image(ctx: &Run<'_>, url: &str) -> Result<Vec<u8>, Flow> {
                 log_to!(frs.logger, Level::Error, "Error decoding image from BASE64: vstream_key = {key};");
             }
             // A recognition loop stops: the frame of its video stream will not get better
-            if ctx.is(TaskType::Recognize) {
-                stop_workflow(frs, key, true);
-            }
             Flow::Return(RegistrationResult::comments("Error decoding image from BASE64"), None)
         });
     }
@@ -343,21 +425,18 @@ async fn acquire_image(ctx: &Run<'_>, url: &str) -> Result<Vec<u8>, Flow> {
                 };
                 log!(frs.logger, Level::Error, "vstream_key = {key};  url = {url};  status_code = {status}");
             }
+            // Without a delay after errors a recognition loop stops
             let mut next = None;
-            if !config.delay_after_error.is_zero() {
-                if ctx.is(TaskType::Recognize) {
-                    if config.logs(Level::Error) {
-                        log_to!(
-                            frs.logger,
-                            Level::Error,
-                            "vstream_key = {key};  delay for {}ms",
-                            config.delay_after_error.as_millis()
-                        );
-                    }
-                    next = Some(config.delay_after_error);
+            if !config.delay_after_error.is_zero() && ctx.is(TaskType::Recognize) {
+                if config.logs(Level::Error) {
+                    log_to!(
+                        frs.logger,
+                        Level::Error,
+                        "vstream_key = {key};  delay for {}ms",
+                        config.delay_after_error.as_millis()
+                    );
                 }
-            } else if ctx.is(TaskType::Recognize) {
-                stop_workflow(frs, key, true);
+                next = Some(config.delay_after_error);
             }
             let comments = format!("Error when retrieving image by url: {url}");
             Err(Flow::Return(RegistrationResult::comments(comments), next))
@@ -1586,6 +1665,58 @@ mod tests {
         prune_unknown_descriptors(&mut map, &HashSet::from([1, 2]), now);
         assert_eq!(map.keys().copied().collect::<Vec<_>>(), vec![1]);
         assert_eq!(map[&1].len(), 1);
+    }
+
+    #[test]
+    fn a_stream_has_one_recognition_loop() {
+        let loops = RecognitionLoops::default();
+        let first = loops.start("1_cam").unwrap();
+        assert_eq!(loops.start("1_cam"), None);
+        assert_ne!(loops.start("1_other").unwrap(), first);
+        assert_eq!(loops.next_frame("1_cam", first, || false), NextFrame::Process);
+    }
+
+    #[test]
+    fn a_stop_request_ends_the_loop_unless_it_is_started_again() {
+        let loops = RecognitionLoops::default();
+        let generation = loops.start("1_cam").unwrap();
+        loops.request_stop("1_cam");
+        assert_eq!(loops.start("1_cam"), None);
+        assert_eq!(loops.next_frame("1_cam", generation, || false), NextFrame::Process);
+
+        loops.request_stop("1_cam");
+        assert_eq!(loops.next_frame("1_cam", generation, || false), NextFrame::Stop { timed_out: false });
+        // The stopped loop is forgotten, so the next start gets a new one
+        assert!(loops.start("1_cam").is_some());
+    }
+
+    #[test]
+    fn a_timeout_ends_the_loop() {
+        let loops = RecognitionLoops::default();
+        let generation = loops.start("1_cam").unwrap();
+        assert_eq!(loops.next_frame("1_cam", generation, || true), NextFrame::Stop { timed_out: true });
+        assert!(loops.start("1_cam").is_some());
+    }
+
+    #[test]
+    fn a_replaced_loop_leaves_the_stream_to_its_successor() {
+        let loops = RecognitionLoops::default();
+        let old = loops.start("1_cam").unwrap();
+        // While the old loop waits between frames, an image test of the then missing stream
+        // forgets it, and the stream is started again
+        loops.forget("1_cam");
+        let new = loops.start("1_cam").unwrap();
+
+        let mut successor_timeout_asked = false;
+        let next = loops.next_frame("1_cam", old, || {
+            successor_timeout_asked = true;
+            true
+        });
+        assert_eq!(next, NextFrame::Gone);
+        assert!(!successor_timeout_asked);
+        assert!(!loops.forget_own("1_cam", old));
+        assert_eq!(loops.next_frame("1_cam", new, || false), NextFrame::Process);
+        assert!(loops.forget_own("1_cam", new));
     }
 
     #[test]
