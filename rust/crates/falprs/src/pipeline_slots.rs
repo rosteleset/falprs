@@ -8,6 +8,7 @@
 //! queue instead, and the running pipelines go at full speed.
 
 use std::num::NonZeroUsize;
+use std::time::{Duration, Instant};
 
 use serde_json::{Map, Value};
 use tokio::sync::{Semaphore, SemaphorePermit};
@@ -18,6 +19,13 @@ use crate::converters;
 /// 250 ms) and for inference, and about 17-20 ms of CPU time, Triton's on the same server
 /// included, so this many pipelines keep a CPU busy.
 pub const DEFAULT_PIPELINES_PER_CPU: usize = 16;
+
+/// A taken slot; it is free again when dropped.
+pub struct PipelineSlot<'a> {
+    _permit: SemaphorePermit<'a>,
+    /// How long the pipeline waited for the slot.
+    pub waited: Duration,
+}
 
 pub struct PipelineSlots {
     /// Tokio's semaphore is fair: permits go out in the order they were asked for.
@@ -44,10 +52,14 @@ impl PipelineSlots {
         self.count
     }
 
-    /// Waits for a free slot, behind the pipelines that asked before; the slot is free again
-    /// when the permit is dropped.
-    pub async fn acquire(&self) -> SemaphorePermit<'_> {
-        self.semaphore.acquire().await.expect("the pipeline slots are never closed")
+    /// Waits for a free slot, behind the pipelines that asked before.
+    pub async fn acquire(&self) -> PipelineSlot<'_> {
+        let asked = Instant::now();
+        let permit = self.semaphore.acquire().await.expect("the pipeline slots are never closed");
+        PipelineSlot {
+            _permit: permit,
+            waited: asked.elapsed(),
+        }
     }
 }
 
@@ -83,6 +95,21 @@ mod tests {
     #[test]
     fn there_is_always_a_slot() {
         assert_eq!(PipelineSlots::new(0).count(), 1);
+    }
+
+    #[tokio::test]
+    async fn a_slot_tells_how_long_it_was_waited_for() {
+        let slots = Arc::new(PipelineSlots::new(1));
+        assert!(slots.acquire().await.waited < Duration::from_millis(50));
+
+        let held = slots.acquire().await;
+        let waiting = tokio::spawn({
+            let slots = slots.clone();
+            async move { slots.acquire().await.waited }
+        });
+        tokio::time::sleep(Duration::from_millis(100)).await;
+        drop(held);
+        assert!(waiting.await.unwrap() >= Duration::from_millis(100));
     }
 
     #[tokio::test]

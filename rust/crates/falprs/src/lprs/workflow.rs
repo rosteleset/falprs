@@ -122,8 +122,8 @@ enum Next {
 async fn run(lprs: Arc<Lprs>, vstream_key: String) {
     loop {
         let next = {
-            let _slot = lprs.pipeline_slots.acquire().await;
-            process_frame(&lprs, &vstream_key).await
+            let slot = lprs.pipeline_slots.acquire().await;
+            process_frame(&lprs, &vstream_key, slot.waited).await
         };
         let delay = match next {
             Next::After(delay) => delay,
@@ -162,7 +162,8 @@ async fn run(lprs: Arc<Lprs>, vstream_key: String) {
     }
 }
 
-async fn process_frame(lprs: &Lprs, vstream_key: &str) -> Next {
+/// `slot_wait` is how long the workflow waited for its pipeline slot.
+async fn process_frame(lprs: &Lprs, vstream_key: &str, slot_wait: Duration) -> Next {
     let Some(entry) = lprs.vstreams_config.get().get(vstream_key).cloned() else {
         return Next::Stop;
     };
@@ -204,6 +205,7 @@ async fn process_frame(lprs: &Lprs, vstream_key: &str) -> Next {
             "Start processPipeline: vstream_key = {vstream_key};  frame_url = {frame_url}"
         );
     }
+    stream_log!(stream, Level::Trace, "waited for a pipeline slot {:.3}ms", slot_wait.as_secs_f64() * 1000.0);
     stream_log!(stream, Level::Trace, "before image acquisition");
     let image_data = match fetch_image(&lprs.http, &config.screenshot_url, config.max_capture_error_count, config.capture_timeout).await {
         Ok(data) => data,
