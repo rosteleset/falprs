@@ -45,6 +45,7 @@ The system is designed for license plate recognition and detection of special ve
 <a id="lprs_used_dnn"></a>
 ### Neural Network Models Used
 The service works with five neural networks: VDNet, VCNet, LPDNet, LPCNet, and LPRNet. VDNet is designed to search for vehicles in the captured image from the video camera. VCNet determines whether each found vehicle is a special vehicle. LPDNet is designed to search for license plates. LPCNet classifies the found plates. LPRNet is designed for plate recognition from the data obtained by LPDNet. The VDNet, LPDNet, and LPRNet models are trained using [Ultralytics](https://github.com/ultralytics/ultralytics). The VCNet and LPCNet models are obtained through transfer learning with fine-tuning. [This model](https://huggingface.co/WinKawaks/vit-small-patch16-224) is used as the base.
+The experimental vehicle footprint detection (the `detectVehicleFootprints` method of the Rust version) uses the **uodnet** model: [UrbanOmniDetect-2](https://github.com/mkturkcan/urbanomnidetect) L, a YOLO26 detector that also regresses the 3D cuboid of each vehicle. The model is distributed under the [AGPL-3.0](https://www.gnu.org/licenses/agpl-3.0) license.
 [NVIDIA Triton Inference Server](https://developer.nvidia.com/triton-inference-server) is used for neural network inference.
 
 <a id="lprs_scheme"></a>
