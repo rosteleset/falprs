@@ -2943,6 +2943,10 @@ components:
           default: 0.3
           description: 'UODNet (Rust only): footprint overlap, as a share of the smaller footprint, that makes a nested vehicle a duplicate'
           type: number
+        uod-net-nms-iou-threshold:
+          default: 0.7
+          description: 'UODNet (Rust only): intersection over union threshold value for NMS of vehicles of one class'
+          type: number
         uod-net-output-tensor-name:
           default: output0
           description: 'UODNet (Rust only): name of the output tensor'
