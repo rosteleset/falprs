@@ -1,0 +1,7 @@
+{
+  "screenshotUrl": "http://localhost:9071/bad_url",
+  "imageSize": 640,
+  "confidenceThreshold": 0.5,
+  "expectedStatus": 400,
+  "expected": []
+}

@@ -2080,9 +2080,11 @@ paths:
     post:
       tags:
         - Host --> LPRS
-      summary: Detect Vehicles with Oriented Bounding Boxes
+      summary: Detect Vehicles with Oriented Bounding Boxes (C++ only, experimental)
       description: |
-        Detects vehicles with oriented bounding boxes in the specified image
+        Detects vehicles with oriented bounding boxes in the specified image.
+
+        Experimental, served by the C++ version only; the Rust version replaces it with detectVehicleFootprints.
       operationId: lprs_detectVehiclesObb
       requestBody:
         required: true
@@ -2208,6 +2210,116 @@ paths:
                     box: [576, 474, 783, 589]
                     angle: -0.025921642780303955
                     corners: [784, 586, 578, 591, 575, 476, 782, 471]
+        '204':
+          description: No content
+        '400':
+          description: Bad request
+
+  /lprs/api/detectVehicleFootprints:
+    post:
+      tags:
+        - Host --> LPRS
+      summary: Detect Vehicle Footprints (Rust only, experimental)
+      description: |
+        Detects cars, trucks and buses in the specified image and returns, for each vehicle, its footprint: the quadrilateral where the vehicle touches the ground (the bottom face of its 3D cuboid projected onto the image), and the whole cuboid.
+
+        Experimental, served by the Rust version only. Vehicles whose cuboid is unreliable are not reported, and a duplicate detection nested in a larger vehicle (such as the cab of a box truck) is dropped; the thresholds are the uod-net-keypoint-confidence, uod-net-nested-box-overlap and uod-net-nested-footprint-overlap parameters of the configuration.
+      operationId: lprs_detectVehicleFootprints
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - screenshotUrl
+              properties:
+                screenshotUrl:
+                  description: URL of the image to process.
+                  type: string
+                imageSize:
+                  description: >-
+                    Image size used for inference. Must be between 160 and 1024, inclusive. If omitted, the default is the maximum of the configured uod-net-input-width and uod-net-input-height values.
+                  type: integer
+                  minimum: 160
+                  maximum: 1024
+                confidenceThreshold:
+                  description: Confidence threshold for vehicle detection, in the range [0.0, 1.0]. If omitted, the value of the vehicle-confidence parameter is used.
+                  type: number
+                  format: float
+                  minimum: 0.0
+                  maximum: 1.0
+            example:
+              screenshotUrl: http://localhost:9071/test_obb_002.png
+              imageSize: 640
+              confidenceThreshold: 0.55
+      responses:
+        '200':
+          description: Successful operation
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ResponseBase'
+                  - type: object
+                    required:
+                      - data
+                    properties:
+                      data:
+                        type: array
+                        items:
+                          type: object
+                          required:
+                            - classId
+                            - className
+                            - confidence
+                            - corners
+                            - cuboid
+                          properties:
+                            classId:
+                              description: 'Numeric identifier of the vehicle class: 0 - car, 2 - truck, 3 - bus.'
+                              type: integer
+                            className:
+                              description: 'Name of the vehicle class: car, truck or bus.'
+                              type: string
+                            confidence:
+                              description: Detection confidence score, in the range [0.0, 1.0].
+                              type: number
+                              format: float
+                              minimum: 0.0
+                              maximum: 1.0
+                            corners:
+                              description: >-
+                                The footprint: eight coordinates of its four corners in image pixels, [x1, y1, x2, y2, x3, y3, x4, y4]. The corners form a convex quadrilateral, go clockwise on the image (with y pointing down) and start from the corner with the smallest x + y. They are not clipped to the image.
+                              type: array
+                              minItems: 8
+                              maxItems: 8
+                              items:
+                                type: number
+                                format: float
+                            cuboid:
+                              description: >-
+                                Sixteen coordinates of the eight corners of the vehicle's 3D cuboid projected onto the image, in image pixels: first the four bottom (ground) corners, then the four top corners, each above the bottom corner with the same index. Not clipped to the image.
+                              type: array
+                              minItems: 16
+                              maxItems: 16
+                              items:
+                                type: number
+                                format: float
+              example:
+                code: "200"
+                message: "Ok"
+                data:
+                  - classId: 0
+                    className: car
+                    confidence: 0.938361
+                    corners: [755.11, 543.1, 854.07, 544.62, 859.6, 795.43, 753.31, 794.82]
+                    cuboid: [753.31, 794.82, 755.11, 543.1, 854.07, 544.62, 859.6, 795.43, 754.39, 789.91, 756.67, 525.38, 862.14, 526.23, 868.27, 790.24]
+                  - classId: 0
+                    className: car
+                    confidence: 0.929534
+                    corners: [283.8, 207.99, 390.13, 206.44, 383.7, 452.41, 271.17, 453.46]
+                    cuboid: [390.13, 206.44, 383.7, 452.41, 271.17, 453.46, 283.8, 207.99, 372.55, 180.35, 364.14, 448.21, 245.39, 449.07, 261.19, 181.67]
         '204':
           description: No content
         '400':
@@ -2799,6 +2911,42 @@ components:
           default: 0.7
           description: 'VCNet: probability threshold for special vehicle classification'
           type: number
+        uod-net-inference-server:
+          default: 127.0.0.1:8001
+          description: 'UODNet (Rust only): Triton Inference Server address of the vehicle footprint model'
+          type: string
+        uod-net-input-height:
+          default: 640
+          description: 'UODNet (Rust only): input image height'
+          type: integer
+        uod-net-input-tensor-name:
+          default: images
+          description: 'UODNet (Rust only): name of the input tensor'
+          type: string
+        uod-net-input-width:
+          default: 640
+          description: 'UODNet (Rust only): input image width'
+          type: integer
+        uod-net-keypoint-confidence:
+          default: 0.5
+          description: 'UODNet (Rust only): probability every cuboid corner of a vehicle needs for its footprint to be reported; 0 disables the check'
+          type: number
+        uod-net-model-name:
+          default: uodnet
+          description: 'UODNet (Rust only): model name'
+          type: string
+        uod-net-nested-box-overlap:
+          default: 0.85
+          description: 'UODNet (Rust only): share of a vehicle box inside a larger vehicle box that makes it a duplicate, together with uod-net-nested-footprint-overlap; 0 disables the suppression of duplicates'
+          type: number
+        uod-net-nested-footprint-overlap:
+          default: 0.3
+          description: 'UODNet (Rust only): footprint overlap, as a share of the smaller footprint, that makes a nested vehicle a duplicate'
+          type: number
+        uod-net-output-tensor-name:
+          default: output0
+          description: 'UODNet (Rust only): name of the output tensor'
+          type: string
         vc-net-inference-server:
           default: 127.0.0.1:8001
           description: 'VCNet: URL for Triton Inference Server'

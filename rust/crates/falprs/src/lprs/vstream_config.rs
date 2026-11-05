@@ -49,8 +49,15 @@ pub struct VStreamConfig {
     pub lpc_net: ModelConfig,
     /// Plate recognition.
     pub lpr_net: ModelConfig,
-    /// Oriented vehicle detection.
-    pub ovd_net: ModelConfig,
+    /// Vehicle footprint detection.
+    pub uod_net: ModelConfig,
+    /// The probability every cuboid keypoint of a vehicle footprint needs; 0 disables the test.
+    pub uod_net_keypoint_confidence: f32,
+    /// How much of a vehicle's box must lie in a larger vehicle's box to make it a nested duplicate; 0 disables
+    /// the suppression of nested duplicates.
+    pub uod_net_nested_box_overlap: f32,
+    /// How much a nested duplicate's footprint must overlap the larger vehicle's (of the smaller footprint).
+    pub uod_net_nested_footprint_overlap: f32,
 
     pub callback_timeout: Duration,
     pub plate_confidence: f32,
@@ -115,7 +122,10 @@ impl VStreamConfig {
             lpd_net: ModelConfig::read(json, "lpd-net", "lpd-net-inference-server", ("lpdnet_yolo", 640, 640, "images", "output0")),
             lpc_net: ModelConfig::read(json, "lpc-net", "lpc-net-inference-server", ("lpcnet_vit", 224, 224, "input", "output")),
             lpr_net: ModelConfig::read(json, "lpr-net", "lpr-net-inference-server", ("lprnet_yolo", 320, 320, "images", "output0")),
-            ovd_net: ModelConfig::read(json, "ovd-net", "ovd-net-inference-server", ("ovdnet", 320, 320, "images", "output0")),
+            uod_net: ModelConfig::read(json, "uod-net", "uod-net-inference-server", ("uodnet", 640, 640, "images", "output0")),
+            uod_net_keypoint_confidence: f32_of("uod-net-keypoint-confidence", 0.5),
+            uod_net_nested_box_overlap: f32_of("uod-net-nested-box-overlap", 0.85),
+            uod_net_nested_footprint_overlap: f32_of("uod-net-nested-footprint-overlap", 0.3),
 
             callback_timeout: duration_of("callback-timeout", secs(2)),
             plate_confidence: f32_of("plate-confidence", 0.6),
@@ -162,6 +172,11 @@ mod tests {
         let config = VStreamConfig::from_json(&json!({}));
         assert_eq!(config.vd_net.model_name, "vdnet_yolo");
         assert_eq!(config.lpr_net.input_width, 320);
+        assert_eq!(config.uod_net.model_name, "uodnet");
+        assert_eq!((config.uod_net.input_width, config.uod_net.input_height), (640, 640));
+        assert_eq!(config.uod_net_keypoint_confidence, 0.5);
+        assert_eq!(config.uod_net_nested_box_overlap, 0.85);
+        assert_eq!(config.uod_net_nested_footprint_overlap, 0.3);
         assert_eq!(config.ban_duration_area, Duration::from_secs(12 * 3600));
         assert_eq!(config.logs_level, Level::Info);
         assert!(config.work_area.is_empty());
@@ -179,6 +194,9 @@ mod tests {
             "logs-level": "trace",
             "work-area": [[[0, 0], [100, 0], [100, 50.5], [0, 50.5]]],
             "flag-process-special": true,
+            "uod-net-inference-server": "uod:8001",
+            "uod-net-input-width": 960,
+            "uod-net-nested-box-overlap": 0,
         }));
         assert_eq!(config.vd_net.inference_server, "triton:8001");
         // Each model has its own server key
@@ -191,6 +209,9 @@ mod tests {
         assert_eq!(config.logs_level, Level::Trace);
         assert_eq!(config.work_area, vec![vec![[0.0, 0.0], [100.0, 0.0], [100.0, 50.5], [0.0, 50.5]]]);
         assert!(config.flag_process_special);
+        assert_eq!(config.uod_net.inference_server, "uod:8001");
+        assert_eq!(config.uod_net.input_width, 960);
+        assert_eq!(config.uod_net_nested_box_overlap, 0.0);
     }
 
     #[test]

@@ -263,15 +263,17 @@ pub struct Letterbox {
     pub tensor: Vec<f32>,
     pub width: u32,
     pub height: u32,
-    /// Padding added on the left and on the top, in model input pixels.
+    /// Half of the padding added across each axis, in model input pixels.
     pub padding: (f32, f32),
+    /// Pixels actually added on the left and on the top.
+    pub offset: (u32, u32),
     /// Model input size divided by image size.
     pub ratio: f32,
 }
 
-/// Ultralytics `LetterBox` with `auto=True` for YOLO OBB models: scale to fit `target_size`,
+/// Ultralytics `LetterBox` with `auto=True`, as `predict` prepares YOLO inputs: scale to fit `target_size`,
 /// then pad only up to a multiple of the model stride.
-pub fn letterbox_yolo_obb(image: &RgbImage, target_size: u32) -> Letterbox {
+pub fn letterbox_yolo(image: &RgbImage, target_size: u32) -> Letterbox {
     const STRIDE: i64 = 32;
     const PADDING_VALUE: u8 = 114;
 
@@ -299,6 +301,7 @@ pub fn letterbox_yolo_obb(image: &RgbImage, target_size: u32) -> Letterbox {
         width: letterboxed.width(),
         height: letterboxed.height(),
         padding,
+        offset: (left, top),
         ratio: ratio as f32,
     }
 }
@@ -755,9 +758,13 @@ mod tests {
     #[test]
     fn letterbox_pads_to_stride() {
         let image = RgbImage::new(1920, 1080);
-        let letterbox = letterbox_yolo_obb(&image, 320);
+        let letterbox = letterbox_yolo(&image, 320);
         assert_eq!((letterbox.width, letterbox.height), (320, 192));
         assert_eq!(letterbox.padding, (0.0, 6.0));
+        assert_eq!(letterbox.offset, (0, 6));
         assert_eq!(letterbox.tensor.len(), 3 * 320 * 192);
+        // An odd padding puts the extra pixel at the bottom
+        let letterbox = letterbox_yolo(&RgbImage::new(1920, 1082), 640);
+        assert_eq!((letterbox.height, letterbox.padding.1, letterbox.offset.1), (384, 11.5, 11));
     }
 }

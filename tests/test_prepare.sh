@@ -13,7 +13,7 @@ fi
 
 # PG_PORT - PostgreSQL port
 # FALPRS_IMPL - implementation under test: rust (default) or cpp
-# FALPRS_BIN - path to the service binary under test (overrides FALPRS_IMPL)
+# FALPRS_BIN - path to the service binary under test (overrides FALPRS_IMPL, which must still name its implementation)
 
 pg_port="${pg_port:=5432}"
 
@@ -41,6 +41,8 @@ sudo -u postgres psql < $BASEDIR/prepare_data.sql
 $BASEDIR/../scripts/sql_frs.sh $BASEDIR/.env.tests
 $BASEDIR/../scripts/sql_lprs.sh $BASEDIR/.env.tests
 mkdir -p /tmp/test_falprs/static
+# The tests read the implementation under test from here: some API methods exist in one implementation only
+echo "$FALPRS_IMPL" > /tmp/test_falprs/falprs.impl
 cp --update=none $BASEDIR/images/* /tmp/test_falprs/static/
 
 # The service writes test images to its current directory
