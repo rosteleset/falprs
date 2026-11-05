@@ -2239,7 +2239,7 @@ paths:
                   type: string
                 imageSize:
                   description: >-
-                    Image size used for inference. Must be between 160 and 1024, inclusive. If omitted, the default is the maximum of the configured uod-net-input-width and uod-net-input-height values.
+                    Image size used for inference. Must be between 160 and 1024, inclusive. If omitted, the default is the maximum of the configured uod-net-input-width and uod-net-input-height values. A size that is not a multiple of 32 is rounded up to one (1000 runs as 1024).
                   type: integer
                   minimum: 160
                   maximum: 1024

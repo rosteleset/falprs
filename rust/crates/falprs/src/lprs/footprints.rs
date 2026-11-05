@@ -34,6 +34,9 @@ const NMS_MAX_DETECTIONS: usize = 300;
 /// How far outside its box a keypoint may lie, in box widths/heights (UrbanOmniDetect's cuboid check).
 const KEYPOINT_BOX_MARGIN: f32 = 0.75;
 
+/// The model takes sides that are multiples of this (its largest stride).
+const STRIDE: u32 = 32;
+
 /// Reported classes: COCO-80 index of the model, then the class id and name of the API.
 const CLASSES: [(usize, usize, &str); 3] = [(2, 0, "car"), (7, 2, "truck"), (5, 3, "bus")];
 
@@ -64,6 +67,13 @@ pub struct Thresholds {
     pub nested_footprint_overlap: f32,
 }
 
+/// The letterbox size for a configured input: its longer side rounded up to a multiple of [`STRIDE`], as
+/// ultralytics' `check_imgsz` does. The letterbox pads only the shorter side to a multiple of the stride, so a
+/// longer side that is not one would make an input the model cannot take.
+fn input_size(width: u32, height: u32) -> u32 {
+    width.max(height).div_ceil(STRIDE) * STRIDE
+}
+
 /// A candidate vehicle in frame pixels.
 struct Candidate {
     bbox: [f32; 4],
@@ -72,7 +82,7 @@ struct Candidate {
 
 pub async fn detect(triton: &Triton, image: &RgbImage, config: &VStreamConfig, log: StreamLog<'_>) -> Result<Vec<VehicleFootprint>> {
     let model = &config.uod_net;
-    let target_size = model.input_width.max(model.input_height);
+    let target_size = input_size(model.input_width, model.input_height);
     stream_log!(log, Level::Trace, "before preprocess image for UODNet");
     let letterbox = tokio::task::block_in_place(|| letterbox_yolo(image, target_size));
     stream_log!(log, Level::Trace, "after preprocess image for UODNet");
@@ -361,6 +371,14 @@ mod tests {
             }
         }
         data
+    }
+
+    #[test]
+    fn rounds_the_input_size_up_to_the_stride() {
+        assert_eq!(input_size(640, 640), 640);
+        assert_eq!(input_size(1000, 1000), 1024);
+        assert_eq!(input_size(161, 160), 192);
+        assert_eq!(input_size(320, 1024), 1024);
     }
 
     #[test]
