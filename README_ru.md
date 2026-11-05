@@ -45,6 +45,7 @@
 <a id="lprs_used_dnn"></a>
 ### Используемые модели нейронных сетей
 Сервис работает с пятью нейронными сетями: VDNet, VCNet, LPDNet, LPCNet и LPRNet. VDNet предназначена для поиска транспортных средств по полученному снимку с видео камеры. VCNet определяет, является ли каждое найденное транспортное средство специальным. LPDNet предназначена для поиска автомобильных номеров. LPCNet делает классификацию найденных номеров. LPRNet предназначена для распознавания номеров из полученных LPDNet данных. Модели VDNet, LPDNet и LPRNet обучены с помощью [Ultralytics](https://github.com/ultralytics/ultralytics). Модели VCNet и LPCNet получены путем "дообучения" (transfer learning with fine-tuning). За основу взята [эта](https://huggingface.co/WinKawaks/vit-small-patch16-224) модель.
+Экспериментальное определение пятен транспортных средств на земле (метод `detectVehicleFootprints` Rust-версии) использует модель **uodnet**: [UrbanOmniDetect-2](https://github.com/mkturkcan/urbanomnidetect) L, детектор YOLO26, который также определяет 3D-кубоид каждого транспортного средства. Модель распространяется под лицензией [AGPL-3.0](https://www.gnu.org/licenses/agpl-3.0).
 Для инференса нейронных сетей используется [NVIDIA Triton Inference Server](https://developer.nvidia.com/triton-inference-server).
 
 <a id="lprs_scheme"></a>

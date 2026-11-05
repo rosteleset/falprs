@@ -87,6 +87,15 @@ REGULAR_MODELS = [
         'shape_args': '--minShapes=images:1x3x96x96 --optShapes=images:8x3x320x320 --maxShapes=images:8x3x1024x1024',
         'output_pattern': 'ovdnet{suffix}.engine',
     },
+    {
+        'key': 'uodnet',
+        'onnx': 'urbanomnidetect_v2_l_640.onnx',
+        'sha1': '4efaf0535b59c158759453eda3d512f4c9f2a8dc',
+        'id': '1JWkykf-DwdLugmOqukQECNprvZirhJXO',
+        'template': 'uodnet_{suffix}.engine',
+        'shape_args': '--minShapes=images:1x3x160x160 --optShapes=images:8x3x640x640 --maxShapes=images:8x3x1024x1024',
+        'output_pattern': 'uodnet{suffix}.engine',
+    },
 ]
 
 MODEL_TEMPLATES = {
@@ -100,6 +109,7 @@ MODEL_TEMPLATES = {
     'vcnet_vit': "vcnet_vit_{suffix}.engine",
     'vdnet_yolo': "vdnet_yolo_{suffix}.engine",
     'ovdnet': "ovdnet_{suffix}.engine",
+    'uodnet': "uodnet_{suffix}.engine",
 }
 
 
