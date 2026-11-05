@@ -4,6 +4,7 @@ import time
 from datetime import datetime, timedelta
 import json
 import math
+import os
 from itertools import permutations
 from pathlib import Path
 
@@ -41,6 +42,7 @@ TYPE_RU_1a = "ru_1a"
 TYPE_BY = "by"
 
 DATA_DIR = Path(__file__).parent / "data" / "detect_vehicles_obb"
+FOOTPRINTS_DATA_DIR = Path(__file__).parent / "data" / "detect_vehicle_footprints"
 
 EXPECTED_STATUS = "expectedStatus"
 IMAGE_SIZE = "imageSize"
@@ -52,6 +54,20 @@ CLASS_NAME = "className"
 CONFIDENCE = "confidence"
 ANGLE = "angle"
 CORNERS = "corners"
+CUBOID = "cuboid"
+
+
+def falprs_impl():
+    """The implementation under test, as written by test_prepare.sh: rust or cpp."""
+    try:
+        return Path("/tmp/test_falprs/falprs.impl").read_text().strip()
+    except OSError:
+        return os.environ.get("FALPRS_IMPL", "rust")
+
+
+# detectVehiclesObb exists in the C++ service only, detectVehicleFootprints in the Rust one only
+cpp_only = pytest.mark.skipif(falprs_impl() != "cpp", reason="C++ service only")
+rust_only = pytest.mark.skipif(falprs_impl() != "rust", reason="Rust service only")
 
 order = 0
 
@@ -1188,18 +1204,19 @@ def match_detections(actual, expected, tolerances):
     )
 
 
-def load_test_cases():
+def load_test_cases(data_dir=DATA_DIR):
     """Load JSON test cases from the data directory."""
-    files = sorted(DATA_DIR.glob("*.json"))
+    files = sorted(data_dir.glob("*.json"))
 
     if not files:
         raise RuntimeError(
-            f"No JSON test cases found in {DATA_DIR}"
+            f"No JSON test cases found in {data_dir}"
         )
 
     return files
 
 
+@cpp_only
 @pytest.mark.parametrize(
     "case_file",
     load_test_cases(),
@@ -1266,4 +1283,120 @@ def test_detect_vehicles_obb(case_file):
     else:
         pytest.fail(
             f"Unsupported {EXPECTED_STATUS}: {expected_status}"
+        )
+
+
+# detectVehicleFootprints
+def max_point_distance(points1, points2):
+    """Maximum distance between corresponding points of two [x1, y1, ...] lists."""
+    assert len(points1) == len(points2)
+    return max(
+        math.dist(p, q)
+        for p, q in zip(zip(points1[::2], points1[1::2]), zip(points2[::2], points2[1::2]))
+    )
+
+
+def check_footprint(actual, expected, tolerances):
+    """Validate one vehicle footprint against its expected values; the corner order is part of the contract."""
+    assert set(actual) == {CLASS_ID, CLASS_NAME, CONFIDENCE, CORNERS, CUBOID}, actual
+    assert actual[CLASS_ID] == expected[CLASS_ID]
+    assert actual[CLASS_NAME] == expected[CLASS_NAME]
+    assert len(actual[CORNERS]) == 8
+    assert len(actual[CUBOID]) == 16
+
+    corner_diff = max_point_distance(actual[CORNERS], expected[CORNERS])
+    assert corner_diff <= tolerances["cornerPixels"], (
+        f"Corners mismatch: expected {expected[CORNERS]}, got {actual[CORNERS]}, "
+        f"maximum point distance {corner_diff:.2f} pixels"
+    )
+
+    cuboid_diff = max_point_distance(actual[CUBOID], expected[CUBOID])
+    assert cuboid_diff <= tolerances["cornerPixels"], (
+        f"Cuboid mismatch: expected {expected[CUBOID]}, got {actual[CUBOID]}, "
+        f"maximum point distance {cuboid_diff:.2f} pixels"
+    )
+
+    confidence_diff = abs(actual[CONFIDENCE] - expected[CONFIDENCE])
+    assert confidence_diff <= tolerances["confidence"], (
+        f"Confidence mismatch: expected {expected[CONFIDENCE]}, "
+        f"got {actual[CONFIDENCE]}, difference={confidence_diff:.6f}"
+    )
+
+
+def match_footprints(actual, expected, tolerances):
+    """Match vehicles by class and corner distance, independent of result order.
+
+    The corner order is part of the contract, so the nearest vehicle is the one whose corners are all close to the
+    expected ones; IoU is not used, because a thin footprint of a far vehicle loses most of its IoU within the
+    pixel tolerance.
+    """
+    assert len(actual) == len(expected), (
+        f"Expected {len(expected)} vehicles, got {len(actual)}"
+    )
+
+    remaining = list(actual)
+
+    for exp in expected:
+        candidates = [
+            (max_point_distance(item[CORNERS], exp[CORNERS]), index, item)
+            for index, item in enumerate(remaining)
+            if item.get(CLASS_ID) == exp[CLASS_ID] and len(item.get(CORNERS, [])) == 8
+        ]
+
+        assert candidates, f"No vehicle found for expected object: {exp}"
+
+        distance, index, item = min(candidates, key=lambda candidate: candidate[0])
+
+        assert distance <= tolerances["cornerPixels"], (
+            f"No matching vehicle near footprint {exp[CORNERS]}; "
+            f"nearest is {item[CORNERS]}, {distance:.2f} pixels away"
+        )
+
+        check_footprint(item, exp, tolerances)
+        remaining.pop(index)
+
+    assert not remaining, f"Unexpected vehicles remain: {len(remaining)}"
+
+
+@rust_only
+@pytest.mark.parametrize(
+    "case_file",
+    load_test_cases(FOOTPRINTS_DATA_DIR),
+    ids=lambda path: path.stem,
+)
+def test_detect_vehicle_footprints(case_file):
+    """Test detectVehicleFootprints using a JSON reference case."""
+    with case_file.open(encoding="utf-8") as file:
+        case = json.load(file)
+
+    expected_status = case[EXPECTED_STATUS]
+    expected = case.get(EXPECTED, [])
+
+    request_data = {
+        key: case[key]
+        for key in (SCREENSHOT_URL, IMAGE_SIZE, CONFIDENCE_THRESHOLD)
+        if key in case
+    }
+
+    response = requests.post(API_URL + "detectVehicleFootprints", json=request_data)
+
+    if expected_status == 200:
+        assert response.status_code == 200, response.text
+
+        result = response.json()
+
+        assert result.get("code") == "200", result
+        assert result.get("message") == "Ok", result
+        assert isinstance(result.get("data"), list)
+        assert expected, "The expected list must not be empty for status 200"
+
+        match_footprints(result["data"], expected, case["tolerances"])
+
+    elif expected_status == 204:
+        assert response.status_code == 204, response.text
+        assert expected == [], "Expected vehicles must be empty for status 204"
+
+    else:
+        assert response.status_code == expected_status, (
+            f"Expected HTTP {expected_status}, got HTTP {response.status_code}: {response.text}"
         )

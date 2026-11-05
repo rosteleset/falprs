@@ -15,7 +15,7 @@ use serde_json::{Map, Value, json};
 
 use super::Lprs;
 use super::caches::vstream_key;
-use super::obb;
+use super::footprints;
 use super::workflow;
 use crate::converters;
 use crate::fetch::{FetchError, fetch_image};
@@ -69,7 +69,7 @@ async fn handle(
         "setStreamDefaultConfig" => set_stream_default_config(&lprs, id_group, &body).await,
         "getStreamDefaultConfig" => get_stream_default_config(&lprs, id_group).await,
         "getSupportedPlateNumberFormats" => Ok(data_response(supported_plate_number_formats())),
-        "detectVehiclesObb" => detect_vehicles_obb(&lprs, id_group, &body).await,
+        "detectVehicleFootprints" => detect_vehicle_footprints(&lprs, id_group, &body).await,
         _ => Err(ApiError::bad_request("Method not found")),
     };
     result.unwrap_or_else(IntoResponse::into_response)
@@ -278,7 +278,7 @@ fn to_int(value: &Value) -> Option<i64> {
     }
 }
 
-async fn detect_vehicles_obb(lprs: &Lprs, id_group: i32, body: &Value) -> ApiResult {
+async fn detect_vehicle_footprints(lprs: &Lprs, id_group: i32, body: &Value) -> ApiResult {
     let url = converters::to_string(Some(require_member(body, "screenshotUrl")?), "");
     let image_size = match body.get("imageSize") {
         None => None,
@@ -301,8 +301,8 @@ async fn detect_vehicles_obb(lprs: &Lprs, id_group: i32, body: &Value) -> ApiRes
     };
     let mut config = entry.config;
     if let Some(size) = image_size {
-        config.ovd_net.input_width = size;
-        config.ovd_net.input_height = size;
+        config.uod_net.input_width = size;
+        config.uod_net.input_height = size;
     }
     if let Some(threshold) = confidence_threshold {
         config.vehicle_confidence = threshold;
@@ -320,7 +320,7 @@ async fn detect_vehicles_obb(lprs: &Lprs, id_group: i32, body: &Value) -> ApiRes
         log_to!(
             lprs.logger,
             Level::Debug,
-            "Start detectVehiclesObb: vstream_key = {key};  frame_url = {frame_url}"
+            "Start detectVehicleFootprints: vstream_key = {key};  frame_url = {frame_url}"
         );
     }
     stream_log!(stream, Level::Trace, "before image acquisition");
@@ -346,29 +346,30 @@ async fn detect_vehicles_obb(lprs: &Lprs, id_group: i32, body: &Value) -> ApiRes
         ApiError::server_error()
     })?;
     stream_log!(stream, Level::Trace, "after decoding the image");
-    stream_log!(stream, Level::Trace, "before doInferenceOvdNet");
-    let vehicles = match obb::detect(&lprs.triton, &image, &config, stream).await {
+    stream_log!(stream, Level::Trace, "before inference UODNet");
+    let vehicles = match footprints::detect(&lprs.triton, &image, &config, stream).await {
         Ok(vehicles) => vehicles,
         Err(e) => {
             log!(lprs.logger, Level::Error, "Error! Unable to send inference request: {e:#}");
             Vec::new()
         }
     };
-    stream_log!(stream, Level::Trace, "after doInferenceOvdNet");
+    stream_log!(stream, Level::Trace, "after inference UODNet");
     if config.logs(Level::Debug) {
-        log_to!(lprs.logger, Level::Debug, "End detectVehiclesObb: vstream_key = {key};");
+        log_to!(lprs.logger, Level::Debug, "End detectVehicleFootprints: vstream_key = {key};");
     }
 
+    // Frame pixels to two decimals: finer than the model's precision, without float noise
+    let pixels = |points: &[[f32; 2]]| -> Vec<f64> { points.as_flattened().iter().map(|&c| (f64::from(c) * 100.0).round() / 100.0).collect() };
     let vehicles = vehicles
         .iter()
         .map(|v| {
             json!({
                 "classId": v.class_id,
-                "className": obb::CLASSES.get(v.class_id).copied().unwrap_or_default(),
+                "className": v.class_name,
                 "confidence": f64::from(v.confidence),
-                "box": v.bbox.map(|c| c as i32),
-                "angle": f64::from(v.angle),
-                "corners": v.corners.as_flattened().iter().map(|&c| c as i32).collect::<Vec<_>>(),
+                "corners": pixels(&v.corners),
+                "cuboid": pixels(&v.cuboid),
             })
         })
         .collect();
