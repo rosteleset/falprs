@@ -1323,6 +1323,14 @@ def check_footprint(actual, expected, tolerances):
     )
 
 
+def footprint_variants(expected):
+    """The expected vehicle and its accepted alternatives: when NMS keeps one of two anchors of a vehicle whose
+    scores are within float noise, the service may keep the other one."""
+    return [expected] + [
+        dict(expected, **alternative) for alternative in expected.get("alternatives", [])
+    ]
+
+
 def match_footprints(actual, expected, tolerances):
     """Match vehicles by class and corner distance, independent of result order.
 
@@ -1338,21 +1346,22 @@ def match_footprints(actual, expected, tolerances):
 
     for exp in expected:
         candidates = [
-            (max_point_distance(item[CORNERS], exp[CORNERS]), index, item)
+            (max_point_distance(item[CORNERS], variant[CORNERS]), index, item, variant)
             for index, item in enumerate(remaining)
             if item.get(CLASS_ID) == exp[CLASS_ID] and len(item.get(CORNERS, [])) == 8
+            for variant in footprint_variants(exp)
         ]
 
         assert candidates, f"No vehicle found for expected object: {exp}"
 
-        distance, index, item = min(candidates, key=lambda candidate: candidate[0])
+        distance, index, item, variant = min(candidates, key=lambda candidate: candidate[0])
 
         assert distance <= tolerances["cornerPixels"], (
             f"No matching vehicle near footprint {exp[CORNERS]}; "
             f"nearest is {item[CORNERS]}, {distance:.2f} pixels away"
         )
 
-        check_footprint(item, exp, tolerances)
+        check_footprint(item, variant, tolerances)
         remaining.pop(index)
 
     assert not remaining, f"Unexpected vehicles remain: {len(remaining)}"

@@ -2,6 +2,9 @@
 //!
 //! The footprint is the quadrilateral where a vehicle touches the ground: the bottom face of the vehicle's
 //! cuboid projected onto the frame (keypoints 0-3; keypoints 4-7 are the top face).
+//!
+//! The model runs its one-to-many head, which finds more vehicles than the end-to-end one (dark cars above all),
+//! so its raw output is decoded and suppressed with NMS here, as ultralytics does after `predict`.
 
 use anyhow::{Result, bail};
 use image::RgbImage;
@@ -14,11 +17,19 @@ use crate::logging::{Level, StreamLog};
 use crate::stream_log;
 use crate::triton::{InferRequest, Tensor, Triton};
 
-/// Rows of the end-to-end head, sorted by score: `[x1, y1, x2, y2, score, class, (x, y, v) * 8]`,
-/// in letterboxed input pixels, with `v` already a probability.
-const OUTPUT_ROWS: usize = 300;
-const OUTPUT_COLUMNS: usize = 30;
+/// Model classes (COCO-80).
+const MODEL_CLASSES: usize = 80;
 const KEYPOINTS: usize = 8;
+/// Output channels per anchor: `cx, cy, w, h`, the class probabilities, then `(x, y, v)` per keypoint, all in
+/// letterboxed input pixels with probabilities already sigmoided; the output is `[1, channels, anchors]`.
+const OUTPUT_CHANNELS: usize = 4 + MODEL_CLASSES + 3 * KEYPOINTS;
+/// A detection after NMS: `[x1, y1, x2, y2, score, class, (x, y, v) * 8]`, in letterboxed input pixels.
+const DETECTION_COLUMNS: usize = 6 + 3 * KEYPOINTS;
+
+/// NMS as ultralytics `predict` runs it: the most confident candidates only take part...
+const NMS_MAX_CANDIDATES: usize = 30_000;
+/// ...and this many boxes are kept at most.
+const NMS_MAX_DETECTIONS: usize = 300;
 
 /// How far outside its box a keypoint may lie, in box widths/heights (UrbanOmniDetect's cuboid check).
 const KEYPOINT_BOX_MARGIN: f32 = 0.75;
@@ -37,11 +48,13 @@ pub struct VehicleFootprint {
     pub cuboid: [[f32; 2]; KEYPOINTS],
 }
 
-/// The thresholds of [`footprints_from_output`].
+/// The thresholds of [`detections_from_output`] and [`footprints_from_detections`].
 #[derive(Debug, Clone, Copy)]
 pub struct Thresholds {
     /// A vehicle is reported when its score is above this.
     pub confidence: f32,
+    /// NMS suppresses a box whose IoU with a more confident kept box of its class is above this.
+    pub nms_iou: f32,
     /// Every cuboid keypoint needs at least this probability; 0 disables the test.
     pub keypoint_confidence: f32,
     /// A vehicle whose box lies at least this much inside a larger vehicle's box...
@@ -80,30 +93,85 @@ pub async fn detect(triton: &Triton, image: &RgbImage, config: &VStreamConfig, l
     };
     stream_log!(log, Level::Debug, "inference UODNet OK");
     let data = output.as_f32();
-    if data.len() < OUTPUT_ROWS * OUTPUT_COLUMNS {
-        bail!("unexpected output size {}", data.len());
+    let anchors = match output.shape[..] {
+        [1, channels, anchors] if channels == OUTPUT_CHANNELS as i64 && anchors > 0 => anchors as usize,
+        _ => bail!("unexpected output shape {:?}", output.shape),
+    };
+    if data.len() != OUTPUT_CHANNELS * anchors {
+        bail!("unexpected output size {} for shape {:?}", data.len(), output.shape);
     }
 
     let thresholds = Thresholds {
         confidence: config.vehicle_confidence,
+        nms_iou: config.uod_net_nms_iou_threshold,
         keypoint_confidence: config.uod_net_keypoint_confidence,
         nested_box_overlap: config.uod_net_nested_box_overlap,
         nested_footprint_overlap: config.uod_net_nested_footprint_overlap,
     };
     stream_log!(log, Level::Trace, "vehicle confidence threshold: {:.3}", thresholds.confidence);
-    let vehicles = footprints_from_output(&data[..OUTPUT_ROWS * OUTPUT_COLUMNS], &letterbox, &thresholds);
+    let detections = tokio::task::block_in_place(|| detections_from_output(&data, anchors, &thresholds));
+    let vehicles = footprints_from_detections(&detections, &letterbox, &thresholds);
     stream_log!(log, Level::Trace, "found vehicles: {}", vehicles.len());
     Ok(vehicles)
 }
 
-/// The reported vehicles of one image from the model output, in the order of the rows.
-fn footprints_from_output(data: &[f32], letterbox: &Letterbox, thresholds: &Thresholds) -> Vec<VehicleFootprint> {
-    let candidates: Vec<Candidate> = data
-        .as_chunks::<OUTPUT_COLUMNS>()
-        .0
-        .iter()
-        .filter_map(|row| candidate(row, letterbox, thresholds))
+/// The detections of the one-to-many head's output `[channels, anchors]` (channel-major), as ultralytics' NMS
+/// gives them: each anchor takes its most probable class, the ones scoring above the confidence threshold are
+/// suppressed class by class at the NMS IoU threshold, most confident first.
+fn detections_from_output(data: &[f32], anchors: usize, thresholds: &Thresholds) -> Vec<[f32; DETECTION_COLUMNS]> {
+    let threshold = thresholds.confidence;
+    let at = |channel: usize, anchor: usize| data[channel * anchors + anchor];
+    let mut candidates: Vec<(f32, usize, usize)> = (0..anchors)
+        .filter_map(|anchor| {
+            let (class, score) = (0..MODEL_CLASSES)
+                .map(|class| (class, at(4 + class, anchor)))
+                .fold((0, f32::MIN), |best, next| if next.1 > best.1 { next } else { best });
+            // NaN scores fail too
+            (score > threshold).then_some((score, class, anchor))
+        })
         .collect();
+    candidates.sort_by(|a, b| b.0.total_cmp(&a.0));
+    candidates.truncate(NMS_MAX_CANDIDATES);
+
+    let mut kept: Vec<([f32; 4], usize)> = Vec::new();
+    let mut detections = Vec::new();
+    for (score, class, anchor) in candidates {
+        let (cx, cy, w, h) = (at(0, anchor), at(1, anchor), at(2, anchor), at(3, anchor));
+        let bbox = [cx - w / 2.0, cy - h / 2.0, cx + w / 2.0, cy + h / 2.0];
+        if kept
+            .iter()
+            .any(|(other, other_class)| *other_class == class && box_iou(&bbox, other) > thresholds.nms_iou)
+        {
+            continue;
+        }
+        kept.push((bbox, class));
+        let mut detection = [0.0; DETECTION_COLUMNS];
+        detection[..4].copy_from_slice(&bbox);
+        detection[4] = score;
+        detection[5] = class as f32;
+        for (i, value) in detection[6..].iter_mut().enumerate() {
+            *value = at(4 + MODEL_CLASSES + i, anchor);
+        }
+        detections.push(detection);
+        if detections.len() == NMS_MAX_DETECTIONS {
+            break;
+        }
+    }
+    detections
+}
+
+/// IoU of two `[x1, y1, x2, y2]` boxes, as `torchvision.ops.box_iou`.
+fn box_iou(a: &[f32; 4], b: &[f32; 4]) -> f32 {
+    let width = (a[2].min(b[2]) - a[0].max(b[0])).max(0.0);
+    let height = (a[3].min(b[3]) - a[1].max(b[1])).max(0.0);
+    let intersection = width * height;
+    let area = |r: &[f32; 4]| (r[2] - r[0]) * (r[3] - r[1]);
+    intersection / (area(a) + area(b) - intersection)
+}
+
+/// The reported vehicles of one image from its detections, in the order of the detections.
+fn footprints_from_detections(detections: &[[f32; DETECTION_COLUMNS]], letterbox: &Letterbox, thresholds: &Thresholds) -> Vec<VehicleFootprint> {
+    let candidates: Vec<Candidate> = detections.iter().filter_map(|row| candidate(row, letterbox, thresholds)).collect();
     let dropped = nested_duplicates(&candidates, thresholds);
     candidates
         .into_iter()
@@ -113,8 +181,8 @@ fn footprints_from_output(data: &[f32], letterbox: &Letterbox, thresholds: &Thre
         .collect()
 }
 
-/// A row turned into a vehicle, unless it is filtered out by its score, class, cuboid or footprint.
-fn candidate(row: &[f32; OUTPUT_COLUMNS], letterbox: &Letterbox, thresholds: &Thresholds) -> Option<Candidate> {
+/// A detection turned into a vehicle, unless it is filtered out by its score, class, cuboid or footprint.
+fn candidate(row: &[f32; DETECTION_COLUMNS], letterbox: &Letterbox, thresholds: &Thresholds) -> Option<Candidate> {
     let confidence = row[4];
     // NaN scores fail too
     if confidence.is_nan() || confidence <= thresholds.confidence {
@@ -190,8 +258,9 @@ fn is_convex(corners: &[[f32; 2]; 4]) -> bool {
     })
 }
 
-/// Which candidates are duplicates nested in another vehicle: the end-to-end head runs no NMS and can report
-/// a box truck twice, as the whole vehicle and as its cab inside it, or one car twice with nearly the same box.
+/// Which candidates are duplicates nested in another vehicle, which NMS leaves: it suppresses boxes of one class
+/// that overlap much, not a box truck reported as the whole vehicle and as its cab inside it, nor one car reported
+/// as a car and as a truck with nearly the same box.
 /// A vehicle standing in front of a larger one is nested in the image but not on the ground, so its footprint
 /// doesn't overlap the larger one's and it stays.
 ///
@@ -246,6 +315,7 @@ mod tests {
 
     const THRESHOLDS: Thresholds = Thresholds {
         confidence: 0.5,
+        nms_iou: 0.7,
         keypoint_confidence: 0.5,
         nested_box_overlap: 0.85,
         nested_footprint_overlap: 0.3,
@@ -261,6 +331,94 @@ mod tests {
             offset: (0, 0),
             ratio: 1.0,
         }
+    }
+
+    /// The filtering pipeline on detections given as rows of [`DETECTION_COLUMNS`] values.
+    fn run(rows: &[f32], letterbox: &Letterbox, thresholds: &Thresholds) -> Vec<VehicleFootprint> {
+        footprints_from_detections(rows.as_chunks::<DETECTION_COLUMNS>().0, letterbox, thresholds)
+    }
+
+    /// An anchor of a test output: box `[cx, cy, w, h]`, `(class, probability)` pairs, keypoint `v`.
+    type Anchor = ([f32; 4], Vec<(usize, f32)>, f32);
+
+    /// A model output (channel-major) of anchors given as `(box [cx, cy, w, h], [(class, probability)], v)`,
+    /// with keypoint i of each anchor at `(cx + i, cy + 2i)`.
+    fn output(anchors: &[Anchor]) -> Vec<f32> {
+        let n = anchors.len();
+        let mut data = vec![0.0; OUTPUT_CHANNELS * n];
+        for (a, (bbox, classes, v)) in anchors.iter().enumerate() {
+            for (channel, value) in bbox.iter().enumerate() {
+                data[channel * n + a] = *value;
+            }
+            for &(class, probability) in classes {
+                data[(4 + class) * n + a] = probability;
+            }
+            for i in 0..KEYPOINTS {
+                let base = 4 + MODEL_CLASSES + 3 * i;
+                data[base * n + a] = bbox[0] + i as f32;
+                data[(base + 1) * n + a] = bbox[1] + 2.0 * i as f32;
+                data[(base + 2) * n + a] = *v;
+            }
+        }
+        data
+    }
+
+    #[test]
+    fn decodes_the_one_to_many_layout() {
+        let data = output(&[
+            ([50.0, 60.0, 20.0, 10.0], vec![(0, 0.2), (2, 0.9), (7, 0.3)], 0.8),
+            ([300.0, 300.0, 20.0, 10.0], vec![(2, 0.4)], 0.8),
+        ]);
+        let detections = detections_from_output(&data, 2, &THRESHOLDS);
+        assert_eq!(detections.len(), 1);
+        let d = detections[0];
+        assert_eq!(d[..6], [40.0, 55.0, 60.0, 65.0, 0.9, 2.0]);
+        // Keypoint 3: x, y, v
+        assert_eq!(d[6 + 9..6 + 12], [53.0, 66.0, 0.8]);
+    }
+
+    #[test]
+    fn keeps_the_best_class_above_the_threshold_only() {
+        let data = output(&[
+            ([50.0, 50.0, 20.0, 20.0], vec![(2, 0.5), (7, 0.6)], 0.9),
+            ([200.0, 50.0, 20.0, 20.0], vec![(2, 0.5)], 0.9), // at the threshold: out
+            ([350.0, 50.0, 20.0, 20.0], vec![(2, f32::NAN)], 0.9),
+        ]);
+        let detections = detections_from_output(&data, 3, &THRESHOLDS);
+        assert_eq!(detections.len(), 1);
+        assert_eq!(detections[0][4..6], [0.6, 7.0]);
+    }
+
+    #[test]
+    fn suppresses_overlapping_boxes_class_by_class() {
+        // [0, 0, 10, 10] against boxes inside it: the IoU is their area / 100
+        let data = output(&[
+            ([4.0, 5.0, 8.0, 10.0], vec![(2, 0.7)], 0.9),  // IoU 0.8 with the first car: suppressed
+            ([5.0, 5.0, 10.0, 10.0], vec![(2, 0.9)], 0.9), // the most confident car
+            ([3.5, 5.0, 7.0, 10.0], vec![(2, 0.8)], 0.9),  // IoU exactly 0.7: kept
+            ([5.0, 5.0, 10.0, 10.0], vec![(7, 0.6)], 0.9), // a truck on the same box: another class, kept
+        ]);
+        let kept = |thresholds: &Thresholds| -> Vec<_> { detections_from_output(&data, 4, thresholds).iter().map(|d| (d[4], d[5])).collect() };
+        // Most confident first
+        assert_eq!(kept(&THRESHOLDS), [(0.9, 2.0), (0.8, 2.0), (0.6, 7.0)]);
+        // A higher IoU threshold keeps the car at IoU 0.8 (0.875 with the 0.8 car) too, a lower one suppresses
+        // the one at 0.7
+        let loose = Thresholds { nms_iou: 0.9, ..THRESHOLDS };
+        assert_eq!(kept(&loose), [(0.9, 2.0), (0.8, 2.0), (0.7, 2.0), (0.6, 7.0)]);
+        let strict = Thresholds { nms_iou: 0.6, ..THRESHOLDS };
+        assert_eq!(kept(&strict), [(0.9, 2.0), (0.6, 7.0)]);
+    }
+
+    #[test]
+    fn keeps_300_detections_at_most() {
+        let anchors: Vec<_> = (0..301)
+            .map(|i| ([20.0 * i as f32, 10.0, 10.0, 10.0], vec![(2, 0.5 + i as f32 / 1000.0)], 0.9))
+            .collect();
+        let low = Thresholds { confidence: 0.4, ..THRESHOLDS };
+        let detections = detections_from_output(&output(&anchors), anchors.len(), &low);
+        assert_eq!(detections.len(), 300);
+        // The least confident one is left out
+        assert!(detections.iter().all(|d| d[4] > 0.5));
     }
 
     /// A model row of a vehicle standing on `ground` (any order), with its roof 10 px above.
@@ -288,7 +446,7 @@ mod tests {
             row(2.0, 0.5, SQUARE.map(|p| [p[0] + 200.0, p[1] + 300.0]), 0.9), // at the threshold
         ]
         .concat();
-        let vehicles = footprints_from_output(&data, &identity(), &THRESHOLDS);
+        let vehicles = run(&data, &identity(), &THRESHOLDS);
         let classes: Vec<_> = vehicles.iter().map(|v| (v.class_id, v.class_name)).collect();
         assert_eq!(classes, [(0, "car"), (2, "truck"), (3, "bus")]);
     }
@@ -297,7 +455,7 @@ mod tests {
     fn orders_corners_clockwise_from_top_left() {
         // Counter-clockwise on the frame, starting elsewhere
         let ground = [[140.0, 180.0], [140.0, 100.0], [100.0, 100.0], [100.0, 180.0]];
-        let vehicles = footprints_from_output(&row(2.0, 0.9, ground, 0.9), &identity(), &THRESHOLDS);
+        let vehicles = run(&row(2.0, 0.9, ground, 0.9), &identity(), &THRESHOLDS);
         assert_eq!(vehicles[0].corners, SQUARE);
         // The cuboid keeps the model's order
         assert_eq!(vehicles[0].cuboid[..4], ground);
@@ -314,7 +472,7 @@ mod tests {
         let ground = [[0.0, 12.0], [20.0, 12.0], [20.0, 52.0], [0.0, 52.0]];
         let mut data = row(2.0, 0.9, ground, 0.9);
         data[6] = -4.0; // the first ground corner lies 8 px left of the frame
-        let vehicles = footprints_from_output(&data, &letterbox, &THRESHOLDS);
+        let vehicles = run(&data, &letterbox, &THRESHOLDS);
         assert_eq!(vehicles[0].corners, [[-8.0, 0.0], [40.0, 0.0], [40.0, 80.0], [0.0, 80.0]]);
     }
 
@@ -330,7 +488,7 @@ mod tests {
         let mut invisible = row(2.0, 0.9, SQUARE, 0.9);
         invisible[29] = 0.4; // v of the last top corner
         for data in [far, zero, nan, invisible] {
-            assert!(footprints_from_output(&data, &identity(), &THRESHOLDS).is_empty());
+            assert!(run(&data, &identity(), &THRESHOLDS).is_empty());
         }
         // A zero keypoint threshold disables the v test only
         let mut invisible = row(2.0, 0.9, SQUARE, 0.1);
@@ -338,18 +496,18 @@ mod tests {
             keypoint_confidence: 0.0,
             ..THRESHOLDS
         };
-        assert_eq!(footprints_from_output(&invisible, &identity(), &no_v).len(), 1);
+        assert_eq!(run(&invisible, &identity(), &no_v).len(), 1);
         invisible[9] = 1000.0;
-        assert!(footprints_from_output(&invisible, &identity(), &no_v).is_empty());
+        assert!(run(&invisible, &identity(), &no_v).is_empty());
     }
 
     #[test]
     fn drops_non_convex_footprints() {
         // The fourth corner lies inside the triangle of the other three
         let dart = [[100.0, 100.0], [140.0, 100.0], [120.0, 110.0], [120.0, 180.0]];
-        assert!(footprints_from_output(&row(2.0, 0.9, dart, 0.9), &identity(), &THRESHOLDS).is_empty());
+        assert!(run(&row(2.0, 0.9, dart, 0.9), &identity(), &THRESHOLDS).is_empty());
         let collapsed = [[100.0, 100.0], [120.0, 100.0], [140.0, 100.0], [100.0, 100.0]];
-        assert!(footprints_from_output(&row(2.0, 0.9, collapsed, 0.9), &identity(), &THRESHOLDS).is_empty());
+        assert!(run(&row(2.0, 0.9, collapsed, 0.9), &identity(), &THRESHOLDS).is_empty());
     }
 
     #[test]
@@ -358,7 +516,7 @@ mod tests {
         // The cab: nested in the truck's box and on the truck's ground
         let cab = [[110.0, 110.0], [190.0, 110.0], [190.0, 180.0], [110.0, 180.0]];
         let data = [row(7.0, 0.9, truck, 0.9), row(2.0, 0.8, cab, 0.9)].concat();
-        let vehicles = footprints_from_output(&data, &identity(), &THRESHOLDS);
+        let vehicles = run(&data, &identity(), &THRESHOLDS);
         assert_eq!(vehicles.len(), 1);
         assert_eq!(vehicles[0].class_name, "truck");
 
@@ -367,7 +525,7 @@ mod tests {
             nested_box_overlap: 0.0,
             ..THRESHOLDS
         };
-        assert_eq!(footprints_from_output(&data, &identity(), &off).len(), 2);
+        assert_eq!(run(&data, &identity(), &off).len(), 2);
 
         // A car in front of the truck: nested in the image, on its own ground
         let mut front = row(2.0, 0.8, cab, 0.9);
@@ -381,7 +539,7 @@ mod tests {
         let mut truck_row = row(7.0, 0.9, truck_short, 0.9);
         truck_row[3] = 300.0;
         let data = [truck_row, front].concat();
-        assert_eq!(footprints_from_output(&data, &identity(), &THRESHOLDS).len(), 2);
+        assert_eq!(run(&data, &identity(), &THRESHOLDS).len(), 2);
     }
 
     #[test]
@@ -391,13 +549,13 @@ mod tests {
         let mut larger = row(2.0, 0.6, car, 0.9);
         larger[2] += 0.5;
         for data in [[row(2.0, 0.9, car, 0.9), larger.clone()].concat(), [larger, row(2.0, 0.9, car, 0.9)].concat()] {
-            let vehicles = footprints_from_output(&data, &identity(), &THRESHOLDS);
+            let vehicles = run(&data, &identity(), &THRESHOLDS);
             assert_eq!(vehicles.len(), 1);
             assert_eq!(vehicles[0].confidence, 0.9);
         }
         // Equal scores: the earlier row stays
         let data = [row(2.0, 0.9, car, 0.9), row(2.0, 0.9, car, 0.8)].concat();
-        let vehicles = footprints_from_output(&data, &identity(), &THRESHOLDS);
+        let vehicles = run(&data, &identity(), &THRESHOLDS);
         assert_eq!(vehicles.len(), 1);
     }
 }

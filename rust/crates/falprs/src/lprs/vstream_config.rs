@@ -51,6 +51,9 @@ pub struct VStreamConfig {
     pub lpr_net: ModelConfig,
     /// Vehicle footprint detection.
     pub uod_net: ModelConfig,
+    /// NMS of vehicle footprint detections suppresses a box whose IoU with a more confident one of its class is
+    /// above this.
+    pub uod_net_nms_iou_threshold: f32,
     /// The probability every cuboid keypoint of a vehicle footprint needs; 0 disables the test.
     pub uod_net_keypoint_confidence: f32,
     /// How much of a vehicle's box must lie in a larger vehicle's box to make it a nested duplicate; 0 disables
@@ -123,6 +126,7 @@ impl VStreamConfig {
             lpc_net: ModelConfig::read(json, "lpc-net", "lpc-net-inference-server", ("lpcnet_vit", 224, 224, "input", "output")),
             lpr_net: ModelConfig::read(json, "lpr-net", "lpr-net-inference-server", ("lprnet_yolo", 320, 320, "images", "output0")),
             uod_net: ModelConfig::read(json, "uod-net", "uod-net-inference-server", ("uodnet", 640, 640, "images", "output0")),
+            uod_net_nms_iou_threshold: f32_of("uod-net-nms-iou-threshold", 0.7),
             uod_net_keypoint_confidence: f32_of("uod-net-keypoint-confidence", 0.5),
             uod_net_nested_box_overlap: f32_of("uod-net-nested-box-overlap", 0.85),
             uod_net_nested_footprint_overlap: f32_of("uod-net-nested-footprint-overlap", 0.3),
@@ -174,6 +178,7 @@ mod tests {
         assert_eq!(config.lpr_net.input_width, 320);
         assert_eq!(config.uod_net.model_name, "uodnet");
         assert_eq!((config.uod_net.input_width, config.uod_net.input_height), (640, 640));
+        assert_eq!(config.uod_net_nms_iou_threshold, 0.7);
         assert_eq!(config.uod_net_keypoint_confidence, 0.5);
         assert_eq!(config.uod_net_nested_box_overlap, 0.85);
         assert_eq!(config.uod_net_nested_footprint_overlap, 0.3);
