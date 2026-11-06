@@ -20,7 +20,7 @@ use pg_cluster::HostType;
 use serde_json::{Map, Value, json};
 
 use super::Frs;
-use super::caches::{descriptor_from_bytes, vstream_key};
+use super::caches::{SGConfigData, descriptor_from_bytes, vstream_key};
 use super::config::LocalConfig;
 use super::events::{DESCRIPTOR_SIZE, EventRecord};
 use super::workflow::{self, TaskData, TaskType};
@@ -990,6 +990,11 @@ async fn process_frame(frs: &Arc<Frs>, id_group: i32, body: &Value) -> Result<Va
         if let Some(id_sgroup) = body.get("groupId") {
             task.id_sgroup = id_sgroup.as_i64().and_then(|v| i32::try_from(v).ok()).ok_or_else(ApiError::server_error)?;
         }
+        // Unlike the C++ service, a stream group sees only its own special groups, as with every
+        // other object: another one's or an unknown one has no faces to match
+        if task.id_sgroup > 0 && !owns_special_group(&frs.sg_config.get(), id_group, task.id_sgroup) {
+            return Ok(json!([]));
+        }
     }
     let result = workflow::process_pipeline(frs, task).await;
     Ok(json!(result.id_descriptors))
@@ -1148,6 +1153,11 @@ async fn get_config(frs: &Frs, id_group: i32, table: &str) -> Result<Value, ApiE
 }
 
 /// The stream group of a special group, from the cache.
+/// Whether the special group exists and belongs to the stream group.
+fn owns_special_group(sg_config: &SGConfigData, id_group: i32, id_sgroup: i32) -> bool {
+    sg_config.by_id(id_sgroup).is_some_and(|sg| sg.id_group == id_group)
+}
+
 fn special_group_owner(frs: &Frs, id_sgroup: i32) -> Result<i32, ApiError> {
     let id_group = frs.sg_config.get().by_id(id_sgroup).map_or(-1, |sg| sg.id_group);
     if id_group <= 0 {
@@ -1577,6 +1587,24 @@ async fn get_barcode_event(frs: &Frs, id_group: i32, body: &Value) -> Result<Val
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn special_groups_belong_to_their_stream_group() {
+        let mut sg_config = SGConfigData::default();
+        for (token, id_special_group, id_group) in [("a", 5, 1), ("b", 6, 2)] {
+            let config = super::super::caches::SGConfig {
+                id_special_group,
+                callback_url: String::new(),
+                id_group,
+            };
+            sg_config.token_by_id.insert(id_special_group, token.to_string());
+            sg_config.by_token.insert(token.to_string(), config);
+        }
+        assert!(owns_special_group(&sg_config, 1, 5));
+        assert!(!owns_special_group(&sg_config, 1, 6));
+        assert!(!owns_special_group(&sg_config, 1, 7));
+        assert!(owns_special_group(&sg_config, 2, 6));
+    }
 
     #[test]
     fn clusters_follow_chains_of_similar_faces() {
