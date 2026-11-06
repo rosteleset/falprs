@@ -299,7 +299,8 @@ async fn detect_vehicle_footprints(lprs: &Lprs, id_group: i32, body: &Value) -> 
     let Some(entry) = lprs.vstreams_config.get().get(&id_group.to_string()).cloned() else {
         return Ok(no_content());
     };
-    let mut config = entry.config;
+    // The request's overrides apply to a copy of its own
+    let mut config = entry.config.clone();
     if let Some(size) = image_size {
         config.uod_net.input_width = size;
         config.uod_net.input_height = size;

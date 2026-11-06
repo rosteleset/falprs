@@ -27,8 +27,8 @@ pub async fn load_groups(cluster: Cluster, host_type: HostType) -> Result<Groups
 /// Common configs and default video stream configs by stream group id.
 #[derive(Debug, Default)]
 pub struct ConfigData {
-    pub common: HashMap<i32, CommonConfig>,
-    pub default_vstream: HashMap<i32, VStreamConfig>,
+    pub common: HashMap<i32, Arc<CommonConfig>>,
+    pub default_vstream: HashMap<i32, Arc<VStreamConfig>>,
 }
 
 pub async fn load_config(cluster: Cluster, host_type: HostType) -> Result<ConfigData> {
@@ -53,10 +53,10 @@ pub async fn load_config(cluster: Cluster, host_type: HostType) -> Result<Config
     for row in &rows {
         let id_group: i32 = row.get(0);
         let config: Value = row.get(1);
-        data.common.insert(id_group, CommonConfig::from_json(&config));
+        data.common.insert(id_group, Arc::new(CommonConfig::from_json(&config)));
         let mut default_vstream = VStreamConfig::from_json(&config);
         default_vstream.id_group = id_group;
-        data.default_vstream.insert(id_group, default_vstream);
+        data.default_vstream.insert(id_group, Arc::new(default_vstream));
     }
     Ok(data)
 }

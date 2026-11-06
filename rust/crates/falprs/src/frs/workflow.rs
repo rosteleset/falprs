@@ -300,8 +300,9 @@ enum Flow {
 struct Run<'a> {
     frs: &'a Arc<Frs>,
     task: &'a TaskData,
-    common: CommonConfig,
-    config: VStreamConfig,
+    // Shared with the caches: a frame never changes its configs
+    common: Arc<CommonConfig>,
+    config: Arc<VStreamConfig>,
 }
 
 impl Run<'_> {
@@ -335,7 +336,7 @@ async fn run_pipeline(frs: &Arc<Frs>, task: &mut TaskData, slot_wait: Option<Dur
     };
     if !task.vstream_key.is_empty() {
         match frs.vstreams_config.get().get(&task.vstream_key) {
-            Some(stream_config) => config = VStreamConfig::clone(stream_config),
+            Some(stream_config) => config = stream_config.clone(),
             None => {
                 // A recognition loop forgets itself when it gets no delay
                 if task.task_type != TaskType::Recognize {
@@ -558,8 +559,7 @@ async fn pipeline_body(ctx: &mut Run<'_>, url: &str) -> Result<Flow> {
     let mut best_register_ioa = 0.0;
     let mut best_register_index: Option<usize> = None;
     let mut has_sgroup_events = false;
-    let config = ctx.config.clone();
-    let common = ctx.common.clone();
+    let (config, common) = (ctx.config.clone(), ctx.common.clone());
 
     if ctx.logs(Level::Trace) {
         log_to!(
