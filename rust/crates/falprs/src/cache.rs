@@ -118,14 +118,18 @@ impl<T: Send + Sync + 'static> PgCache<T> {
                 let cluster = if is_full { &full_cluster } else { &incremental_cluster };
                 match load(cluster.clone(), host_type, since).await {
                     Ok(rows) => {
-                        let data = if is_full {
-                            full(rows, &apply)
-                        } else {
-                            let mut data = T::clone(&cache.get());
-                            apply(&mut data, rows);
-                            data
-                        };
-                        *cache.data.write().unwrap_or_else(|e| e.into_inner()) = Arc::new(data);
+                        // An incremental update without rows keeps the current snapshot: nothing is
+                        // copied, and what was derived from the snapshot stays valid
+                        if is_full || !rows.is_empty() {
+                            let data = if is_full {
+                                full(rows, &apply)
+                            } else {
+                                let mut data = T::clone(&cache.get());
+                                apply(&mut data, rows);
+                                data
+                            };
+                            *cache.data.write().unwrap_or_else(|e| e.into_inner()) = Arc::new(data);
+                        }
                         last_update = started.0;
                         if is_full {
                             last_full_update = started.1;

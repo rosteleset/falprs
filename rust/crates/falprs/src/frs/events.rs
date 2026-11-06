@@ -43,12 +43,6 @@ impl EventData {
     }
 }
 
-/// Cosine similarity of two descriptors, accumulated in single precision like the C++ service's
-/// AVX version. Floats beyond the last whole 32-float block are ignored, as there.
-pub fn cosine_similarity(a: &[f32], b: &[f32]) -> f64 {
-    falprs::similarity::cosine(a, b)
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -66,13 +60,5 @@ mod tests {
         assert_eq!(read.event_id, data.event_id);
         assert_eq!(read.position, 7);
         assert_eq!(read.descriptor, data.descriptor);
-    }
-
-    #[test]
-    fn cosine() {
-        let a: Vec<f32> = (0..DESCRIPTOR_SIZE).map(|i| (i % 7) as f32 - 3.0).collect();
-        let negated: Vec<f32> = a.iter().map(|v| -v).collect();
-        assert!((cosine_similarity(&a, &a) - 1.0).abs() < 1e-6);
-        assert!((cosine_similarity(&a, &negated) + 1.0).abs() < 1e-6);
     }
 }

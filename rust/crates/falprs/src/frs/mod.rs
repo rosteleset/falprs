@@ -4,6 +4,7 @@ mod api;
 mod barcodes;
 mod caches;
 mod config;
+mod descriptor_index;
 mod events;
 mod pipeline;
 mod workflow;
@@ -24,6 +25,7 @@ use crate::pipeline_slots::PipelineSlots;
 use crate::triton::Triton;
 use caches::{ConfigData, FaceDescriptorData, GroupsData, SGConfigData, SGDescriptorsData, VStreamDescriptorsData, VStreamsConfigData};
 use config::LocalConfig;
+use descriptor_index::DescriptorLists;
 use workflow::Workflows;
 
 pub struct Frs {
@@ -40,6 +42,9 @@ pub struct Frs {
     vstream_descriptors: Arc<PgCache<VStreamDescriptorsData>>,
     sg_config: Arc<PgCache<SGConfigData>>,
     sg_descriptors: Arc<PgCache<SGDescriptorsData>>,
+    /// Descriptor lists of the video streams and of the special groups, for recognition.
+    vstream_lists: DescriptorLists,
+    sg_lists: DescriptorLists,
     triton: Triton,
     http: reqwest::Client,
     /// Bounds the recognition loops' pipelines running at once.
@@ -85,6 +90,8 @@ impl Frs {
             vstream_descriptors,
             sg_config,
             sg_descriptors,
+            vstream_lists: DescriptorLists::default(),
+            sg_lists: DescriptorLists::default(),
             triton: Triton::default(),
             http: reqwest::Client::builder().build().context("can't create HTTP client")?,
             pipeline_slots,

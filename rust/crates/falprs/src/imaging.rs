@@ -479,7 +479,13 @@ fn remap_linear(src: &RgbImage, qx: i64, qy: i64) -> [u8; 3] {
         let top = sy as usize * stride + sx as usize * 3;
         [at(top), at(top + 3), at(top + stride), at(top + stride + 3)]
     } else {
-        let pixel = |x: i64, y: i64| if x < 0 || y < 0 || x >= w || y >= h { [0; 3] } else { at(y as usize * stride + x as usize * 3) };
+        let pixel = |x: i64, y: i64| {
+            if x < 0 || y < 0 || x >= w || y >= h {
+                [0; 3]
+            } else {
+                at(y as usize * stride + x as usize * 3)
+            }
+        };
         [pixel(sx, sy), pixel(sx + 1, sy), pixel(sx, sy + 1), pixel(sx + 1, sy + 1)]
     };
     let mut out = [0; 3];
