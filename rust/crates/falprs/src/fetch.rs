@@ -45,15 +45,18 @@ fn decode_data_url(url: &str) -> Result<Vec<u8>, FetchError> {
 }
 
 /// Splits `scheme://user:password@host/...` into the URL without credentials and the credentials,
-/// taking them verbatim like the C++ service does.
+/// taking them verbatim like the C++ service does. Credentials are looked for in the authority only,
+/// up to the first `/`, `?` or `#`, and end at its last `@`, so a password may contain `@` while an
+/// `@` in the path or query is left alone.
 fn split_credentials(url: &str) -> (String, Option<(String, String)>) {
-    let (Some(at), Some(scheme_end)) = (url.find('@'), url.find("://")) else {
+    let Some(scheme_end) = url.find("://") else {
         return (url.to_string(), None);
     };
-    if scheme_end > at {
-        return (url.to_string(), None);
-    }
     let authority = scheme_end + 3;
+    let authority_end = url[authority..].find(['/', '?', '#']).map_or(url.len(), |end| authority + end);
+    let Some(at) = url[authority..authority_end].rfind('@').map(|at| authority + at) else {
+        return (url.to_string(), None);
+    };
     let userinfo = &url[authority..at];
     let (user, password) = userinfo.split_once(':').unwrap_or((userinfo, ""));
     let stripped = format!("{}{}", &url[..authority], &url[at + 1..]);
@@ -198,6 +201,20 @@ mod tests {
         assert_eq!(credentials, Some(("admin".to_string(), "secret".to_string())));
         let (_, credentials) = split_credentials("http://admin@cam/shot.jpg");
         assert_eq!(credentials, Some(("admin".to_string(), String::new())));
+
+        // An `@` outside the authority is not a credentials separator
+        let query = "http://cam/snapshot.cgi?user=admin&pwd=p@ss";
+        assert_eq!(split_credentials(query), (query.to_string(), None));
+        let path = "http://cam/files/a@b.jpg#x@y";
+        assert_eq!(split_credentials(path), (path.to_string(), None));
+        let (url, credentials) = split_credentials("http://admin:secret@cam/snapshot.cgi?pwd=p@ss");
+        assert_eq!(url, "http://cam/snapshot.cgi?pwd=p@ss");
+        assert_eq!(credentials, Some(("admin".to_string(), "secret".to_string())));
+        // A password with an `@` of its own
+        let (url, credentials) = split_credentials("rtsp://admin:p@ss@cam:554/live");
+        assert_eq!(url, "rtsp://cam:554/live");
+        assert_eq!(credentials, Some(("admin".to_string(), "p@ss".to_string())));
+        assert_eq!(split_credentials("cam@host/shot.jpg"), ("cam@host/shot.jpg".to_string(), None));
     }
 
     #[test]
