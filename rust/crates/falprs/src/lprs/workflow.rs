@@ -259,9 +259,10 @@ async fn recognize(lprs: &Lprs, stream: StreamLog<'_>, ext_id: &str, id_vstream:
         }
     };
     stream_log!(stream, Level::Trace, "after doInferenceVdNet");
+    let crops = pipeline::crop_vehicles(&frame, &vehicles)?;
     if config.flag_process_special {
         stream_log!(stream, Level::Trace, "before doInferenceVcNet");
-        pipeline::classify_special(triton, &frame, config, &mut vehicles, stream).await?;
+        pipeline::classify_special(triton, &crops, config, &mut vehicles, stream).await?;
         stream_log!(stream, Level::Trace, "after doInferenceVcNet");
     }
     if config.logs(Level::Trace) {
@@ -289,7 +290,8 @@ async fn recognize(lprs: &Lprs, stream: StreamLog<'_>, ext_id: &str, id_vstream:
     };
 
     stream_log!(stream, Level::Trace, "before doInferenceLpdNet");
-    pipeline::detect_plates(triton, &frame, config, &mut vehicles, stream).await?;
+    pipeline::detect_plates(triton, &frame, &crops, config, &mut vehicles, stream).await?;
+    drop(crops);
     stream_log!(stream, Level::Trace, "after doInferenceLpdNet");
     pipeline::remove_duplicate_plates(config, &mut vehicles, frame.width(), frame.height(), stream);
     {

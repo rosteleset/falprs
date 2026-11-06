@@ -64,7 +64,7 @@ pub fn enlarge_face_rect(rect: &Rect, k: f64) -> Rect {
 
 /// Crops a rectangle lying inside the image.
 pub fn crop(image: &RgbImage, rect: &Rect) -> RgbImage {
-    image::imageops::crop_imm(image, rect.x as u32, rect.y as u32, rect.width as u32, rect.height as u32).to_image()
+    falprs::imaging::crop_clamped(image, rect.x as u32, rect.y as u32, rect.width as u32, rect.height as u32)
 }
 
 fn dist(a: [f32; 2], b: [f32; 2]) -> f64 {
