@@ -136,7 +136,7 @@ pub type Descriptor = Arc<[f32]>;
 
 /// Reads a descriptor stored as raw native-endian floats.
 pub fn descriptor_from_bytes(bytes: &[u8]) -> Vec<f32> {
-    bytes.chunks_exact(4).map(|b| f32::from_ne_bytes([b[0], b[1], b[2], b[3]])).collect()
+    bytes.as_chunks::<4>().0.iter().map(|b| f32::from_ne_bytes(*b)).collect()
 }
 
 pub fn descriptor_to_bytes(descriptor: &[f32]) -> Vec<u8> {
@@ -174,23 +174,25 @@ pub async fn load_face_descriptors(cluster: Cluster, host_type: HostType, since:
             cluster.query(host_type, &query, &[&since]).await?
         }
     };
-    Ok(rows
-        .iter()
-        .map(|row| {
-            let flag_deleted: bool = row.get(2);
-            let descriptor = (!flag_deleted).then(|| {
-                let bytes: Option<&[u8]> = row.get(1);
-                let mut descriptor = descriptor_from_bytes(bytes.unwrap_or_default());
-                normalize(&mut descriptor);
-                Descriptor::from(descriptor)
-            });
-            FaceDescriptorRow {
-                id_descriptor: row.get(0),
-                descriptor,
-                id_parent: row.get(3),
-            }
-        })
-        .collect())
+    // Decoding and normalising every descriptor is CPU work
+    Ok(tokio::task::block_in_place(|| {
+        rows.iter()
+            .map(|row| {
+                let flag_deleted: bool = row.get(2);
+                let descriptor = (!flag_deleted).then(|| {
+                    let bytes: Option<&[u8]> = row.get(1);
+                    let mut descriptor = descriptor_from_bytes(bytes.unwrap_or_default());
+                    normalize(&mut descriptor);
+                    Descriptor::from(descriptor)
+                });
+                FaceDescriptorRow {
+                    id_descriptor: row.get(0),
+                    descriptor,
+                    id_parent: row.get(3),
+                }
+            })
+            .collect()
+    }))
 }
 
 pub fn apply_face_descriptors(data: &mut FaceDescriptorData, rows: Vec<FaceDescriptorRow>) {
