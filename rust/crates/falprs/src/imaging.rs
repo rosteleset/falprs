@@ -1,6 +1,7 @@
 //! Image decoding and model input preparation, reproducing the OpenCV operations of the C++
 //! service closely enough for the models to produce the same detections.
 
+use std::borrow::Cow;
 use std::io::Cursor;
 
 use anyhow::{Context, Result};
@@ -302,6 +303,25 @@ pub struct Letterbox {
     pub ratio: f32,
 }
 
+/// `resize_linear` to `width` x `height`, or the image itself when it already has that size, which
+/// OpenCV's `resize` merely copies.
+fn linear_to(image: &RgbImage, width: u32, height: u32) -> Cow<'_, RgbImage> {
+    if image.dimensions() == (width, height) {
+        Cow::Borrowed(image)
+    } else {
+        Cow::Owned(resize_linear(image, width, height))
+    }
+}
+
+/// `resize_area` to `width` x `height`, or the image itself when it already has that size.
+fn area_to(image: &RgbImage, width: u32, height: u32) -> Cow<'_, RgbImage> {
+    if image.dimensions() == (width, height) {
+        Cow::Borrowed(image)
+    } else {
+        Cow::Owned(resize_area(image, width, height))
+    }
+}
+
 /// Ultralytics `LetterBox` with `auto=True`, as `predict` prepares YOLO inputs: scale to fit `target_size`,
 /// then pad only up to a multiple of the model stride.
 pub fn letterbox_yolo(image: &RgbImage, target_size: u32) -> Letterbox {
@@ -317,13 +337,7 @@ pub fn letterbox_yolo(image: &RgbImage, target_size: u32) -> Letterbox {
     let dh = (target_size as i64 - new_h as i64) % STRIDE;
     let padding = (dw as f32 / 2.0, dh as f32 / 2.0);
 
-    let resized;
-    let image = if (new_w, new_h) == (w, h) {
-        image
-    } else {
-        resized = resize_linear(image, new_w, new_h);
-        &resized
-    };
+    let image = linear_to(image, new_w, new_h);
     let top = (padding.1 - 0.1).round() as u32;
     let bottom = (padding.1 + 0.1).round() as u32;
     let left = (padding.0 - 0.1).round() as u32;
@@ -331,7 +345,7 @@ pub fn letterbox_yolo(image: &RgbImage, target_size: u32) -> Letterbox {
     let (width, height) = (new_w + left + right, new_h + top + bottom);
 
     Letterbox {
-        tensor: to_tensor_padded(image, (width, height), (left, top), PADDING_VALUE, 1.0 / 255.0, 0.0),
+        tensor: to_tensor_padded(&image, (width, height), (left, top), PADDING_VALUE, 1.0 / 255.0, 0.0),
         width,
         height,
         offset: (left, top),
@@ -349,8 +363,7 @@ fn letterbox_centred(image: &RgbImage, width: u32, height: u32, tensor_scale: f3
     let new_h = (scale * image.height() as f64).round() as u32;
     let shift = ((width - new_w) as f32 / 2.0, (height - new_h) as f32 / 2.0);
     let offset = (shift.0 as u32, shift.1 as u32);
-    let resized = resize_linear(image, new_w, new_h);
-    let tensor = to_tensor_padded(&resized, (width, height), offset, PADDING_VALUE, tensor_scale, mean);
+    let tensor = to_tensor_padded(&linear_to(image, new_w, new_h), (width, height), offset, PADDING_VALUE, tensor_scale, mean);
     (tensor, shift, scale)
 }
 
@@ -375,7 +388,7 @@ pub fn prepare_lpc(image: &RgbImage, width: u32, height: u32) -> Vec<f32> {
 
 /// Special vehicle classifier input: area-resized and scaled to `[-1, 1]`.
 pub fn prepare_vc(image: &RgbImage, width: u32, height: u32) -> Vec<f32> {
-    to_tensor(&resize_area(image, width, height), 1.0 / 127.5, 127.5)
+    to_tensor(&area_to(image, width, height), 1.0 / 127.5, 127.5)
 }
 
 /// Solves `a * x = b` as OpenCV's `hal::LU64f` does (`LUImpl`): partial pivoting on the first
@@ -636,29 +649,20 @@ pub fn prepare_scrfd(image: &RgbImage, width: u32, height: u32) -> (Vec<f32>, f3
         ((r_h * image.width() as f64) as u32, height)
     };
     let scale = h as f32 / image.height() as f32;
-    let tensor = to_tensor_padded(&resize_linear(image, w, h), (width, height), (0, 0), 0, 1.0 / 128.0, 127.5);
+    let tensor = to_tensor_padded(&linear_to(image, w, h), (width, height), (0, 0), 0, 1.0 / 128.0, 127.5);
     (tensor, scale)
 }
 
 /// ArcFace input: resized to the model input, `(pixel - 127.5) / 127.5`.
 pub fn prepare_arcface(face: &RgbImage, width: u32, height: u32) -> Vec<f32> {
-    if face.dimensions() == (width, height) {
-        return to_tensor(face, 1.0 / 127.5, 127.5);
-    }
-    to_tensor(&resize_linear(face, width, height), 1.0 / 127.5, 127.5)
+    to_tensor(&linear_to(face, width, height), 1.0 / 127.5, 127.5)
 }
 
 /// Face class (GENet) input: area-resized to the model input, ImageNet-normalized RGB planes.
 pub fn prepare_genet(face: &RgbImage, width: u32, height: u32) -> Vec<f32> {
     const MEAN: [f32; 3] = [0.485, 0.456, 0.406];
     const STD: [f32; 3] = [0.229, 0.224, 0.225];
-    let resized;
-    let face = if face.dimensions() == (width, height) {
-        face
-    } else {
-        resized = resize_area(face, width, height);
-        &resized
-    };
+    let face = area_to(face, width, height);
     let plane = (width * height) as usize;
     let mut tensor = vec![0.0; plane * 3];
     let (r, rest) = tensor.split_at_mut(plane);
