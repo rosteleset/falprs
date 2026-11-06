@@ -2244,10 +2244,10 @@ paths:
                   minimum: 160
                   maximum: 1024
                 confidenceThreshold:
-                  description: Confidence threshold for vehicle detection, in the range [0.0, 1.0]. If omitted, the value of the vehicle-confidence parameter is used.
+                  description: Confidence threshold for vehicle detection, in the range [0.05, 1.0]. If omitted, the value of the vehicle-confidence parameter is used.
                   type: number
                   format: float
-                  minimum: 0.0
+                  minimum: 0.05
                   maximum: 1.0
             example:
               screenshotUrl: http://localhost:9071/test_obb_002.png
@@ -2321,9 +2321,11 @@ paths:
                     corners: [283.8, 207.99, 390.13, 206.44, 383.7, 452.41, 271.17, 453.46]
                     cuboid: [390.13, 206.44, 383.7, 452.41, 271.17, 453.46, 283.8, 207.99, 372.55, 180.35, 364.14, 448.21, 245.39, 449.07, 261.19, 181.67]
         '204':
-          description: No content
+          description: No vehicles found
         '400':
           description: Bad request
+        '500':
+          description: Internal server error, such as a failed inference
 
   /lprs_callback:
     post:

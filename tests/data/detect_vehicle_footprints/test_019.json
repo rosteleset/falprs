@@ -1,0 +1,7 @@
+{
+  "screenshotUrl": "http://localhost:9071/test_footprints_001.png",
+  "imageSize": 640,
+  "confidenceThreshold": 0.04,
+  "expectedStatus": 400,
+  "expected": []
+}

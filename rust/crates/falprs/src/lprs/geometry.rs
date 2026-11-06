@@ -82,6 +82,12 @@ fn intersect_convex(subject: &[[f32; 2]], clip: &[[f32; 2]]) -> Vec<[f64; 2]> {
     output
 }
 
+/// Area of a simple polygon.
+pub fn polygon_area(polygon: &[[f32; 2]]) -> f32 {
+    let polygon: Vec<[f64; 2]> = polygon.iter().map(|p| [p[0] as f64, p[1] as f64]).collect();
+    signed_area(&polygon).abs() as f32
+}
+
 /// Area of the intersection of two convex polygons.
 pub fn intersection_area(a: &[[f32; 2]], b: &[[f32; 2]]) -> f32 {
     let polygon = intersect_convex(a, b);
@@ -113,6 +119,8 @@ mod tests {
         let reversed = [[0.0, 10.0], [10.0, 10.0], [10.0, 0.0], [0.0, 0.0]];
         let inner = [[2.0, 2.0], [4.0, 2.0], [4.0, 4.0], [2.0, 4.0]];
         assert_eq!(intersection_area(&square, &square), 100.0);
+        assert_eq!(polygon_area(&square), 100.0);
+        assert_eq!(polygon_area(&reversed), 100.0);
         assert_eq!(intersection_area(&square, &shifted), 25.0);
         assert_eq!(intersection_area(&shifted, &reversed), 25.0);
         assert_eq!(intersection_area(&inner, &square), 4.0);
