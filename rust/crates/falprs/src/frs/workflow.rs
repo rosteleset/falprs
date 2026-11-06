@@ -15,7 +15,7 @@ use serde_json::{Value, json};
 
 use super::Frs;
 use super::caches::{descriptor_to_bytes, normalize};
-use super::config::{CommonConfig, VStreamConfig};
+use super::config::{CommonConfig, LocalConfig, VStreamConfig};
 use super::pipeline::{self, Rect, cosine_similarity, crop, enlarge_face_rect};
 use crate::converters::format_time;
 use crate::fetch::{FetchError, decode_base64, fetch_image};
@@ -30,6 +30,9 @@ pub const MIME_IMAGE: &str = "image/jpeg";
 pub const COPY_EVENT_DATA_DISABLED: i16 = -1;
 pub const COPY_EVENT_DATA_NONE: i16 = 0;
 pub const COPY_EVENT_DATA_SCHEDULED: i16 = 1;
+pub const COPY_EVENT_DATA_DONE: i16 = 2;
+/// The data could never be copied (source files missing or invalid); not tried again.
+pub const COPY_EVENT_DATA_FAILED: i16 = 3;
 
 const FACE_NORMAL: i32 = 0;
 const FACE_NONE: i32 = -1;
@@ -1542,22 +1545,67 @@ pub async fn copy_events_maintenance(frs: &Frs) {
         }
     };
     for row in rows {
-        if let Err(e) = copy_event(frs, &row).await {
+        let copied = async {
+            let id_log: i32 = row.try_get(0)?;
+            let job = CopyJob {
+                id_group: row.try_get(1)?,
+                log_uuid: row.try_get::<_, Option<String>>(3)?.unwrap_or_default(),
+                ext_event_uuid: row.try_get::<_, Option<String>>(4)?.unwrap_or_default(),
+                log_date: row.try_get(5)?,
+            };
+            let state = match copy_event_files(&frs.local, &job, Utc::now()).await? {
+                CopyOutcome::Done => COPY_EVENT_DATA_DONE,
+                CopyOutcome::Later => return Ok(()),
+                CopyOutcome::Failed(reason) => {
+                    log!(frs.logger, Level::Error, "the data of face log {id_log} cannot be copied: {reason}");
+                    COPY_EVENT_DATA_FAILED
+                }
+            };
+            frs.cluster
+                .execute(HostType::Master, "update log_faces set copy_data = $1 where id_log = $2", &[&state, &id_log])
+                .await?;
+            anyhow::Ok(())
+        }
+        .await;
+        // Errors reading or writing files or the database are retried by the next run
+        if let Err(e) = copied {
             log_to!(frs.logger, Level::Error, "{e:#}");
         }
     }
 }
 
-async fn copy_event(frs: &Frs, row: &pg_cluster::tokio_postgres::Row) -> Result<()> {
-    let local = &frs.local;
-    let id_log: i32 = row.try_get(0)?;
-    let id_group: i32 = row.try_get::<_, Option<i32>>(1)?.context("video stream without a stream group")?;
-    let s_uuid = row.try_get::<_, Option<String>>(3)?.unwrap_or_default().replace('-', "");
-    let ext_event_uuid: Option<String> = row.try_get(4)?;
-    let log_date: DateTime<Utc> = row.try_get(5)?;
+/// A face log whose event data is to be copied.
+struct CopyJob {
+    id_group: Option<i32>,
+    log_uuid: String,
+    ext_event_uuid: String,
+    log_date: DateTime<Utc>,
+}
+
+/// What became of copying a face log's event data.
+#[derive(Debug, PartialEq)]
+enum CopyOutcome {
+    Done,
+    /// The source files are not written yet: a face log's row is inserted before them.
+    Later,
+    /// The data can never be copied, for the given reason; it is not tried again.
+    Failed(String),
+}
+
+/// How long the source files of a face log may be missing before its copy counts as failed.
+const COPY_SOURCE_GRACE: chrono::TimeDelta = chrono::TimeDelta::minutes(5);
+
+/// Copies a face log's event JSON, with the external event uuid added, to the events directory and
+/// appends its descriptors to the stream group's file of the event's local date. An `Err` is a
+/// transient failure (reading or writing files) to retry.
+async fn copy_event_files(local: &LocalConfig, job: &CopyJob, now: DateTime<Utc>) -> Result<CopyOutcome> {
+    let Some(id_group) = job.id_group else {
+        return Ok(CopyOutcome::Failed("video stream without a stream group".to_string()));
+    };
+    let s_uuid = job.log_uuid.replace('-', "");
     let c: Vec<char> = s_uuid.chars().collect();
     if c.len() < 4 {
-        return Ok(());
+        return Ok(CopyOutcome::Failed(format!("invalid log uuid '{}'", job.log_uuid)));
     }
     let mut suffix = format!("group_{id_group}/{}/{}/{}/{}/", c[0], c[1], c[2], c[3]);
     let mut source = format!("{}{suffix}", local.screenshots_path);
@@ -1568,35 +1616,41 @@ async fn copy_event(frs: &Frs, row: &pg_cluster::tokio_postgres::Row) -> Result<
     }
     let source_json = format!("{source}{s_uuid}.json");
     if !files::exists(Path::new(&source_json)).await {
-        return Ok(());
+        return Ok(if now - job.log_date < COPY_SOURCE_GRACE {
+            CopyOutcome::Later
+        } else {
+            CopyOutcome::Failed(format!("{source_json} does not exist"))
+        });
     }
-    let target = format!("{}{suffix}", local.events_path);
-    tokio::fs::create_dir_all(&target).await?;
 
     // The JSON data with the external event uuid added
-    let mut event: Value = serde_json::from_slice(&tokio::fs::read(&source_json).await?)?;
+    let mut event: Value = match serde_json::from_slice(&tokio::fs::read(&source_json).await?) {
+        Ok(event) => event,
+        Err(e) => return Ok(CopyOutcome::Failed(format!("{source_json}: {e}"))),
+    };
+    // The descriptors were written before the JSON: missing now, they are lost
+    let source_dat = format!("{source}{s_uuid}.dat");
+    let data = match tokio::fs::read(&source_dat).await {
+        Ok(data) => data,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(CopyOutcome::Failed(format!("{source_dat} does not exist"))),
+        Err(e) => return Err(e).with_context(|| format!("can't read {source_dat}")),
+    };
+    let target = format!("{}{suffix}", local.events_path);
+    tokio::fs::create_dir_all(&target).await?;
     if let Value::Object(members) = &mut event {
-        members.insert("event_uuid".to_string(), json!(ext_event_uuid.unwrap_or_default()));
+        members.insert("event_uuid".to_string(), json!(job.ext_event_uuid));
     }
     tokio::fs::write(format!("{target}{s_uuid}.json"), event.to_string()).await?;
-
-    // The descriptors are appended to the stream group's file of the event's local date
-    let Ok(data) = tokio::fs::read(format!("{source}{s_uuid}.dat")).await else {
-        return Ok(());
-    };
-    if data.is_empty() {
-        return Ok(());
+    // A log without descriptors has nothing more to copy
+    if !data.is_empty() {
+        let events_file = format!(
+            "{}group_{id_group}/{}.dat",
+            local.events_path,
+            job.log_date.with_timezone(&Local).format("%Y-%m-%d")
+        );
+        files::append(Path::new(&events_file), &data).await?;
     }
-    let events_file = format!(
-        "{}group_{id_group}/{}.dat",
-        local.events_path,
-        log_date.with_timezone(&Local).format("%Y-%m-%d")
-    );
-    files::append(Path::new(&events_file), &data).await?;
-    frs.cluster
-        .execute(HostType::Master, "update log_faces set copy_data = 2 where id_log = $1", &[&id_log])
-        .await?;
-    Ok(())
+    Ok(CopyOutcome::Done)
 }
 
 pub async fn old_events_maintenance(frs: &Frs) {
@@ -1609,6 +1663,85 @@ pub async fn old_events_maintenance(frs: &Frs) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[tokio::test]
+    async fn event_copies_end_done_failed_or_later() {
+        let root = std::env::temp_dir().join(format!("falprs_copy_events_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        let mut map = serde_json::Map::new();
+        map.insert("screenshots-path".into(), json!(root.join("screenshots").to_str().unwrap()));
+        map.insert("events-path".into(), json!(root.join("events").to_str().unwrap()));
+        let local = LocalConfig::from_config(&map);
+        let now = Utc::now();
+        let job = |uuid: &str, age_minutes: i64| CopyJob {
+            id_group: Some(1),
+            log_uuid: uuid.to_string(),
+            ext_event_uuid: "ext".to_string(),
+            log_date: now - chrono::TimeDelta::minutes(age_minutes),
+        };
+        // Source files of a face log, as log_face_event writes them
+        let source = |uuid: &str, dat: Option<&[u8]>, json: Option<&str>, short: bool| {
+            let s: String = uuid.replace('-', "");
+            let c: Vec<char> = s.chars().collect();
+            let dir = if short {
+                format!("group_1/{}/{}/{}/", c[0], c[1], c[2])
+            } else {
+                format!("group_1/{}/{}/{}/{}/", c[0], c[1], c[2], c[3])
+            };
+            let dir = root.join("screenshots").join(dir);
+            std::fs::create_dir_all(&dir).unwrap();
+            if let Some(dat) = dat {
+                std::fs::write(dir.join(format!("{s}.dat")), dat).unwrap();
+            }
+            if let Some(json) = json {
+                std::fs::write(dir.join(format!("{s}.json")), json).unwrap();
+            }
+        };
+        let events_file = root.join(format!("events/group_1/{}.dat", now.with_timezone(&Local).format("%Y-%m-%d")));
+
+        source("aaaa1111-0000-0000-0000-000000000001", Some(b"0123"), Some(r#"{"faces":[]}"#), false);
+        assert_eq!(
+            copy_event_files(&local, &job("aaaa1111-0000-0000-0000-000000000001", 60), now).await.unwrap(),
+            CopyOutcome::Done
+        );
+        let copied: Value = serde_json::from_slice(&std::fs::read(root.join("events/group_1/a/a/a/a/aaaa1111000000000000000000000001.json")).unwrap()).unwrap();
+        assert_eq!(copied["event_uuid"], "ext");
+        assert_eq!(std::fs::read(&events_file).unwrap(), b"0123");
+
+        // No descriptors: done, nothing appended; the short path of the old project
+        source("bbbb2222-0000-0000-0000-000000000002", Some(b""), Some("{}"), true);
+        assert_eq!(
+            copy_event_files(&local, &job("bbbb2222-0000-0000-0000-000000000002", 60), now).await.unwrap(),
+            CopyOutcome::Done
+        );
+        assert_eq!(std::fs::read(&events_file).unwrap(), b"0123");
+
+        // Sources not written yet: later while the log is recent, failed afterwards
+        let missing = "cccc3333-0000-0000-0000-000000000003";
+        assert_eq!(copy_event_files(&local, &job(missing, 1), now).await.unwrap(), CopyOutcome::Later);
+        assert!(matches!(
+            copy_event_files(&local, &job(missing, 10), now).await.unwrap(),
+            CopyOutcome::Failed(_)
+        ));
+
+        source("dddd4444-0000-0000-0000-000000000004", Some(b"x"), Some("not json"), false);
+        assert!(matches!(
+            copy_event_files(&local, &job("dddd4444-0000-0000-0000-000000000004", 60), now).await.unwrap(),
+            CopyOutcome::Failed(_)
+        ));
+        source("eeee5555-0000-0000-0000-000000000005", None, Some("{}"), false);
+        assert!(matches!(
+            copy_event_files(&local, &job("eeee5555-0000-0000-0000-000000000005", 60), now).await.unwrap(),
+            CopyOutcome::Failed(_)
+        ));
+        assert!(matches!(copy_event_files(&local, &job("ab", 60), now).await.unwrap(), CopyOutcome::Failed(_)));
+        let without_group = CopyJob {
+            id_group: None,
+            ..job("aaaa1111-0000-0000-0000-000000000001", 60)
+        };
+        assert!(matches!(copy_event_files(&local, &without_group, now).await.unwrap(), CopyOutcome::Failed(_)));
+        std::fs::remove_dir_all(&root).unwrap();
+    }
 
     fn unknown(expiration: Instant) -> UnknownDescriptor {
         UnknownDescriptor {
