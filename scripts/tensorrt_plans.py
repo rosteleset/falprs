@@ -93,7 +93,7 @@ REGULAR_MODELS = [
         'sha1': '780006f739019d7f4f58c887f71f208712d7bf54',
         'id': '1JRI70bna7ubzSWRBPhT9CWSktY0GWLb3',
         'template': 'uodnet_{suffix}.engine',
-        'shape_args': '--minShapes=images:1x3x160x160 --optShapes=images:8x3x640x640 --maxShapes=images:8x3x1024x1024',
+        'shape_args': '--minShapes=images:1x3x32x32 --optShapes=images:8x3x640x640 --maxShapes=images:8x3x1024x1024',
         'output_pattern': 'uodnet{suffix}.engine',
     },
 ]

@@ -263,8 +263,6 @@ pub struct Letterbox {
     pub tensor: Vec<f32>,
     pub width: u32,
     pub height: u32,
-    /// Half of the padding added across each axis, in model input pixels.
-    pub padding: (f32, f32),
     /// Pixels actually added on the left and on the top.
     pub offset: (u32, u32),
     /// Model input size divided by image size.
@@ -300,7 +298,6 @@ pub fn letterbox_yolo(image: &RgbImage, target_size: u32) -> Letterbox {
         tensor: to_tensor(&letterboxed, 1.0 / 255.0, 0.0),
         width: letterboxed.width(),
         height: letterboxed.height(),
-        padding,
         offset: (left, top),
         ratio: ratio as f32,
     }
@@ -760,11 +757,10 @@ mod tests {
         let image = RgbImage::new(1920, 1080);
         let letterbox = letterbox_yolo(&image, 320);
         assert_eq!((letterbox.width, letterbox.height), (320, 192));
-        assert_eq!(letterbox.padding, (0.0, 6.0));
         assert_eq!(letterbox.offset, (0, 6));
         assert_eq!(letterbox.tensor.len(), 3 * 320 * 192);
         // An odd padding puts the extra pixel at the bottom
         let letterbox = letterbox_yolo(&RgbImage::new(1920, 1082), 640);
-        assert_eq!((letterbox.height, letterbox.padding.1, letterbox.offset.1), (384, 11.5, 11));
+        assert_eq!((letterbox.height, letterbox.offset.1), (384, 11));
     }
 }

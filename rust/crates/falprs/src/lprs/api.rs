@@ -290,8 +290,8 @@ async fn detect_vehicle_footprints(lprs: &Lprs, id_group: i32, body: &Value) -> 
     let confidence_threshold = match body.get("confidenceThreshold") {
         None => None,
         Some(value) => match converters::to_f32(Some(value), -1.0) {
-            threshold if (0.0..=1.0).contains(&threshold) => Some(threshold),
-            _ => return Err(ApiError::bad_request("Member `confidenceThreshold` must be between 0.0 and 1.0")),
+            threshold if (0.05..=1.0).contains(&threshold) => Some(threshold),
+            _ => return Err(ApiError::bad_request("Member `confidenceThreshold` must be between 0.05 and 1.0")),
         },
     };
 
@@ -347,13 +347,10 @@ async fn detect_vehicle_footprints(lprs: &Lprs, id_group: i32, body: &Value) -> 
     })?;
     stream_log!(stream, Level::Trace, "after decoding the image");
     stream_log!(stream, Level::Trace, "before inference UODNet");
-    let vehicles = match footprints::detect(&lprs.triton, &image, &config, stream).await {
-        Ok(vehicles) => vehicles,
-        Err(e) => {
-            log!(lprs.logger, Level::Error, "Error! Unable to send inference request: {e:#}");
-            Vec::new()
-        }
-    };
+    let vehicles = footprints::detect(&lprs.triton, &image, &config, stream).await.map_err(|e| {
+        stream_log!(stream, Level::Error, "{e:#}");
+        ApiError::server_error()
+    })?;
     stream_log!(stream, Level::Trace, "after inference UODNet");
     if config.logs(Level::Debug) {
         log_to!(lprs.logger, Level::Debug, "End detectVehicleFootprints: vstream_key = {key};");

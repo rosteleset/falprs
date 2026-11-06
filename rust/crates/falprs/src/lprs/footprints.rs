@@ -9,10 +9,9 @@
 use anyhow::{Result, bail};
 use image::RgbImage;
 
-use super::geometry::intersection_area;
+use super::geometry::{intersection_area, iou, polygon_area};
 use super::vstream_config::VStreamConfig;
 use crate::imaging::{Letterbox, letterbox_yolo};
-use crate::log;
 use crate::logging::{Level, StreamLog};
 use crate::stream_log;
 use crate::triton::{InferRequest, Tensor, Triton};
@@ -78,6 +77,8 @@ fn input_size(width: u32, height: u32) -> u32 {
 struct Candidate {
     bbox: [f32; 4],
     footprint: VehicleFootprint,
+    /// The area of the footprint.
+    footprint_area: f32,
 }
 
 pub async fn detect(triton: &Triton, image: &RgbImage, config: &VStreamConfig, log: StreamLog<'_>) -> Result<Vec<VehicleFootprint>> {
@@ -98,8 +99,7 @@ pub async fn detect(triton: &Triton, image: &RgbImage, config: &VStreamConfig, l
         .await?;
     stream_log!(log, Level::Trace, "after inference UODNet");
     let Some(output) = outputs.first() else {
-        log!(log.logger, Level::Error, "Error! Unable to receive inference result");
-        return Ok(Vec::new());
+        bail!("Unable to receive inference result");
     };
     stream_log!(log, Level::Debug, "inference UODNet OK");
     let data = output.as_f32();
@@ -119,8 +119,10 @@ pub async fn detect(triton: &Triton, image: &RgbImage, config: &VStreamConfig, l
         nested_footprint_overlap: config.uod_net_nested_footprint_overlap,
     };
     stream_log!(log, Level::Trace, "vehicle confidence threshold: {:.3}", thresholds.confidence);
-    let detections = tokio::task::block_in_place(|| detections_from_output(&data, anchors, &thresholds));
-    let vehicles = footprints_from_detections(&detections, &letterbox, &thresholds);
+    let vehicles = tokio::task::block_in_place(|| {
+        let detections = detections_from_output(&data, anchors, &thresholds);
+        footprints_from_detections(&detections, &letterbox, &thresholds)
+    });
     stream_log!(log, Level::Trace, "found vehicles: {}", vehicles.len());
     Ok(vehicles)
 }
@@ -131,14 +133,25 @@ pub async fn detect(triton: &Triton, image: &RgbImage, config: &VStreamConfig, l
 fn detections_from_output(data: &[f32], anchors: usize, thresholds: &Thresholds) -> Vec<[f32; DETECTION_COLUMNS]> {
     let threshold = thresholds.confidence;
     let at = |channel: usize, anchor: usize| data[channel * anchors + anchor];
-    let mut candidates: Vec<(f32, usize, usize)> = (0..anchors)
-        .filter_map(|anchor| {
-            let (class, score) = (0..MODEL_CLASSES)
-                .map(|class| (class, at(4 + class, anchor)))
-                .fold((0, f32::MIN), |best, next| if next.1 > best.1 { next } else { best });
-            // NaN scores fail too
-            (score > threshold).then_some((score, class, anchor))
-        })
+    // The most probable class of each anchor, reading the class channels row by row (the first class wins a tie)
+    let mut best_score = vec![f32::MIN; anchors];
+    let mut best_class = vec![0u8; anchors];
+    for class in 0..MODEL_CLASSES {
+        let channel = &data[(4 + class) * anchors..][..anchors];
+        for ((score, best), best_class) in channel.iter().zip(&mut best_score).zip(&mut best_class) {
+            if *score > *best {
+                *best = *score;
+                *best_class = class as u8;
+            }
+        }
+    }
+    let mut candidates: Vec<(f32, usize, usize)> = best_score
+        .iter()
+        .zip(&best_class)
+        .enumerate()
+        // NaN scores fail too
+        .filter(|(_, (score, _))| **score > threshold)
+        .map(|(anchor, (score, class))| (*score, *class as usize, anchor))
         .collect();
     candidates.sort_by(|a, b| b.0.total_cmp(&a.0));
     candidates.truncate(NMS_MAX_CANDIDATES);
@@ -150,7 +163,7 @@ fn detections_from_output(data: &[f32], anchors: usize, thresholds: &Thresholds)
         let bbox = [cx - w / 2.0, cy - h / 2.0, cx + w / 2.0, cy + h / 2.0];
         if kept
             .iter()
-            .any(|(other, other_class)| *other_class == class && box_iou(&bbox, other) > thresholds.nms_iou)
+            .any(|(other, other_class)| *other_class == class && iou(&bbox, other) > thresholds.nms_iou)
         {
             continue;
         }
@@ -170,15 +183,6 @@ fn detections_from_output(data: &[f32], anchors: usize, thresholds: &Thresholds)
     detections
 }
 
-/// IoU of two `[x1, y1, x2, y2]` boxes, as `torchvision.ops.box_iou`.
-fn box_iou(a: &[f32; 4], b: &[f32; 4]) -> f32 {
-    let width = (a[2].min(b[2]) - a[0].max(b[0])).max(0.0);
-    let height = (a[3].min(b[3]) - a[1].max(b[1])).max(0.0);
-    let intersection = width * height;
-    let area = |r: &[f32; 4]| (r[2] - r[0]) * (r[3] - r[1]);
-    intersection / (area(a) + area(b) - intersection)
-}
-
 /// The reported vehicles of one image from its detections, in the order of the detections.
 fn footprints_from_detections(detections: &[[f32; DETECTION_COLUMNS]], letterbox: &Letterbox, thresholds: &Thresholds) -> Vec<VehicleFootprint> {
     let candidates: Vec<Candidate> = detections.iter().filter_map(|row| candidate(row, letterbox, thresholds)).collect();
@@ -191,13 +195,10 @@ fn footprints_from_detections(detections: &[[f32; DETECTION_COLUMNS]], letterbox
         .collect()
 }
 
-/// A detection turned into a vehicle, unless it is filtered out by its score, class, cuboid or footprint.
+/// A detection turned into a vehicle, unless it is filtered out by its class, cuboid or footprint; its score is
+/// above the threshold already.
 fn candidate(row: &[f32; DETECTION_COLUMNS], letterbox: &Letterbox, thresholds: &Thresholds) -> Option<Candidate> {
     let confidence = row[4];
-    // NaN scores fail too
-    if confidence.is_nan() || confidence <= thresholds.confidence {
-        return None;
-    }
     let class = row[5] as usize;
     let &(_, class_id, class_name) = CLASSES.iter().find(|(coco, _, _)| *coco == class)?;
 
@@ -213,10 +214,15 @@ fn candidate(row: &[f32; DETECTION_COLUMNS], letterbox: &Letterbox, thresholds: 
         if v.is_nan() || v < thresholds.keypoint_confidence {
             return None;
         }
+        // A keypoint the model left at the input's origin is missing; once the letterbox is undone it no longer
+        // lies at (0, 0), so the raw coordinates are tested
+        if x.abs() + y.abs() <= 1e-6 {
+            return None;
+        }
         *point = to_frame(x, y);
     }
 
-    // The cuboid must be plausible: finite, non-zero and near its box
+    // The cuboid must be plausible: finite and near its box
     let (width, height) = ((x2 - x1).max(1.0), (y2 - y1).max(1.0));
     let near_box = |[x, y]: [f32; 2]| {
         x >= x1 - KEYPOINT_BOX_MARGIN * width
@@ -224,7 +230,7 @@ fn candidate(row: &[f32; DETECTION_COLUMNS], letterbox: &Letterbox, thresholds: 
             && y >= y1 - KEYPOINT_BOX_MARGIN * height
             && y <= y2 + KEYPOINT_BOX_MARGIN * height
     };
-    let valid = |p: &[f32; 2]| p[0].is_finite() && p[1].is_finite() && p[0].abs() + p[1].abs() > 1e-6 && near_box(*p);
+    let valid = |p: &[f32; 2]| p[0].is_finite() && p[1].is_finite() && near_box(*p);
     if !cuboid.iter().all(valid) {
         return None;
     }
@@ -236,6 +242,7 @@ fn candidate(row: &[f32; DETECTION_COLUMNS], letterbox: &Letterbox, thresholds: 
 
     Some(Candidate {
         bbox: [x1, y1, x2, y2],
+        footprint_area: polygon_area(&corners),
         footprint: VehicleFootprint {
             class_id,
             class_name,
@@ -291,9 +298,7 @@ fn nested_duplicates(candidates: &[Candidate], thresholds: &Thresholds) -> Vec<b
             let width = (a.bbox[2].min(b.bbox[2]) - a.bbox[0].max(b.bbox[0])).max(0.0);
             let height = (a.bbox[3].min(b.bbox[3]) - a.bbox[1].max(b.bbox[1])).max(0.0);
             let intersection = width * height;
-            if intersection / area_a < thresholds.nested_box_overlap
-                || footprint_overlap(&a.footprint.corners, &b.footprint.corners) < thresholds.nested_footprint_overlap
-            {
+            if intersection / area_a < thresholds.nested_box_overlap || footprint_overlap(a, b) < thresholds.nested_footprint_overlap {
                 return false;
             }
             if intersection / box_area(&b.bbox) >= thresholds.nested_box_overlap {
@@ -310,13 +315,13 @@ fn nested_duplicates(candidates: &[Candidate], thresholds: &Thresholds) -> Vec<b
     dropped
 }
 
-/// The intersection of two footprints as a fraction of the smaller one.
-fn footprint_overlap(a: &[[f32; 2]; 4], b: &[[f32; 2]; 4]) -> f32 {
-    let smaller = intersection_area(a, a).min(intersection_area(b, b));
+/// The intersection of two candidates' footprints as a fraction of the smaller one.
+fn footprint_overlap(a: &Candidate, b: &Candidate) -> f32 {
+    let smaller = a.footprint_area.min(b.footprint_area);
     if smaller <= 1e-6 {
         return 0.0;
     }
-    intersection_area(a, b) / smaller
+    intersection_area(&a.footprint.corners, &b.footprint.corners) / smaller
 }
 
 #[cfg(test)]
@@ -337,7 +342,6 @@ mod tests {
             tensor: Vec::new(),
             width: 640,
             height: 640,
-            padding: (0.0, 0.0),
             offset: (0, 0),
             ratio: 1.0,
         }
@@ -455,13 +459,12 @@ mod tests {
     const SQUARE: [[f32; 2]; 4] = [[100.0, 100.0], [140.0, 100.0], [140.0, 180.0], [100.0, 180.0]];
 
     #[test]
-    fn maps_classes_and_filters_scores() {
+    fn maps_classes() {
         let data = [
-            row(2.0, 0.9, SQUARE, 0.9),                                       // car
-            row(7.0, 0.8, SQUARE.map(|p| [p[0] + 200.0, p[1]]), 0.9),         // truck
-            row(5.0, 0.7, SQUARE.map(|p| [p[0] + 400.0, p[1]]), 0.9),         // bus
-            row(0.0, 0.9, SQUARE.map(|p| [p[0], p[1] + 300.0]), 0.9),         // person: not a vehicle
-            row(2.0, 0.5, SQUARE.map(|p| [p[0] + 200.0, p[1] + 300.0]), 0.9), // at the threshold
+            row(2.0, 0.9, SQUARE, 0.9),                               // car
+            row(7.0, 0.8, SQUARE.map(|p| [p[0] + 200.0, p[1]]), 0.9), // truck
+            row(5.0, 0.7, SQUARE.map(|p| [p[0] + 400.0, p[1]]), 0.9), // bus
+            row(0.0, 0.9, SQUARE.map(|p| [p[0], p[1] + 300.0]), 0.9), // person: not a vehicle
         ]
         .concat();
         let vehicles = run(&data, &identity(), &THRESHOLDS);
@@ -508,6 +511,15 @@ mod tests {
         for data in [far, zero, nan, invisible] {
             assert!(run(&data, &identity(), &THRESHOLDS).is_empty());
         }
+        // A keypoint at the input's origin is dropped behind a letterbox too, where it maps to (0, -12): the box
+        // reaches the frame's top left corner, so the point lies near it
+        let letterbox = Letterbox { offset: (0, 12), ..identity() };
+        let ground = [[0.0, 22.0], [40.0, 22.0], [40.0, 102.0], [0.0, 102.0]];
+        let mut padded = row(2.0, 0.9, ground, 0.9);
+        assert_eq!(run(&padded, &letterbox, &THRESHOLDS).len(), 1);
+        padded[9] = 0.0;
+        padded[10] = 0.0;
+        assert!(run(&padded, &letterbox, &THRESHOLDS).is_empty());
         // A zero keypoint threshold disables the v test only
         let mut invisible = row(2.0, 0.9, SQUARE, 0.1);
         let no_v = Thresholds {
