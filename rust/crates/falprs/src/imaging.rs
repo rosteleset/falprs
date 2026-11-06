@@ -69,34 +69,44 @@ fn resize_with_taps(src: &RgbImage, width: u32, height: u32, xs: &[Tap], ys: &[T
     let row_len = src_w as usize * 3;
 
     // Horizontal pass of one source row into fixed-point intermediate values
-    let horizontal = |y: usize| -> Vec<i32> {
+    let horizontal = |y: usize, out: &mut [i32]| {
         let row = &src_raw[y * row_len..(y + 1) * row_len];
-        let mut out = Vec::with_capacity(width as usize * 3);
-        for &(sx, w0, w1) in xs {
+        for (&(sx, w0, w1), out) in xs.iter().zip(out.as_chunks_mut::<3>().0) {
             let next = (sx + 1).min(src_w as usize - 1);
             for c in 0..3 {
-                out.push(row[sx * 3 + c] as i32 * w0 + row[next * 3 + c] as i32 * w1);
+                out[c] = row[sx * 3 + c] as i32 * w0 + row[next * 3 + c] as i32 * w1;
             }
         }
-        out
     };
 
+    let dst_row_len = width as usize * 3;
     let mut dst = RgbImage::new(width, height);
     let dst_raw: &mut [u8] = &mut dst;
-    let mut cached: Option<(usize, Vec<i32>)> = None;
+    // The two source rows of the current destination row after the horizontal pass, kept while the next
+    // destination rows use them: when upscaling, several destination rows share their source rows
+    let (mut row0, mut row1) = (vec![0; dst_row_len], vec![0; dst_row_len]);
+    let (mut y0, mut y1) = (usize::MAX, usize::MAX);
     for (dy, &(sy, w0, w1)) in ys.iter().enumerate() {
-        let row0 = match cached.take() {
-            Some((y, row)) if y == sy => row,
-            _ => horizontal(sy),
-        };
-        let row1 = horizontal((sy + 1).min(src_h as usize - 1));
-        let out = &mut dst_raw[dy * width as usize * 3..(dy + 1) * width as usize * 3];
-        for (i, value) in out.iter_mut().enumerate() {
+        let sy1 = (sy + 1).min(src_h as usize - 1);
+        if y0 != sy {
+            if y1 == sy {
+                std::mem::swap(&mut row0, &mut row1);
+                std::mem::swap(&mut y0, &mut y1);
+            } else {
+                horizontal(sy, &mut row0);
+                y0 = sy;
+            }
+        }
+        if y1 != sy1 {
+            horizontal(sy1, &mut row1);
+            y1 = sy1;
+        }
+        let out = &mut dst_raw[dy * dst_row_len..(dy + 1) * dst_row_len];
+        for ((value, &a), &b) in out.iter_mut().zip(&row0).zip(&row1) {
             // OpenCV's vectorised vertical pass: products of 16-bit values keep their high halves
-            let sum = ((w0 * (row0[i] >> 4)) >> 16) + ((w1 * (row1[i] >> 4)) >> 16) + 2;
+            let sum = ((w0 * (a >> 4)) >> 16) + ((w1 * (b >> 4)) >> 16) + 2;
             *value = (sum >> 2).clamp(0, 255) as u8;
         }
-        cached = Some((sy + 1, row1));
     }
     dst
 }
@@ -277,8 +287,9 @@ pub fn letterbox_yolo(image: &RgbImage, target_size: u32) -> Letterbox {
 
     let (w, h) = image.dimensions();
     let ratio = (target_size as f64 / h as f64).min(target_size as f64 / w as f64);
-    let new_w = (w as f64 * ratio).round() as u32;
-    let new_h = (h as f64 * ratio).round() as u32;
+    // Python's `round` (ties to even), as ultralytics: 682.5 rows become 682, not 683
+    let new_w = (w as f64 * ratio).round_ties_even() as u32;
+    let new_h = (h as f64 * ratio).round_ties_even() as u32;
     let dw = (target_size as i64 - new_w as i64) % STRIDE;
     let dh = (target_size as i64 - new_h as i64) % STRIDE;
     let padding = (dw as f32 / 2.0, dh as f32 / 2.0);
@@ -762,5 +773,8 @@ mod tests {
         // An odd padding puts the extra pixel at the bottom
         let letterbox = letterbox_yolo(&RgbImage::new(1920, 1082), 640);
         assert_eq!((letterbox.height, letterbox.offset.1), (384, 11));
+        // 1365 rows at ratio 0.5 make 682.5: Python's `round` gives 682 (ties to even), padded by 22 to 704
+        let letterbox = letterbox_yolo(&RgbImage::new(2048, 1365), 1024);
+        assert_eq!((letterbox.width, letterbox.height, letterbox.offset.1), (1024, 704, 11));
     }
 }

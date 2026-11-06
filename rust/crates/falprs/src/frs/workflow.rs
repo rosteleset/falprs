@@ -101,7 +101,10 @@ pub struct DnnStats {
 
 struct UnknownDescriptor {
     expiration: Instant,
+    /// As the model gave it: a spawned descriptor is stored in PostgreSQL this way.
     descriptor: Vec<f32>,
+    /// Scaled to unit length, for the similarity.
+    normalized: Vec<f32>,
     face_image: RgbImage,
 }
 
@@ -738,6 +741,7 @@ async fn pipeline_body(ctx: &mut Run<'_>, url: &str) -> Result<Flow> {
                 list.push(UnknownDescriptor {
                     expiration: now + config.unknown_descriptor_ttl,
                     descriptor: face_data[index].descriptor.clone(),
+                    normalized: normalized.clone(),
                     face_image,
                 });
             }
@@ -912,9 +916,7 @@ async fn spawn_descriptor(ctx: &Run<'_>, key: &str, descriptor: &[f32], id_paren
         list.retain(|item| item.expiration >= now);
         let mut best: Option<(f64, usize)> = None;
         for (i, item) in list.iter().enumerate() {
-            let mut normalized = item.descriptor.clone();
-            normalize(&mut normalized);
-            let similarity = cosine_similarity(descriptor, &normalized);
+            let similarity = cosine_similarity(descriptor, &item.normalized);
             if best.is_none_or(|(max, _)| similarity > max) {
                 best = Some((similarity, i));
             }
@@ -1659,6 +1661,7 @@ mod tests {
         UnknownDescriptor {
             expiration,
             descriptor: vec![1.0],
+            normalized: vec![1.0],
             face_image: RgbImage::new(1, 1),
         }
     }
