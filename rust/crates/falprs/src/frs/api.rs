@@ -22,7 +22,7 @@ use serde_json::{Map, Value, json};
 use super::Frs;
 use super::caches::{descriptor_from_bytes, vstream_key};
 use super::config::LocalConfig;
-use super::events::{EVENT_DATA_SIZE, EventData};
+use super::events::{DESCRIPTOR_SIZE, EventRecord};
 use super::workflow::{self, TaskData, TaskType};
 use crate::converters;
 use crate::files;
@@ -760,7 +760,7 @@ fn stored_descriptors(rows: &[pg_cluster::tokio_postgres::Row]) -> HashMap<i32, 
         .map(|row| {
             let bytes: Option<&[u8]> = row.get(1);
             let mut descriptor = descriptor_from_bytes(bytes.unwrap_or_default());
-            descriptor.resize(super::events::DESCRIPTOR_SIZE, 0.0);
+            descriptor.resize(DESCRIPTOR_SIZE, 0.0);
             (row.get(0), descriptor)
         })
         .collect()
@@ -1276,53 +1276,35 @@ fn parse_date(text: &str) -> Option<DateTime<Utc>> {
     Some(Utc.from_utc_datetime(&date.and_hms_opt(0, 0, 0)?))
 }
 
-/// Event records of a `.dat` file; a trailing partial record is ignored.
-async fn read_event_data(path: &FsPath) -> Vec<EventData> {
-    tokio::fs::read(path)
-        .await
-        .map(|bytes| {
-            bytes
-                .as_chunks::<EVENT_DATA_SIZE>()
-                .0
-                .iter()
-                .map(|record| EventData::from_bytes(record))
-                .collect()
-        })
-        .unwrap_or_default()
-}
-
 async fn read_json(path: &FsPath) -> Option<Value> {
     let bytes = tokio::fs::read(path).await.ok().filter(|bytes| !bytes.is_empty())?;
     serde_json::from_slice(&bytes).ok()
 }
 
-/// The query descriptors more similar than `threshold` to each record, with their similarities,
-/// for the records that have any; records for which `skip` holds are not compared.
-fn matching_descriptors(
-    records: &[EventData],
-    descriptors: &[(i32, &[f32], f64)],
-    threshold: f64,
-    skip: impl Fn(&EventData) -> bool,
-) -> Vec<(usize, Vec<(i32, f64)>)> {
-    records
-        .iter()
-        .enumerate()
-        .filter(|(_, data)| !skip(data))
-        .filter_map(|(index, data)| {
-            let norm = similarity::norm(&data.descriptor);
-            let matches: Vec<(i32, f64)> = descriptors
-                .iter()
-                .map(|&(id_descriptor, descriptor, descriptor_norm)| {
-                    (
-                        id_descriptor,
-                        similarity::cosine_with_norms(descriptor, descriptor_norm, &data.descriptor, norm),
-                    )
-                })
-                .filter(|&(_, similarity)| similarity > threshold)
-                .collect();
-            (!matches.is_empty()).then_some((index, matches))
-        })
-        .collect()
+/// The event ids of the records of an event data file's contents more similar than `threshold`
+/// to any query descriptor, with those descriptors and their similarities. Records whose event id
+/// `skip` holds for are not compared; a record is decoded into one reused buffer, so only records
+/// with matches allocate.
+fn matching_records(bytes: &[u8], descriptors: &[(i32, &[f32], f64)], threshold: f64, skip: impl Fn(&str) -> bool) -> Vec<(String, Vec<(i32, f64)>)> {
+    let mut descriptor = [0.0; DESCRIPTOR_SIZE];
+    let mut matched = Vec::new();
+    for record in EventRecord::all(bytes) {
+        let event_id = record.event_id();
+        if skip(&event_id) {
+            continue;
+        }
+        record.read_descriptor(&mut descriptor);
+        let norm = similarity::norm(&descriptor);
+        let matches: Vec<(i32, f64)> = descriptors
+            .iter()
+            .map(|&(id_descriptor, query, query_norm)| (id_descriptor, similarity::cosine_with_norms(query, query_norm, &descriptor, norm)))
+            .filter(|&(_, similarity)| similarity > threshold)
+            .collect();
+        if !matches.is_empty() {
+            matched.push((event_id.into_owned(), matches));
+        }
+    }
+    matched
 }
 
 /// Characters of an event id used as directory levels.
@@ -1428,11 +1410,11 @@ async fn search_files(
                 continue;
             }
             let stem = name.trim_end_matches(".dat");
-            let records = read_event_data(&path).await;
-            let matched = tokio::task::block_in_place(|| matching_descriptors(&records, &descriptors, threshold, |_| false));
-            for (index, matches) in matched {
+            let Ok(bytes) = tokio::fs::read(&path).await else { continue };
+            let matched = tokio::task::block_in_place(|| matching_records(&bytes, &descriptors, threshold, |_| false));
+            for (event_id, matches) in matched {
                 // The event's JSON, read once for all descriptors matching the record
-                let event_id = &records[index].event_id;
+                let event_id = &event_id;
                 event_ids.insert(event_id.clone());
                 let c = id_chars(event_id);
                 let mut json_path = PathBuf::from(format!("{group_dir}/{}/{}/{}/{}/{event_id}.json", c[0], c[1], c[2], c[3]));
@@ -1472,9 +1454,9 @@ async fn search_files(
             if !metadata.modified().is_ok_and(|modified| modified >= start && modified < end) {
                 continue;
             }
-            let records = read_event_data(&path).await;
+            let Ok(bytes) = tokio::fs::read(&path).await else { continue };
             // A log entry already found among the events is skipped
-            let matched = tokio::task::block_in_place(|| matching_descriptors(&records, &descriptors, threshold, |data| event_ids.contains(&data.event_id)));
+            let matched = tokio::task::block_in_place(|| matching_records(&bytes, &descriptors, threshold, |event_id| event_ids.contains(event_id)));
             if matched.is_empty() {
                 continue;
             }
@@ -1494,11 +1476,11 @@ async fn search_files(
                 "{}group_{id_group}/{}/{}/{}/{}/{stem}.jpg",
                 local.screenshots_url_prefix, c[0], c[1], c[2], c[3]
             );
-            for (index, matches) in matched {
+            for (event_id, matches) in matched {
                 for (id_descriptor, similarity) in matches {
                     results.push(SearchResult {
                         event_date: event_date.to_string(),
-                        event_id: records[index].event_id.clone(),
+                        event_id: event_id.clone(),
                         uuid: String::new(),
                         url_image: url_image.clone(),
                         id_descriptor,

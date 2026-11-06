@@ -1,6 +1,8 @@
 //! Event data files: descriptors of logged faces and copied events, appended as packed records
 //! of a 32-byte event id, a 32-bit descriptor position and the descriptor's floats.
 
+use std::borrow::Cow;
+
 /// Number of floats in a descriptor record.
 pub const DESCRIPTOR_SIZE: usize = 512;
 
@@ -9,37 +11,27 @@ const EVENT_ID_SIZE: usize = 32;
 /// Size of one packed record in an event data file.
 pub const EVENT_DATA_SIZE: usize = EVENT_ID_SIZE + 4 + DESCRIPTOR_SIZE * 4;
 
-pub struct EventData {
-    pub event_id: String,
-    /// Index of the face in its event.
-    #[allow(dead_code)]
-    pub position: i32,
-    pub descriptor: Vec<f32>,
-}
+/// A packed record of an event data file, read in place.
+#[derive(Clone, Copy)]
+pub struct EventRecord<'a>(&'a [u8; EVENT_DATA_SIZE]);
 
-impl EventData {
-    /// Reads a record from exactly `EVENT_DATA_SIZE` native-endian bytes.
-    pub fn from_bytes(bytes: &[u8]) -> Self {
-        let (id, rest) = bytes.split_at(EVENT_ID_SIZE);
-        let (position, descriptor) = rest.split_at(4);
-        Self {
-            event_id: String::from_utf8_lossy(id).into_owned(),
-            position: i32::from_ne_bytes([position[0], position[1], position[2], position[3]]),
-            descriptor: super::caches::descriptor_from_bytes(descriptor),
-        }
+impl<'a> EventRecord<'a> {
+    /// The records of a file's contents; a trailing partial record is ignored.
+    pub fn all(bytes: &'a [u8]) -> impl Iterator<Item = EventRecord<'a>> {
+        bytes.as_chunks::<EVENT_DATA_SIZE>().0.iter().map(EventRecord)
     }
 
-    #[cfg(test)]
-    fn to_bytes(&self) -> Vec<u8> {
-        let mut bytes = Vec::with_capacity(EVENT_DATA_SIZE);
-        let mut id = self.event_id.as_bytes().to_vec();
-        id.resize(EVENT_ID_SIZE, 0);
-        bytes.extend_from_slice(&id);
-        bytes.extend_from_slice(&self.position.to_ne_bytes());
-        let mut descriptor = self.descriptor.clone();
-        descriptor.resize(DESCRIPTOR_SIZE, 0.0);
-        bytes.extend_from_slice(&super::caches::descriptor_to_bytes(&descriptor));
-        bytes
+    /// The event id, with invalid UTF-8 replaced; borrowed from the record when it is valid.
+    pub fn event_id(self) -> Cow<'a, str> {
+        String::from_utf8_lossy(&self.0[..EVENT_ID_SIZE])
+    }
+
+    /// Decodes the descriptor's native-endian floats into `descriptor`.
+    pub fn read_descriptor(self, descriptor: &mut [f32; DESCRIPTOR_SIZE]) {
+        let bytes = self.0[EVENT_ID_SIZE + 4..].as_chunks::<4>().0;
+        for (value, bytes) in descriptor.iter_mut().zip(bytes) {
+            *value = f32::from_ne_bytes(*bytes);
+        }
     }
 }
 
@@ -48,17 +40,22 @@ mod tests {
     use super::*;
 
     #[test]
-    fn record_round_trip() {
-        let data = EventData {
-            event_id: "0123456789abcdef0123456789abcdef".to_string(),
-            position: 7,
-            descriptor: (0..DESCRIPTOR_SIZE).map(|i| i as f32).collect(),
-        };
-        let bytes = data.to_bytes();
-        assert_eq!(bytes.len(), EVENT_DATA_SIZE);
-        let read = EventData::from_bytes(&bytes);
-        assert_eq!(read.event_id, data.event_id);
-        assert_eq!(read.position, 7);
-        assert_eq!(read.descriptor, data.descriptor);
+    fn records_are_read_in_place() {
+        let descriptor: Vec<f32> = (0..DESCRIPTOR_SIZE).map(|i| i as f32 - 0.5).collect();
+        let mut bytes = Vec::new();
+        for id in ["0123456789abcdef0123456789abcdef", "fedcba9876543210fedcba9876543210"] {
+            bytes.extend_from_slice(id.as_bytes());
+            bytes.extend_from_slice(&7i32.to_ne_bytes());
+            bytes.extend_from_slice(&super::super::caches::descriptor_to_bytes(&descriptor));
+        }
+        // A trailing partial record is ignored
+        bytes.extend_from_slice(b"partial");
+        let records: Vec<EventRecord> = EventRecord::all(&bytes).collect();
+        assert_eq!(records.len(), 2);
+        assert_eq!(records[1].event_id(), "fedcba9876543210fedcba9876543210");
+        assert!(matches!(records[0].event_id(), Cow::Borrowed(_)));
+        let mut read = [0.0; DESCRIPTOR_SIZE];
+        records[0].read_descriptor(&mut read);
+        assert_eq!(read[..], descriptor[..]);
     }
 }
