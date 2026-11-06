@@ -21,12 +21,13 @@ use serde_json::{Map, Value, json};
 
 use super::Frs;
 use super::caches::{descriptor_from_bytes, vstream_key};
-use super::events::{EVENT_DATA_SIZE, EventData, cosine_similarity};
+use super::events::{EVENT_DATA_SIZE, EventData};
 use super::workflow::{self, TaskData, TaskType};
 use crate::converters;
 use crate::http_api::{ApiError, ApiResult, data_response, no_content, require_member};
 use crate::log;
 use crate::logging::Level;
+use falprs::similarity;
 
 pub fn router(frs: Arc<Frs>) -> Router {
     let route = if frs.api_allows_get {
@@ -790,11 +791,14 @@ async fn cluster_faces_by_similarity(frs: &Frs, id_group: i32, body: &Value) -> 
 
     // Connected components of the similarity graph, found by BFS
     let vectors: Vec<&[f32]> = available.iter().map(|id| descriptors[id].as_slice()).collect();
+    // Cosine similarity accumulated in single precision like the C++ service's AVX version, with
+    // each norm computed once instead of twice per pair
+    let norms: Vec<f64> = vectors.iter().map(|v| similarity::norm(v)).collect();
     let n = available.len();
     let mut adjacent = vec![Vec::new(); n];
     for i in 0..n {
         for j in i + 1..n {
-            if cosine_similarity(vectors[i], vectors[j]) >= f64::from(threshold) {
+            if similarity::cosine_with_norms(vectors[i], norms[i], vectors[j], norms[j]) >= f64::from(threshold) {
                 adjacent[i].push(j);
                 adjacent[j].push(i);
             }
@@ -1382,6 +1386,9 @@ fn search_files(
     (flag_logs, flag_events): (bool, bool),
 ) -> Vec<SearchResult> {
     let threshold = f64::from(threshold);
+    // Cosine similarity accumulated in single precision like the C++ service's AVX version, with
+    // the norms computed once per descriptor
+    let descriptors: Vec<(i32, &[f32], f64)> = descriptors.iter().map(|(&id, d)| (id, d.as_slice(), similarity::norm(d))).collect();
     let mut results = Vec::new();
     let mut event_ids = HashSet::new();
     let local = &frs.local;
@@ -1397,8 +1404,9 @@ fn search_files(
                 continue;
             }
             for data in read_event_data(&path) {
-                for (&id_descriptor, descriptor) in descriptors {
-                    let similarity = cosine_similarity(descriptor, &data.descriptor);
+                let norm = similarity::norm(&data.descriptor);
+                for &(id_descriptor, descriptor, descriptor_norm) in &descriptors {
+                    let similarity = similarity::cosine_with_norms(descriptor, descriptor_norm, &data.descriptor, norm);
                     if similarity <= threshold {
                         continue;
                     }
@@ -1445,8 +1453,9 @@ fn search_files(
                 continue;
             }
             for data in read_event_data(&path) {
-                for (&id_descriptor, descriptor) in descriptors {
-                    let similarity = cosine_similarity(descriptor, &data.descriptor);
+                let norm = similarity::norm(&data.descriptor);
+                for &(id_descriptor, descriptor, descriptor_norm) in &descriptors {
+                    let similarity = similarity::cosine_with_norms(descriptor, descriptor_norm, &data.descriptor, norm);
                     // A log entry already found among the events is skipped
                     if similarity <= threshold || event_ids.contains(&data.event_id) {
                         continue;

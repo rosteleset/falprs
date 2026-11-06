@@ -849,60 +849,45 @@ fn recognize(ctx: &Run<'_>, task: &TaskData, descriptor: &[f32], face: &mut Face
     let sg_config = frs.sg_config.get();
     let sg_descriptors = frs.sg_descriptors.get();
 
-    let mut max_similarity = -2.0;
-    let mut id_descriptor = 0;
+    let mut best = (-2.0, 0);
     if config.id_vstream > 0 {
-        for id in vstream_descriptors.get(&config.id_vstream).into_iter().flatten() {
-            if let Some(known) = face_descriptors.descriptors.get(id) {
-                let similarity = cosine_similarity(descriptor, known);
-                if similarity > max_similarity {
-                    max_similarity = similarity;
-                    id_descriptor = *id;
-                }
-            }
-        }
+        frs.vstream_lists
+            .get(config.id_vstream, &vstream_descriptors, &face_descriptors)
+            .find_best(descriptor, &mut best);
     }
-    if let Some(&id_parent) = face_descriptors.spawned_to_parent.get(&id_descriptor) {
+    if let Some(&id_parent) = face_descriptors.spawned_to_parent.get(&best.1) {
         if ctx.logs(Level::Trace) {
             log_to!(
                 frs.logger,
                 Level::Trace,
-                "vstream_key = {};  spawned id_descriptor = {id_descriptor};  parent id_descriptor = {id_parent}",
-                task.vstream_key
+                "vstream_key = {};  spawned id_descriptor = {};  parent id_descriptor = {id_parent}",
+                task.vstream_key,
+                best.1
             );
         }
-        id_descriptor = id_parent;
+        best.1 = id_parent;
     }
 
     if task.id_sgroup > 0 {
-        for id in sg_descriptors.get(&task.id_sgroup).into_iter().flatten() {
-            if let Some(known) = face_descriptors.descriptors.get(id) {
-                let similarity = cosine_similarity(descriptor, known);
-                if similarity > max_similarity {
-                    max_similarity = similarity;
-                    id_descriptor = *id;
-                }
-            }
-        }
+        frs.sg_lists
+            .get(task.id_sgroup, &sg_descriptors, &face_descriptors)
+            .find_best(descriptor, &mut best);
     } else {
-        for id_sgroup in sg_config.by_group.get(&config.id_group).into_iter().flatten() {
-            let Some(group_descriptors) = sg_descriptors.get(id_sgroup) else { continue };
-            let mut best = (-2.0, 0);
-            for id in group_descriptors {
-                if let Some(known) = face_descriptors.descriptors.get(id) {
-                    let similarity = cosine_similarity(descriptor, known);
-                    if similarity > best.0 {
-                        best = (similarity, *id);
-                    }
-                }
+        for &id_sgroup in sg_config.by_group.get(&config.id_group).into_iter().flatten() {
+            if !sg_descriptors.contains_key(&id_sgroup) {
+                continue;
             }
-            if best.1 > 0 && best.0 >= f64::from(config.tolerance) {
-                face.sg_descriptors.insert(*id_sgroup, best);
+            let mut group_best = (-2.0, 0);
+            frs.sg_lists
+                .get(id_sgroup, &sg_descriptors, &face_descriptors)
+                .find_best(descriptor, &mut group_best);
+            if group_best.1 > 0 && group_best.0 >= f64::from(config.tolerance) {
+                face.sg_descriptors.insert(id_sgroup, group_best);
                 *has_sgroup_events = true;
             }
         }
     }
-    (max_similarity, id_descriptor)
+    best
 }
 
 /// Turns the most similar recent unknown descriptor into a descriptor spawned from the recognized one.
