@@ -26,6 +26,14 @@ impl<'a> EventRecord<'a> {
         String::from_utf8_lossy(&self.0[..EVENT_ID_SIZE])
     }
 
+    /// The raw event id and the face's position in the event: what tells records apart, as an
+    /// event's faces have different positions.
+    pub fn key(self) -> ([u8; EVENT_ID_SIZE], i32) {
+        let (id, rest) = self.0.split_first_chunk::<EVENT_ID_SIZE>().expect("a whole record");
+        let position = rest.first_chunk::<4>().expect("a whole record");
+        (*id, i32::from_ne_bytes(*position))
+    }
+
     /// Decodes the descriptor's native-endian floats into `descriptor`.
     pub fn read_descriptor(self, descriptor: &mut [f32; DESCRIPTOR_SIZE]) {
         let bytes = self.0[EVENT_ID_SIZE + 4..].as_chunks::<4>().0;
@@ -54,6 +62,7 @@ mod tests {
         assert_eq!(records.len(), 2);
         assert_eq!(records[1].event_id(), "fedcba9876543210fedcba9876543210");
         assert!(matches!(records[0].event_id(), Cow::Borrowed(_)));
+        assert_eq!(records[1].key(), (*b"fedcba9876543210fedcba9876543210", 7));
         let mut read = [0.0; DESCRIPTOR_SIZE];
         records[0].read_descriptor(&mut read);
         assert_eq!(read[..], descriptor[..]);

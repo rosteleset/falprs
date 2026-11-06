@@ -1294,10 +1294,13 @@ async fn read_json(path: &FsPath) -> Option<Value> {
 /// The event ids of the records of an event data file's contents more similar than `threshold`
 /// to any query descriptor, with those descriptors and their similarities. Records whose event id
 /// `skip` holds for are not compared; a record is decoded into one reused buffer, so only records
-/// with matches allocate.
+/// with matches allocate. A record repeated in the file (same event id and face position, as an
+/// interrupted event copy appends its records again) counts once, at its first occurrence.
 fn matching_records(bytes: &[u8], descriptors: &[(i32, &[f32], f64)], threshold: f64, skip: impl Fn(&str) -> bool) -> Vec<(String, Vec<(i32, f64)>)> {
     let mut descriptor = [0.0; DESCRIPTOR_SIZE];
     let mut matched = Vec::new();
+    // Repeated records match exactly as their first occurrence, so only matching keys are kept
+    let mut matched_keys = HashSet::new();
     for record in EventRecord::all(bytes) {
         let event_id = record.event_id();
         if skip(&event_id) {
@@ -1310,7 +1313,7 @@ fn matching_records(bytes: &[u8], descriptors: &[(i32, &[f32], f64)], threshold:
             .map(|&(id_descriptor, query, query_norm)| (id_descriptor, similarity::cosine_with_norms(query, query_norm, &descriptor, norm)))
             .filter(|&(_, similarity)| similarity > threshold)
             .collect();
-        if !matches.is_empty() {
+        if !matches.is_empty() && matched_keys.insert(record.key()) {
             matched.push((event_id.into_owned(), matches));
         }
     }
@@ -1587,6 +1590,32 @@ async fn get_barcode_event(frs: &Frs, id_group: i32, body: &Value) -> Result<Val
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn repeated_event_records_match_once() {
+        let record = |id: &str, position: i32, descriptor: &[f32]| {
+            let mut bytes = id.as_bytes().to_vec();
+            bytes.extend_from_slice(&position.to_ne_bytes());
+            bytes.extend_from_slice(&super::super::caches::descriptor_to_bytes(descriptor));
+            bytes
+        };
+        let face: Vec<f32> = (0..DESCRIPTOR_SIZE).map(|i| (i % 7) as f32 - 3.0).collect();
+        let other: Vec<f32> = face.iter().map(|v| v + 0.5).collect();
+        let (a, b) = ("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb");
+        // Event a with two faces, event b, then event a appended again by an interrupted copy
+        let file: Vec<u8> = [
+            record(a, 0, &face),
+            record(a, 1, &other),
+            record(b, 0, &face),
+            record(a, 0, &face),
+            record(a, 1, &other),
+        ]
+        .concat();
+        let queries = [(7, face.as_slice(), similarity::norm(&face))];
+        let matched = matching_records(&file, &queries, 0.5, |_| false);
+        let ids: Vec<(&str, usize)> = matched.iter().map(|(id, matches)| (id.as_str(), matches.len())).collect();
+        assert_eq!(ids, [(a, 1), (a, 1), (b, 1)]);
+    }
 
     #[test]
     fn special_groups_belong_to_their_stream_group() {
