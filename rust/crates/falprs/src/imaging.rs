@@ -260,23 +260,33 @@ pub fn crop(image: &RgbImage, x1: i32, y1: i32, x2: i32, y2: i32) -> Result<RgbI
     Ok(image::imageops::crop_imm(image, left as u32, top as u32, (right - left) as u32, (bottom - top) as u32).to_image())
 }
 
-/// Adds a constant border, like OpenCV's `copyMakeBorder` with `BORDER_CONSTANT`.
-pub fn pad(src: &RgbImage, top: u32, bottom: u32, left: u32, right: u32, value: u8) -> RgbImage {
-    let (w, h) = src.dimensions();
-    let mut dst = RgbImage::from_pixel(w + left + right, h + top + bottom, Rgb([value; 3]));
-    image::imageops::replace(&mut dst, src, left as i64, top as i64);
-    dst
-}
-
 /// Packs an RGB image into an NCHW float tensor with `(pixel - mean) * scale`, like OpenCV's
 /// `blobFromImage` with `swapRB` on a BGR image.
 pub fn to_tensor(image: &RgbImage, scale: f32, mean: f32) -> Vec<f32> {
-    let plane = (image.width() * image.height()) as usize;
-    let mut tensor = vec![0.0; plane * 3];
-    for (i, pixel) in image.pixels().enumerate() {
-        for c in 0..3 {
-            tensor[c * plane + i] = (pixel[c] as f32 - mean) * scale;
+    let (width, height) = image.dimensions();
+    to_tensor_padded(image, (width, height), (0, 0), 0, scale, mean)
+}
+
+/// [`to_tensor`] of `image` placed at `offset` (left, top) on a `size` canvas filled with `pad_value`,
+/// without building the canvas: like `copyMakeBorder` with `BORDER_CONSTANT` followed by `blobFromImage`.
+fn to_tensor_padded(image: &RgbImage, size: (u32, u32), offset: (u32, u32), pad_value: u8, scale: f32, mean: f32) -> Vec<f32> {
+    let (width, height) = (size.0 as usize, size.1 as usize);
+    let (image_width, image_height) = (image.width() as usize, image.height() as usize);
+    let (left, top) = (offset.0 as usize, offset.1 as usize);
+    debug_assert!(left + image_width <= width && top + image_height <= height);
+    // Each plane is written once, front to back: the top border, the rows with their side borders, the bottom border
+    let fill = (pad_value as f32 - mean) * scale;
+    let mut tensor = Vec::with_capacity(width * height * 3);
+    for c in 0..3 {
+        tensor.extend(std::iter::repeat_n(fill, top * width));
+        if image_width > 0 {
+            for row in image.as_raw().chunks_exact(image_width * 3) {
+                tensor.extend(std::iter::repeat_n(fill, left));
+                tensor.extend(row.as_chunks::<3>().0.iter().map(|pixel| (pixel[c] as f32 - mean) * scale));
+                tensor.extend(std::iter::repeat_n(fill, width - left - image_width));
+            }
         }
+        tensor.extend(std::iter::repeat_n(fill, (height - top - image_height) * width));
     }
     tensor
 }
@@ -307,37 +317,41 @@ pub fn letterbox_yolo(image: &RgbImage, target_size: u32) -> Letterbox {
     let dh = (target_size as i64 - new_h as i64) % STRIDE;
     let padding = (dw as f32 / 2.0, dh as f32 / 2.0);
 
-    let resized = if (new_w, new_h) == (w, h) {
-        image.clone()
+    let resized;
+    let image = if (new_w, new_h) == (w, h) {
+        image
     } else {
-        resize_linear(image, new_w, new_h)
+        resized = resize_linear(image, new_w, new_h);
+        &resized
     };
     let top = (padding.1 - 0.1).round() as u32;
     let bottom = (padding.1 + 0.1).round() as u32;
     let left = (padding.0 - 0.1).round() as u32;
     let right = (padding.0 + 0.1).round() as u32;
-    let letterboxed = pad(&resized, top, bottom, left, right, PADDING_VALUE);
+    let (width, height) = (new_w + left + right, new_h + top + bottom);
 
     Letterbox {
-        tensor: to_tensor(&letterboxed, 1.0 / 255.0, 0.0),
-        width: letterboxed.width(),
-        height: letterboxed.height(),
+        tensor: to_tensor_padded(image, (width, height), (left, top), PADDING_VALUE, 1.0 / 255.0, 0.0),
+        width,
+        height,
         offset: (left, top),
         ratio: ratio as f32,
     }
 }
 
 /// A centred letterbox with a constant 114 border, as the C++ service prepares inputs for
-/// YOLO detectors and the plate classifier. Returns the image, its offset and its scale.
-fn letterbox_centred(image: &RgbImage, width: u32, height: u32) -> (RgbImage, (f32, f32), f64) {
+/// YOLO detectors and the plate classifier, packed by [`to_tensor`] with `tensor_scale` and `mean`.
+/// Returns the tensor, the image's offset and its scale.
+fn letterbox_centred(image: &RgbImage, width: u32, height: u32, tensor_scale: f32, mean: f32) -> (Vec<f32>, (f32, f32), f64) {
     const PADDING_VALUE: u8 = 114;
     let scale = (width as f64 / image.width() as f64).min(height as f64 / image.height() as f64);
     let new_w = (scale * image.width() as f64).round() as u32;
     let new_h = (scale * image.height() as f64).round() as u32;
     let shift = ((width - new_w) as f32 / 2.0, (height - new_h) as f32 / 2.0);
-    let mut out = RgbImage::from_pixel(width, height, Rgb([PADDING_VALUE; 3]));
-    image::imageops::replace(&mut out, &resize_linear(image, new_w, new_h), shift.0 as i64, shift.1 as i64);
-    (out, shift, scale)
+    let offset = (shift.0 as u32, shift.1 as u32);
+    let resized = resize_linear(image, new_w, new_h);
+    let tensor = to_tensor_padded(&resized, (width, height), offset, PADDING_VALUE, tensor_scale, mean);
+    (tensor, shift, scale)
 }
 
 /// A YOLO detector input: the letterboxed image scaled to `[0, 1]`.
@@ -350,18 +364,13 @@ pub struct YoloInput {
 }
 
 pub fn prepare_yolo(image: &RgbImage, width: u32, height: u32) -> YoloInput {
-    let (out, shift, scale) = letterbox_centred(image, width, height);
-    YoloInput {
-        tensor: to_tensor(&out, 1.0 / 255.0, 0.0),
-        shift,
-        scale,
-    }
+    let (tensor, shift, scale) = letterbox_centred(image, width, height, 1.0 / 255.0, 0.0);
+    YoloInput { tensor, shift, scale }
 }
 
 /// Plate classifier input: letterboxed and scaled to `[-1, 1]`.
 pub fn prepare_lpc(image: &RgbImage, width: u32, height: u32) -> Vec<f32> {
-    let (out, _, _) = letterbox_centred(image, width, height);
-    to_tensor(&out, 1.0 / 127.5, 127.5)
+    letterbox_centred(image, width, height, 1.0 / 127.5, 127.5).0
 }
 
 /// Special vehicle classifier input: area-resized and scaled to `[-1, 1]`.
@@ -609,36 +618,38 @@ pub fn prepare_scrfd(image: &RgbImage, width: u32, height: u32) -> (Vec<f32>, f3
         ((r_h * image.width() as f64) as u32, height)
     };
     let scale = h as f32 / image.height() as f32;
-    let mut out = RgbImage::new(width, height);
-    image::imageops::replace(&mut out, &resize_linear(image, w, h), 0, 0);
-    (to_tensor(&out, 1.0 / 128.0, 127.5), scale)
+    let tensor = to_tensor_padded(&resize_linear(image, w, h), (width, height), (0, 0), 0, 1.0 / 128.0, 127.5);
+    (tensor, scale)
 }
 
 /// ArcFace input: resized to the model input, `(pixel - 127.5) / 127.5`.
 pub fn prepare_arcface(face: &RgbImage, width: u32, height: u32) -> Vec<f32> {
-    let face = if face.dimensions() == (width, height) {
-        face.clone()
-    } else {
-        resize_linear(face, width, height)
-    };
-    to_tensor(&face, 1.0 / 127.5, 127.5)
+    if face.dimensions() == (width, height) {
+        return to_tensor(face, 1.0 / 127.5, 127.5);
+    }
+    to_tensor(&resize_linear(face, width, height), 1.0 / 127.5, 127.5)
 }
 
 /// Face class (GENet) input: area-resized to the model input, ImageNet-normalized RGB planes.
 pub fn prepare_genet(face: &RgbImage, width: u32, height: u32) -> Vec<f32> {
     const MEAN: [f32; 3] = [0.485, 0.456, 0.406];
     const STD: [f32; 3] = [0.229, 0.224, 0.225];
+    let resized;
     let face = if face.dimensions() == (width, height) {
-        face.clone()
+        face
     } else {
-        resize_area(face, width, height)
+        resized = resize_area(face, width, height);
+        &resized
     };
     let plane = (width * height) as usize;
     let mut tensor = vec![0.0; plane * 3];
-    for (i, pixel) in face.pixels().enumerate() {
-        for c in 0..3 {
-            tensor[c * plane + i] = (pixel[c] as f32 * (1.0 / 255.0) - MEAN[c]) * (1.0 / STD[c]);
-        }
+    let (r, rest) = tensor.split_at_mut(plane);
+    let (g, b) = rest.split_at_mut(plane);
+    let value = |v: u8, c: usize| (v as f32 * (1.0 / 255.0) - MEAN[c]) * (1.0 / STD[c]);
+    for (((pixel, r), g), b) in face.as_raw().as_chunks::<3>().0.iter().zip(r).zip(g).zip(b) {
+        *r = value(pixel[0], 0);
+        *g = value(pixel[1], 1);
+        *b = value(pixel[2], 2);
     }
     tensor
 }
