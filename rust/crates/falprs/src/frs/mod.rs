@@ -97,7 +97,7 @@ impl Frs {
             pipeline_slots,
             workflows: Workflows::default(),
         });
-        workflow::load_dnn_stats(&frs);
+        workflow::load_dnn_stats(&frs).await;
         frs.start_maintenance();
         Ok(frs)
     }
