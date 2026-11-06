@@ -378,69 +378,90 @@ pub fn prepare_vc(image: &RgbImage, width: u32, height: u32) -> Vec<f32> {
     to_tensor(&resize_area(image, width, height), 1.0 / 127.5, 127.5)
 }
 
-/// Solves `a * x = b` by Gaussian elimination with partial pivoting.
-fn solve<const N: usize>(mut a: [[f64; N]; N], mut b: [f64; N]) -> Option<[f64; N]> {
-    for col in 0..N {
-        let pivot = (col..N).max_by(|&i, &j| a[i][col].abs().total_cmp(&a[j][col].abs()))?;
-        if a[pivot][col].abs() < f64::EPSILON {
+/// Solves `a * x = b` as OpenCV's `hal::LU64f` does (`LUImpl`): partial pivoting on the first
+/// largest column value, elimination with `-1 / pivot`, and failure on a pivot below
+/// `DBL_EPSILON * 100`.
+fn solve_lu<const N: usize>(mut a: [[f64; N]; N], mut b: [f64; N]) -> Option<[f64; N]> {
+    for i in 0..N {
+        let mut k = i;
+        for j in i + 1..N {
+            if a[j][i].abs() > a[k][i].abs() {
+                k = j;
+            }
+        }
+        if a[k][i].abs() < f64::EPSILON * 100.0 {
             return None;
         }
-        a.swap(col, pivot);
-        b.swap(col, pivot);
-        for row in col + 1..N {
-            let factor = a[row][col] / a[col][col];
-            for k in col..N {
-                a[row][k] -= factor * a[col][k];
+        if k != i {
+            a.swap(i, k);
+            b.swap(i, k);
+        }
+        let d = -1.0 / a[i][i];
+        for j in i + 1..N {
+            let alpha = a[j][i] * d;
+            for k in i + 1..N {
+                a[j][k] += alpha * a[i][k];
             }
-            b[row] -= factor * b[col];
+            b[j] += alpha * b[i];
         }
     }
-    let mut x = [0.0; N];
-    for row in (0..N).rev() {
-        let tail: f64 = (row + 1..N).map(|k| a[row][k] * x[k]).sum();
-        x[row] = (b[row] - tail) / a[row][row];
+    for i in (0..N).rev() {
+        let mut s = b[i];
+        for k in i + 1..N {
+            s -= a[i][k] * b[k];
+        }
+        b[i] = s / a[i][i];
     }
-    Some(x)
+    Some(b)
 }
 
 /// A 3x3 projective transform, row-major.
 pub type Homography = [f64; 9];
 
-/// OpenCV's `getPerspectiveTransform`: the homography mapping four `src` points onto `dst`.
+/// OpenCV's `getPerspectiveTransform`: the homography mapping four `src` points onto `dst`, with
+/// the products of coordinates taken in single precision as there. `None` for points that admit
+/// no solution, where OpenCV returns the matrix with all zeros but the last element.
 pub fn perspective_transform(src: [[f32; 2]; 4], dst: [[f32; 2]; 4]) -> Option<Homography> {
     let mut a = [[0.0; 8]; 8];
     let mut b = [0.0; 8];
     for i in 0..4 {
-        let (x, y) = (src[i][0] as f64, src[i][1] as f64);
-        let (u, v) = (dst[i][0] as f64, dst[i][1] as f64);
-        a[i] = [x, y, 1.0, 0.0, 0.0, 0.0, -x * u, -y * u];
-        a[i + 4] = [0.0, 0.0, 0.0, x, y, 1.0, -x * v, -y * v];
-        b[i] = u;
-        b[i + 4] = v;
+        let ([x, y], [u, v]) = (src[i], dst[i]);
+        let f = f64::from;
+        a[i] = [f(x), f(y), 1.0, 0.0, 0.0, 0.0, f(-x * u), f(-y * u)];
+        a[i + 4] = [0.0, 0.0, 0.0, f(x), f(y), 1.0, f(-x * v), f(-y * v)];
+        b[i] = f(u);
+        b[i + 4] = f(v);
     }
-    let m = solve(a, b)?;
+    let m = solve_lu(a, b)?;
     Some([m[0], m[1], m[2], m[3], m[4], m[5], m[6], m[7], 1.0])
 }
 
+/// OpenCV's `invert` of a 3x3 matrix with `DECOMP_LU`: cofactors over the determinant. `None` for
+/// a zero determinant, where OpenCV returns zeros.
 fn invert(m: &Homography) -> Option<Homography> {
-    let mut inverse = [0.0; 9];
-    for col in 0..3 {
-        let mut a = [[0.0; 3]; 3];
-        for (row, a_row) in a.iter_mut().enumerate() {
-            a_row.copy_from_slice(&m[row * 3..row * 3 + 3]);
-        }
-        let mut e = [0.0; 3];
-        e[col] = 1.0;
-        let x = solve(a, e)?;
-        for row in 0..3 {
-            inverse[row * 3 + col] = x[row];
-        }
+    let at = |row: usize, col: usize| m[row * 3 + col];
+    let det = at(0, 0) * (at(1, 1) * at(2, 2) - at(1, 2) * at(2, 1)) - at(0, 1) * (at(1, 0) * at(2, 2) - at(1, 2) * at(2, 0))
+        + at(0, 2) * (at(1, 0) * at(2, 1) - at(1, 1) * at(2, 0));
+    if det == 0.0 {
+        return None;
     }
-    Some(inverse)
+    let d = 1.0 / det;
+    Some([
+        (at(1, 1) * at(2, 2) - at(1, 2) * at(2, 1)) * d,
+        (at(0, 2) * at(2, 1) - at(0, 1) * at(2, 2)) * d,
+        (at(0, 1) * at(1, 2) - at(0, 2) * at(1, 1)) * d,
+        (at(1, 2) * at(2, 0) - at(1, 0) * at(2, 2)) * d,
+        (at(0, 0) * at(2, 2) - at(0, 2) * at(2, 0)) * d,
+        (at(0, 2) * at(1, 0) - at(0, 0) * at(1, 2)) * d,
+        (at(1, 0) * at(2, 1) - at(1, 1) * at(2, 0)) * d,
+        (at(0, 1) * at(2, 0) - at(0, 0) * at(2, 1)) * d,
+        (at(0, 0) * at(1, 1) - at(0, 1) * at(1, 0)) * d,
+    ])
 }
 
 /// OpenCV's `warpPerspective` with `INTER_LINEAR` and a black constant border: source positions
-/// are quantised to 1/32 pixel and blended with 15-bit fixed-point weights.
+/// are quantised to 1/32 pixel and blended with 15-bit fixed-point weights. `None` for a singular
+/// `m`, which OpenCV inverts to zeros and so fills the output with the source's top-left pixel.
 pub fn warp_perspective(src: &RgbImage, m: &Homography, width: u32, height: u32) -> Option<RgbImage> {
     const INTER_TAB_SIZE: f64 = 32.0;
 
@@ -731,6 +752,103 @@ mod tests {
             let v = (m[3] * s[0] as f64 + m[4] * s[1] as f64 + m[5]) / w;
             assert!((u - d[0] as f64).abs() < 1e-6 && (v - d[1] as f64).abs() < 1e-6);
         }
+    }
+
+    /// Plate corners with the matrices OpenCV 4.6.0 gives for them (as bits): `getPerspectiveTransform`
+    /// onto a 320-wide plate of the given height, then `invert` of that matrix.
+    const OPENCV_TRANSFORMS: [([u32; 9], [u64; 9], [u64; 9]); 2] = [
+        // An ordinary plate
+        (
+            [
+                1144144170, 1146127412, 1147582119, 1146109438, 1147538605, 1146320835, 1144087547, 1146286836, 1127940096,
+            ],
+            [
+                13833883455554879540,
+                13827111102283271767,
+                4655434632203150032,
+                13814301608212353472,
+                13848746336534839372,
+                4668885340265175980,
+                13787183363328295935,
+                13786039225078369361,
+                4607182418800017408,
+            ],
+            [
+                4588558272676251025,
+                4587654499135619776,
+                13873855532006778442,
+                4604885753424332172,
+                13806075212929319771,
+                13875090130422727963,
+                4561344583137729798,
+                4541458437284036672,
+                13831272892545821122,
+            ],
+        ),
+        // Two equal corners: OpenCV still solves the system
+        (
+            [
+                1121840733, 1139729116, 1121840733, 1139729116, 1133971237, 1140320536, 1122130765, 1140451396, 1116209152,
+            ],
+            [
+                13853107864084704441,
+                4614472988248109140,
+                4656651431731510213,
+                13842766604866244269,
+                4609208697222498561,
+                4634415085218962724,
+                13815399848015263459,
+                4581894711998904034,
+                4607182418800017408,
+            ],
+            [
+                13838542165117454834,
+                13935748720222109982,
+                4739684934607395055,
+                13848173427982644353,
+                13945223097884563885,
+                4749181212083514336,
+                13808063252120634893,
+                13905162254600404064,
+                4709142473401201201,
+            ],
+        ),
+    ];
+
+    /// Two equal plate corners with the others almost collinear, for which OpenCV's
+    /// `getPerspectiveTransform` finds no solution
+    const OPENCV_NO_SOLUTION: [u32; 9] = [
+        1132763655, 1134123406, 1132763655, 1134123406, 1138878282, 1134631603, 1132788067, 1134611668, 1116209152,
+    ];
+
+    fn plate_quad(input: [u32; 9]) -> ([[f32; 2]; 4], [[f32; 2]; 4]) {
+        let f = |i: usize| f32::from_bits(input[i]);
+        let height = f(8);
+        (
+            [[f(0), f(1)], [f(2), f(3)], [f(4), f(5)], [f(6), f(7)]],
+            [[0.0, 0.0], [319.0, 0.0], [319.0, height - 1.0], [0.0, height - 1.0]],
+        )
+    }
+
+    #[test]
+    fn perspective_transform_and_invert_match_opencv() {
+        for (input, m_bits, inverse_bits) in OPENCV_TRANSFORMS {
+            let (src, dst) = plate_quad(input);
+            let m = perspective_transform(src, dst).unwrap();
+            assert_eq!(m.map(f64::to_bits), m_bits);
+            assert_eq!(invert(&m).unwrap().map(f64::to_bits), inverse_bits);
+        }
+        let (src, dst) = plate_quad(OPENCV_NO_SOLUTION);
+        assert_eq!(perspective_transform(src, dst), None);
+    }
+
+    #[test]
+    fn degenerate_transforms_are_rejected() {
+        let collinear = [[1.0, 1.0], [2.0, 1.0], [3.0, 1.0], [4.0, 1.0]];
+        assert_eq!(perspective_transform(collinear, [[0.0, 0.0], [319.0, 0.0], [319.0, 67.0], [0.0, 67.0]]), None);
+        let image = RgbImage::new(6, 5);
+        let singular = [1.0, 2.0, 3.0, 2.0, 4.0, 6.0, 0.0, 0.0, 1.0];
+        assert_eq!(warp_perspective(&image, &singular, 8, 3), None);
     }
 
     #[test]
