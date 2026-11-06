@@ -571,9 +571,12 @@ fn similarity_least_squares(from: &[[f64; 2]], to: &[[f64; 2]]) -> Option<Affine
     Some([a, -b, mt[0] - a * mf[0] + b * mf[1], b, a, mt[1] - b * mf[0] - a * mf[1]])
 }
 
-fn squared_error(m: &Affine, p: [f64; 2], q: [f64; 2]) -> f64 {
-    let x = m[0] * p[0] + m[1] * p[1] + m[2] - q[0];
-    let y = m[3] * p[0] + m[4] * p[1] + m[5] - q[1];
+/// The squared error of a point under `m` as OpenCV's `AffinePartial2DEstimatorCallback` computes
+/// it: in single precision, with the model cast to floats.
+fn squared_error(m: &Affine, p: [f32; 2], q: [f32; 2]) -> f32 {
+    let f = m.map(|v| v as f32);
+    let x = f[0] * p[0] + f[1] * p[1] + f[2] - q[0];
+    let y = f[3] * p[0] + f[4] * p[1] + f[5] - q[1];
     x * x + y * y
 }
 
@@ -582,20 +585,20 @@ fn squared_error(m: &Affine, p: [f64; 2], q: [f64; 2]) -> f64 {
 /// threshold, then the least-squares similarity of the inliers (where OpenCV's
 /// Levenberg-Marquardt refinement converges).
 pub fn estimate_affine_partial_lmeds(from: &[[f32; 2]], to: &[[f32; 2]]) -> Option<Affine> {
-    let from: Vec<[f64; 2]> = from.iter().map(|p| [p[0] as f64, p[1] as f64]).collect();
-    let to: Vec<[f64; 2]> = to.iter().map(|p| [p[0] as f64, p[1] as f64]).collect();
+    let wide = |points: &[[f32; 2]]| -> Vec<[f64; 2]> { points.iter().map(|p| [p[0] as f64, p[1] as f64]).collect() };
+    let (from_wide, to_wide) = (wide(from), wide(to));
     let n = from.len();
     if n < 2 || n != to.len() {
         return None;
     }
-    let mut best: Option<(f64, Affine)> = None;
+    let mut best: Option<(f32, Affine)> = None;
     for i in 0..n {
         for j in i + 1..n {
-            let Some(model) = similarity_least_squares(&[from[i], from[j]], &[to[i], to[j]]) else {
+            let Some(model) = similarity_least_squares(&[from_wide[i], from_wide[j]], &[to_wide[i], to_wide[j]]) else {
                 continue;
             };
-            let mut errors: Vec<f64> = from.iter().zip(&to).map(|(p, q)| squared_error(&model, *p, *q)).collect();
-            errors.sort_by(f64::total_cmp);
+            let mut errors: Vec<f32> = from.iter().zip(to).map(|(p, q)| squared_error(&model, *p, *q)).collect();
+            errors.sort_by(f32::total_cmp);
             let median = errors[n / 2];
             if best.is_none_or(|(m, _)| median < m) {
                 best = Some((median, model));
@@ -606,12 +609,15 @@ pub fn estimate_affine_partial_lmeds(from: &[[f32; 2]], to: &[[f32; 2]]) -> Opti
     if n == 2 {
         return Some(model);
     }
-    let sigma = 2.5 * 1.4826 * (1.0 + 5.0 / (n - 2) as f64) * median.sqrt();
-    let (inliers_from, inliers_to): (Vec<_>, Vec<_>) = from
+    // OpenCV's LMeDS threshold, floored as there, and compared with the single-precision errors
+    let sigma = (2.5 * 1.4826 * (1.0 + 5.0 / (n - 2) as f64) * f64::from(median).sqrt()).max(0.001);
+    let threshold = (sigma * sigma) as f32;
+    let (inliers_from, inliers_to): (Vec<_>, Vec<_>) = from_wide
         .iter()
-        .zip(&to)
-        .filter(|(p, q)| squared_error(&model, **p, **q) <= sigma * sigma)
-        .map(|(p, q)| (*p, *q))
+        .zip(&to_wide)
+        .zip(from.iter().zip(to))
+        .filter(|(_, (p, q))| squared_error(&model, **p, **q) <= threshold)
+        .map(|((p, q), _)| (*p, *q))
         .unzip();
     if inliers_from.len() < 2 {
         return Some(model);
@@ -856,6 +862,19 @@ mod tests {
         let image = RgbImage::from_fn(6, 5, |x, y| Rgb([(x * 30) as u8, (y * 40) as u8, 9]));
         let identity = [1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0];
         assert_eq!(warp_perspective(&image, &identity, 6, 5).unwrap(), image);
+    }
+
+    #[test]
+    fn lmeds_floors_the_inlier_threshold() {
+        // Three points fit a translation exactly, so the least median error is 0; the two others are
+        // off by 1e-4 px, within OpenCV's floor of the threshold (sigma 0.001), and stay inliers
+        let from = [[10.0f32, 20.0], [30.0, 20.0], [20.0, 35.0], [12.0, 45.0], [28.0, 45.0]];
+        let mut to = from.map(|[x, y]| [x + 5.0, y + 7.0]);
+        to[3][0] += 1e-4;
+        to[4][1] -= 1e-4;
+        let wide = |points: &[[f32; 2]]| points.iter().map(|p| [p[0] as f64, p[1] as f64]).collect::<Vec<_>>();
+        let all = similarity_least_squares(&wide(&from), &wide(&to)).unwrap();
+        assert_eq!(estimate_affine_partial_lmeds(&from, &to), Some(all));
     }
 
     #[test]
