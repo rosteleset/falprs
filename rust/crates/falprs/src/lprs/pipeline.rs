@@ -10,7 +10,7 @@ use image::RgbImage;
 
 use super::vstream_config::{ModelConfig, VStreamConfig, WorkAreaPolygon};
 use crate::geometry::{BBox, area, distance, has_intersection, intersection_area, iou};
-use crate::imaging::{crop, perspective_transform, prepare_lpc, prepare_vc, prepare_yolo, warp_perspective};
+use crate::imaging::{crop, perspective_transform, prepare_lpc, prepare_vc, prepare_yolo, region_in_image, warp_perspective};
 use crate::log;
 use crate::logging::{Level, StreamLog};
 use crate::stream_log;
@@ -100,6 +100,13 @@ fn first_outputs(responses: &[Option<Vec<Tensor>>]) -> Vec<Option<Vec<f32>>> {
 /// The ROI of a box as the C++ service takes it: corners truncated to integers.
 fn roi(image: &RgbImage, b: &BBox) -> Result<RgbImage> {
     crop(image, b[0] as i32, b[1] as i32, b[2] as i32, b[3] as i32)
+}
+
+/// Whether a plate's box, taken as [`roi`] takes it, lies inside the frame. Unlike the C++ service,
+/// which fails the frame on such a plate, LPRS skips it: it gets no plate class and no numbers.
+pub fn plate_in_frame(image: &RgbImage, plate: &LicensePlate) -> bool {
+    let b = plate.bbox;
+    region_in_image(image, b[0] as i32, b[1] as i32, b[2] as i32, b[3] as i32).is_some()
 }
 
 /// Stable sort, descending by confidence.
@@ -797,6 +804,20 @@ mod tests {
             plate_class_common: 0,
             numbers: Vec::new(),
         }
+    }
+
+    #[test]
+    fn plates_outside_the_frame_are_detected() {
+        let frame = RgbImage::new(200, 120);
+        let with_box = |bbox: BBox| LicensePlate { bbox, ..plate(0.0, 1.0) };
+        assert!(plate_in_frame(&frame, &with_box([10.0, 100.0, 60.0, 115.0])));
+        // Coordinates are truncated as the crop takes them: 199.9 ends at column 199
+        assert!(plate_in_frame(&frame, &with_box([150.5, 100.0, 199.9, 119.9])));
+        assert!(plate_in_frame(&frame, &with_box([150.0, 100.0, 200.0, 120.0])));
+        assert!(!plate_in_frame(&frame, &with_box([150.0, 100.0, 201.0, 115.0])));
+        assert!(!plate_in_frame(&frame, &with_box([-1.5, 100.0, 40.0, 115.0])));
+        assert!(!plate_in_frame(&frame, &with_box([10.0, 110.0, 60.0, 121.0])));
+        assert!(!plate_in_frame(&frame, &with_box([10.0, 100.0, 10.9, 115.0])));
     }
 
     fn vehicle(bbox: BBox, plates: Vec<LicensePlate>) -> Vehicle {

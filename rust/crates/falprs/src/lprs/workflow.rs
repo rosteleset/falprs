@@ -295,7 +295,26 @@ async fn recognize(lprs: &Lprs, stream: StreamLog<'_>, ext_id: &str, id_vstream:
     stream_log!(stream, Level::Trace, "after doInferenceLpdNet");
     pipeline::remove_duplicate_plates(config, &mut vehicles, frame.width(), frame.height(), stream);
     {
-        let mut plates: Vec<&mut LicensePlate> = vehicles.iter_mut().flat_map(|v| v.plates.iter_mut()).collect();
+        let mut plates: Vec<&mut LicensePlate> = vehicles
+            .iter_mut()
+            .flat_map(|v| v.plates.iter_mut())
+            .filter(|plate| {
+                let inside = pipeline::plate_in_frame(&frame, plate);
+                if !inside {
+                    let b = plate.bbox;
+                    stream_log!(
+                        stream,
+                        Level::Trace,
+                        "plate box outside the frame: [{:.2}, {:.2}, {:.2}, {:.2}]",
+                        b[0],
+                        b[1],
+                        b[2],
+                        b[3]
+                    );
+                }
+                inside
+            })
+            .collect();
         if !plates.is_empty() {
             stream_log!(stream, Level::Trace, "before doInferenceLpcNet");
             pipeline::classify_plates(triton, &frame, config, &mut plates, stream).await?;

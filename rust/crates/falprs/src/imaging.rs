@@ -262,12 +262,21 @@ pub fn resize_area(src: &RgbImage, width: u32, height: u32) -> RgbImage {
 
 /// The part of `image` inside `[x1, y1, x2, y2)`, like OpenCV's ROI of `cv::Rect(Point, Point)`.
 pub fn crop(image: &RgbImage, x1: i32, y1: i32, x2: i32, y2: i32) -> Result<RgbImage> {
+    let Some((left, top, width, height)) = region_in_image(image, x1, y1, x2, y2) else {
+        anyhow::bail!("invalid region [{x1}, {y1}, {x2}, {y2}] of a {}x{} image", image.width(), image.height());
+    };
+    Ok(crop_clamped(image, left, top, width, height))
+}
+
+/// The region between two corners as left, top, width and height, if it is not empty and lies
+/// inside the image.
+pub fn region_in_image(image: &RgbImage, x1: i32, y1: i32, x2: i32, y2: i32) -> Option<(u32, u32, u32, u32)> {
     let (left, right) = (x1.min(x2), x1.max(x2));
     let (top, bottom) = (y1.min(y2), y1.max(y2));
     if left < 0 || top < 0 || right as u32 > image.width() || bottom as u32 > image.height() || left == right || top == bottom {
-        anyhow::bail!("invalid region [{x1}, {y1}, {x2}, {y2}] of a {}x{} image", image.width(), image.height());
+        return None;
     }
-    Ok(crop_clamped(image, left as u32, top as u32, (right - left) as u32, (bottom - top) as u32))
+    Some((left as u32, top as u32, (right - left) as u32, (bottom - top) as u32))
 }
 
 /// A copy of the `width` x `height` region at `(x, y)`, clamped to the image as
