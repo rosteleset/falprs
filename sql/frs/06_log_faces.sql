@@ -36,7 +36,8 @@ comment on column log_faces.screenshot_url is 'Screenshot URL';
 comment on column log_faces.copy_data is 'Flag to be used in special groups:
 0 - do not copy data
 1 - scheduled copy
-2 - done copy';
+2 - done copy
+3 - copy failed: the source files are missing or invalid, not tried again';
 comment on column log_faces.log_uuid is 'uuid of the log';
 
 create index if not exists log_faces_copy_data_index
