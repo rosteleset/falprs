@@ -9,8 +9,8 @@
 use anyhow::{Result, bail};
 use image::RgbImage;
 
-use super::geometry::{intersection_area, iou, polygon_area};
 use super::vstream_config::VStreamConfig;
+use crate::geometry::{intersection_area, iou, polygon_area};
 use crate::imaging::{Letterbox, letterbox_yolo};
 use crate::logging::{Level, StreamLog};
 use crate::stream_log;

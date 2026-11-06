@@ -3,7 +3,6 @@
 mod api;
 mod caches;
 mod footprints;
-mod geometry;
 mod pipeline;
 mod vstream_config;
 mod workflow;

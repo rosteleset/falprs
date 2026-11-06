@@ -21,6 +21,7 @@ use crate::converters::format_time;
 use crate::fetch::{FetchError, decode_base64, fetch_image};
 use crate::imaging;
 use crate::logging::{Level, StreamLog};
+use crate::{callback, files};
 use crate::{log, log_to, stream_log};
 
 pub const MIME_IMAGE: &str = "image/jpeg";
@@ -475,10 +476,10 @@ struct FaceData {
 }
 
 /// Writes a debug image of an image test into the working directory, as the C++ service does.
-fn write_test_image(name: &str, image: &RgbImage) {
+async fn write_test_image(name: &str, image: &RgbImage) {
     let path = std::env::current_dir().unwrap_or_default().join(name);
-    if let Ok(jpeg) = imaging::encode_jpeg(image) {
-        let _ = std::fs::write(path, jpeg);
+    if let Ok(jpeg) = tokio::task::block_in_place(|| imaging::encode_jpeg(image)) {
+        let _ = tokio::fs::write(path, jpeg).await;
     }
 }
 
@@ -620,7 +621,7 @@ async fn pipeline_body(ctx: &mut Run<'_>, url: &str) -> Result<Flow> {
             continue;
         };
         if task.task_type == TaskType::Test {
-            write_test_image(&format!("aligned_face_{}.jpg", face_data.len()), &aligned_face);
+            write_test_image(&format!("aligned_face_{}.jpg", face_data.len()), &aligned_face).await;
         }
         face_data[index].is_frontal = true;
 
@@ -653,7 +654,7 @@ async fn pipeline_body(ctx: &mut Run<'_>, url: &str) -> Result<Flow> {
             continue;
         };
         if task.task_type == TaskType::Test {
-            write_test_image(&format!("aligned_face_class_{}.jpg", face_data.len()), &aligned_face_class);
+            write_test_image(&format!("aligned_face_class_{}.jpg", face_data.len()), &aligned_face_class).await;
         }
 
         match pipeline::infer_face_class(&frs.triton, &aligned_face_class, &common, &config, ctx.stream()).await {
@@ -797,7 +798,7 @@ async fn pipeline_body(ctx: &mut Run<'_>, url: &str) -> Result<Flow> {
         let mut frame = frame;
         draw_test_markers(&mut frame, &face_data);
         let frame_index = std::time::UNIX_EPOCH.elapsed().unwrap_or_default().as_millis();
-        write_test_image(&format!("frame_{frame_index}.jpg"), &frame);
+        write_test_image(&format!("frame_{frame_index}.jpg"), &frame).await;
         log_to!(
             frs.logger,
             Level::Info,
@@ -943,16 +944,6 @@ fn path_suffix(id_group: i32, s_uuid: &str) -> String {
     format!("group_{id_group}/{}/{}/{}/{}/", c[0], c[1], c[2], c[3])
 }
 
-/// Writes a file readable and writable by its owner and others, as the C++ service does.
-fn write_shared_file(path: &Path, contents: &[u8]) -> std::io::Result<()> {
-    use std::os::unix::fs::PermissionsExt;
-    if let Some(parent) = path.parent() {
-        std::fs::create_dir_all(parent)?;
-    }
-    std::fs::write(path, contents)?;
-    std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o606))
-}
-
 async fn add_log_face(
     ctx: &Run<'_>,
     log_date: DateTime<Utc>,
@@ -999,23 +990,11 @@ async fn add_log_face(
 }
 
 /// Posts a JSON event; delivered when answered with 200 or 204.
-async fn send_callback(ctx: &Run<'_>, url: &str, body: &Value) -> bool {
-    let response = ctx
-        .frs
-        .http
-        .post(url)
-        .header(reqwest::header::CONTENT_TYPE, "application/json")
-        .body(body.to_string())
-        .timeout(ctx.common.callback_timeout)
-        .send()
-        .await;
-    match response {
-        Ok(response) => matches!(response.status().as_u16(), 200 | 204),
-        Err(e) => {
-            log!(ctx.frs.logger, Level::Error, "{e}");
-            false
-        }
-    }
+pub async fn send_callback(frs: &Frs, url: &str, body: &Value, timeout: Duration) -> bool {
+    callback::post_json(&frs.http, url, body, timeout).await.unwrap_or_else(|e| {
+        log!(frs.logger, Level::Error, "{e}");
+        false
+    })
 }
 
 /// Logs the best face of a recognition frame: database row, screenshot, callback and event files.
@@ -1051,13 +1030,13 @@ async fn log_face_event(ctx: &Run<'_>, key: &str, face_data: &[FaceData], best: 
 
     let path_prefix = format!("{}{suffix}", local.screenshots_path);
     let screenshot = PathBuf::from(format!("{path_prefix}{s_uuid}.jpg"));
-    if let Err(e) = write_shared_file(&screenshot, image_data) {
-        log_to!(frs.logger, Level::Error, "{e}");
+    if let Err(e) = files::write_shared(&screenshot, image_data).await {
+        log_to!(frs.logger, Level::Error, "{e:#}");
     }
 
     if id_log > 0 && best_face.id_descriptor > 0 && !config.callback_url.is_empty() {
         let body = json!({"faceId": best_face.id_descriptor, "eventId": id_log});
-        if send_callback(ctx, &config.callback_url, &body).await {
+        if send_callback(frs, &config.callback_url, &body, ctx.common.callback_timeout).await {
             if config.logs(Level::Info) {
                 log_to!(
                     frs.logger,
@@ -1111,8 +1090,10 @@ async fn log_face_event(ctx: &Run<'_>, key: &str, face_data: &[FaceData], best: 
         "best_face_index": best as i32,
         "faces": faces,
     });
-    let written =
-        std::fs::write(format!("{path_prefix}{s_uuid}.dat"), &dat).and_then(|()| std::fs::write(format!("{path_prefix}{s_uuid}.json"), event.to_string()));
+    let written = match tokio::fs::write(format!("{path_prefix}{s_uuid}.dat"), &dat).await {
+        Ok(()) => tokio::fs::write(format!("{path_prefix}{s_uuid}.json"), event.to_string()).await,
+        Err(e) => Err(e),
+    };
     if let Err(e) = written {
         log_to!(frs.logger, Level::Error, "{e}");
     }
@@ -1142,14 +1123,14 @@ async fn log_special_group_events(ctx: &Run<'_>, key: &str, face_data: &[FaceDat
             )
             .await;
             let screenshot = PathBuf::from(format!("{}{suffix}{s_uuid}.jpg", local.screenshots_path));
-            if let Err(e) = write_shared_file(&screenshot, image_data) {
-                log_to!(frs.logger, Level::Error, "{e}");
+            if let Err(e) = files::write_shared(&screenshot, image_data).await {
+                log_to!(frs.logger, Level::Error, "{e:#}");
             }
 
             let callback_url = frs.sg_config.get().by_id(id_sgroup).map(|sg| sg.callback_url.clone()).unwrap_or_default();
             if id_log > 0 && !callback_url.is_empty() {
                 let body = json!({"faceId": id_descriptor, "screenshot": screenshot_url, "date": format_time(log_date)});
-                if send_callback(ctx, &callback_url, &body).await {
+                if send_callback(frs, &callback_url, &body, ctx.common.callback_timeout).await {
                     if config.logs(Level::Info) {
                         log_to!(
                             frs.logger,
@@ -1370,9 +1351,9 @@ fn dnn_stats_path() -> PathBuf {
 }
 
 /// Loads inference statistics saved by a previous run from the working directory.
-pub fn load_dnn_stats(frs: &Frs) {
+pub async fn load_dnn_stats(frs: &Frs) {
     let path = dnn_stats_path();
-    let Ok(text) = std::fs::read_to_string(&path) else { return };
+    let Ok(text) = tokio::fs::read_to_string(&path).await else { return };
     let parsed = || -> Option<BTreeMap<i32, DnnStats>> {
         let json: Value = serde_json::from_str(&text).ok()?;
         json.get("data")?
@@ -1440,26 +1421,11 @@ pub async fn save_dnn_stats(frs: &Frs) {
 /// Image and data file extensions removed by the screenshot and event cleanups.
 const LOG_FILE_EXTENSIONS: [&str; 8] = ["png", "jpg", "jpeg", "bmp", "ppm", "tiff", "dat", "json"];
 
-/// Removes files with one of `extensions` under `dir` last modified before `before`.
-pub fn remove_old_files(frs: &Frs, dir: &str, extensions: &[&str], before: SystemTime) {
-    let mut pending = vec![PathBuf::from(dir)];
-    while let Some(dir) = pending.pop() {
-        let Ok(entries) = std::fs::read_dir(&dir) else { continue };
-        for entry in entries.flatten() {
-            let path = entry.path();
-            let Ok(file_type) = entry.file_type() else { continue };
-            if file_type.is_dir() {
-                pending.push(path);
-                continue;
-            }
-            let matches = path.extension().and_then(|e| e.to_str()).is_some_and(|e| extensions.contains(&e));
-            let old = entry.metadata().and_then(|m| m.modified()).is_ok_and(|modified| modified < before);
-            if file_type.is_file() && matches && old {
-                if let Err(e) = std::fs::remove_file(&path) {
-                    log_to!(frs.logger, Level::Error, "{e}");
-                }
-            }
-        }
+/// Removes files with one of `extensions` under `dir` last modified before `before`, logging the
+/// removals that fail.
+pub async fn remove_old_files(frs: &Frs, dir: &str, extensions: &[&str], before: SystemTime) {
+    for e in files::remove_old_files(Path::new(dir), extensions, before).await {
+        log_to!(frs.logger, Level::Error, "{e}");
     }
 }
 
@@ -1476,7 +1442,7 @@ pub async fn old_log_faces_maintenance(frs: &Frs) {
     }
     log!(frs.logger, Level::Info, "Removing outdated face screenshots and data");
     let dir = frs.local.screenshots_path.clone();
-    tokio::task::block_in_place(|| remove_old_files(frs, &dir, &LOG_FILE_EXTENSIONS, before));
+    remove_old_files(frs, &dir, &LOG_FILE_EXTENSIONS, before).await;
 }
 
 pub async fn flag_deleted_maintenance(frs: &Frs) {
@@ -1589,27 +1555,27 @@ async fn copy_event(frs: &Frs, row: &pg_cluster::tokio_postgres::Row) -> Result<
     }
     let mut suffix = format!("group_{id_group}/{}/{}/{}/{}/", c[0], c[1], c[2], c[3]);
     let mut source = format!("{}{suffix}", local.screenshots_path);
-    if !Path::new(&format!("{source}{s_uuid}.json")).exists() {
+    if !files::exists(Path::new(&format!("{source}{s_uuid}.json"))).await {
         // The shorter path of the old project
         suffix = format!("group_{id_group}/{}/{}/{}/", c[0], c[1], c[2]);
         source = format!("{}{suffix}", local.screenshots_path);
     }
     let source_json = format!("{source}{s_uuid}.json");
-    if !Path::new(&source_json).exists() {
+    if !files::exists(Path::new(&source_json)).await {
         return Ok(());
     }
     let target = format!("{}{suffix}", local.events_path);
-    std::fs::create_dir_all(&target)?;
+    tokio::fs::create_dir_all(&target).await?;
 
     // The JSON data with the external event uuid added
-    let mut event: Value = serde_json::from_slice(&std::fs::read(&source_json)?)?;
+    let mut event: Value = serde_json::from_slice(&tokio::fs::read(&source_json).await?)?;
     if let Value::Object(members) = &mut event {
         members.insert("event_uuid".to_string(), json!(ext_event_uuid.unwrap_or_default()));
     }
-    std::fs::write(format!("{target}{s_uuid}.json"), event.to_string())?;
+    tokio::fs::write(format!("{target}{s_uuid}.json"), event.to_string()).await?;
 
     // The descriptors are appended to the stream group's file of the event's local date
-    let Ok(data) = std::fs::read(format!("{source}{s_uuid}.dat")) else {
+    let Ok(data) = tokio::fs::read(format!("{source}{s_uuid}.dat")).await else {
         return Ok(());
     };
     if data.is_empty() {
@@ -1620,11 +1586,7 @@ async fn copy_event(frs: &Frs, row: &pg_cluster::tokio_postgres::Row) -> Result<
         local.events_path,
         log_date.with_timezone(&Local).format("%Y-%m-%d")
     );
-    {
-        use std::io::Write;
-        let mut file = std::fs::OpenOptions::new().create(true).append(true).open(&events_file)?;
-        file.write_all(&data)?;
-    }
+    files::append(Path::new(&events_file), &data).await?;
     frs.cluster
         .execute(HostType::Master, "update log_faces set copy_data = 2 where id_log = $1", &[&id_log])
         .await?;
@@ -1635,7 +1597,7 @@ pub async fn old_events_maintenance(frs: &Frs) {
     log!(frs.logger, Level::Info, "Removing outdated events");
     let before = SystemTime::now() - frs.local.events_ttl;
     let dir = frs.local.events_path.clone();
-    tokio::task::block_in_place(|| remove_old_files(frs, &dir, &LOG_FILE_EXTENSIONS, before));
+    remove_old_files(frs, &dir, &LOG_FILE_EXTENSIONS, before).await;
 }
 
 #[cfg(test)]

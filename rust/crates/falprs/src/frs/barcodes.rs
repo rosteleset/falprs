@@ -15,8 +15,10 @@ use serde_json::{Value, json};
 use super::Frs;
 use super::config::{CommonConfig, VStreamConfig};
 use super::pipeline::{Rect, crop};
-use super::workflow::Screenshot;
+use super::workflow::{Screenshot, remove_old_files, send_callback};
 use crate::converters::format_time;
+use crate::files;
+use crate::geometry::has_intersection;
 use crate::imaging;
 use crate::logging::{Level, StreamLog};
 use crate::stream_log;
@@ -32,10 +34,6 @@ struct Detection {
 
 /// Columns of the detector output, a `[5, 2100]` tensor of box centre, size and confidence.
 const NUM_COLS: usize = 2100;
-
-fn has_intersection(a: &[f32; 4], b: &[f32; 4]) -> bool {
-    a[0].max(b[0]) < a[2].min(b[2]) && a[1].max(b[1]) < a[3].min(b[3])
-}
 
 /// Keeps the most confident of intersecting detections.
 fn nms_barcodes(mut detections: Vec<Detection>) -> Vec<Detection> {
@@ -233,8 +231,8 @@ pub async fn process(
     let id_log = add_log_barcode(frs, config.id_vstream, log_date, &info).await;
 
     let path = PathBuf::from(format!("{}{path_suffix}{uuid}.jpg", local.barcodes_path));
-    if let Err(e) = write_screenshot(&path, screenshot.data()) {
-        log_to!(frs.logger, Level::Error, "{e}");
+    if let Err(e) = files::write_shared(&path, screenshot.data()).await {
+        log_to!(frs.logger, Level::Error, "{e:#}");
     }
 
     if id_log > 0 && !config.callback_url_barcodes.is_empty() {
@@ -244,22 +242,7 @@ pub async fn process(
             "eventId": id_log,
             "barcodes": barcodes,
         });
-        let response = frs
-            .http
-            .post(&config.callback_url_barcodes)
-            .header(reqwest::header::CONTENT_TYPE, "application/json")
-            .body(body.to_string())
-            .timeout(common.callback_timeout)
-            .send()
-            .await;
-        let delivered = match response {
-            Ok(response) => matches!(response.status().as_u16(), 200 | 204),
-            Err(e) => {
-                log!(frs.logger, Level::Error, "{e}");
-                false
-            }
-        };
-        if delivered {
+        if send_callback(frs, &config.callback_url_barcodes, &body, common.callback_timeout).await {
             if config.logs(Level::Info) {
                 log_to!(
                     frs.logger,
@@ -277,15 +260,6 @@ pub async fn process(
             );
         }
     }
-}
-
-fn write_screenshot(path: &std::path::Path, contents: &[u8]) -> std::io::Result<()> {
-    use std::os::unix::fs::PermissionsExt;
-    if let Some(parent) = path.parent() {
-        std::fs::create_dir_all(parent)?;
-    }
-    std::fs::write(path, contents)?;
-    std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o606))
 }
 
 async fn add_log_barcode(frs: &Frs, id_vstream: i32, log_date: DateTime<Utc>, info: &Value) -> i64 {
@@ -323,8 +297,7 @@ pub async fn old_log_barcodes_maintenance(frs: &Frs) {
     }
     log!(frs.logger, Level::Info, "Removing outdated barcode screenshots");
     let dir = frs.local.barcodes_path.clone();
-    const IMAGE_EXTENSIONS: [&str; 6] = ["png", "jpg", "jpeg", "bmp", "ppm", "tiff"];
-    tokio::task::block_in_place(|| super::workflow::remove_old_files(frs, &dir, &IMAGE_EXTENSIONS, before));
+    remove_old_files(frs, &dir, &files::IMAGE_EXTENSIONS, before).await;
 }
 
 #[cfg(test)]

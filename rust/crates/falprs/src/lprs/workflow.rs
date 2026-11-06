@@ -6,21 +6,21 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant, SystemTime};
 
-use anyhow::{Context, Result};
+use anyhow::Result;
 use chrono::{DateTime, Utc};
 use image::{Rgb, RgbImage};
 use pg_cluster::HostType;
 use serde_json::{Map, Value, json};
 
 use super::Lprs;
-use super::geometry::{BBox, iou};
 use super::pipeline::{self, LicensePlate, PLATE_CLASSES, Vehicle};
 use super::vstream_config::VStreamConfig;
-use crate::converters;
 use crate::fetch::{FetchError, fetch_image};
+use crate::geometry::{BBox, iou};
 use crate::imaging;
 use crate::logging::{Level, StreamLog};
 use crate::stream_log;
+use crate::{callback, converters, files};
 use crate::{log, log_to};
 
 /// Workflow settings from the `config` section of the `lprs-workflow` component.
@@ -464,8 +464,8 @@ async fn record_event(
         }
     };
 
-    let directory = format!("{}{path_suffix}", settings.screenshots_path);
-    write_image_file(Path::new(&directory), &format!("{uuid}.jpg"), image_data).await?;
+    let screenshot = PathBuf::from(format!("{}{path_suffix}{uuid}.jpg", settings.screenshots_path));
+    files::write_shared(&screenshot, image_data).await?;
 
     let mut payload = Map::new();
     payload.insert("streamId".to_string(), Value::String(ext_id.to_string()));
@@ -475,17 +475,9 @@ async fn record_event(
         payload.insert("plates".to_string(), Value::Array(callback_plates));
     }
     payload.insert("hasSpecial".to_string(), Value::Bool(has_special));
-    let response = lprs
-        .http
-        .post(&config.callback_url)
-        .header(reqwest::header::CONTENT_TYPE, "application/json")
-        .body(Value::Object(payload).to_string())
-        .timeout(config.callback_timeout)
-        .send()
-        .await;
-    match response {
-        Ok(response) if matches!(response.status().as_u16(), 200 | 204) => {}
-        Ok(_) => {
+    match callback::post_json(&lprs.http, &config.callback_url, &Value::Object(payload), config.callback_timeout).await {
+        Ok(true) => {}
+        Ok(false) => {
             if config.logs(Level::Warning) {
                 log_to!(
                     lprs.logger,
@@ -502,18 +494,6 @@ async fn record_event(
             config.callback_url
         ),
     }
-    Ok(())
-}
-
-/// Writes a screenshot readable and writable by the owner and others, like the C++ service.
-async fn write_image_file(directory: &Path, name: &str, data: &[u8]) -> Result<()> {
-    use std::os::unix::fs::PermissionsExt;
-    tokio::fs::create_dir_all(directory)
-        .await
-        .with_context(|| format!("can't create {}", directory.display()))?;
-    let path = directory.join(name);
-    tokio::fs::write(&path, data).await.with_context(|| format!("can't write {}", path.display()))?;
-    tokio::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o606)).await?;
     Ok(())
 }
 
@@ -540,7 +520,7 @@ fn draw_polygon(image: &mut RgbImage, points: &[[f32; 2]], color: Rgb<u8>) {
 async fn save_failed(lprs: &Lprs, ext_id: &str, config: &VStreamConfig, image_data: &[u8], frame: &RgbImage, vehicles: &[Vehicle]) -> Result<()> {
     let uuid = uuid::Uuid::new_v4().to_string();
     let directory = PathBuf::from(format!("{}{ext_id}/", lprs.settings.failed_path));
-    write_image_file(&directory, &format!("{uuid}.jpg"), image_data).await?;
+    files::write_shared(&directory.join(format!("{uuid}.jpg")), image_data).await?;
 
     let drawn = tokio::task::block_in_place(|| -> Result<Vec<u8>> {
         let mut image = frame.clone();
@@ -569,7 +549,7 @@ async fn save_failed(lprs: &Lprs, ext_id: &str, config: &VStreamConfig, image_da
         image::codecs::jpeg::JpegEncoder::new_with_quality(&mut encoded, 95).encode_image(&image)?;
         Ok(encoded)
     })?;
-    write_image_file(&directory, &format!("{uuid}_draw.jpg"), &drawn).await
+    files::write_shared(&directory.join(format!("{uuid}_draw.jpg")), &drawn).await
 }
 
 /// Forgets plate bans whose area ban has ended.
@@ -577,29 +557,6 @@ pub fn ban_maintenance(lprs: &Lprs) {
     log!(lprs.logger, Level::Debug, "call doBanMaintenance");
     let now = Instant::now();
     lock(&lprs.workflows.plate_bans).retain(|_, ban| ban.area_until >= now);
-}
-
-const IMAGE_EXTENSIONS: [&str; 6] = ["png", "jpg", "jpeg", "bmp", "ppm", "tiff"];
-
-/// Removes image files under `directory` last modified before `before`.
-fn remove_old_images(directory: &Path, before: SystemTime) {
-    let Ok(entries) = std::fs::read_dir(directory) else {
-        return;
-    };
-    for entry in entries.flatten() {
-        let path = entry.path();
-        let Ok(metadata) = entry.metadata() else {
-            continue;
-        };
-        if metadata.is_dir() {
-            remove_old_images(&path, before);
-        } else if metadata.is_file()
-            && path.extension().and_then(|e| e.to_str()).is_some_and(|e| IMAGE_EXTENSIONS.contains(&e))
-            && metadata.modified().is_ok_and(|modified| modified < before)
-        {
-            let _ = std::fs::remove_file(&path);
-        }
-    }
 }
 
 /// Deletes events and event screenshots older than the events TTL, and old failed screenshots.
@@ -618,10 +575,9 @@ pub async fn events_log_maintenance(lprs: &Lprs) {
         return;
     }
     let failed_before = SystemTime::now() - settings.failed_ttl;
-    let (screenshots, failed) = (PathBuf::from(&settings.screenshots_path), PathBuf::from(&settings.failed_path));
-    let _ = tokio::task::spawn_blocking(move || {
-        remove_old_images(&screenshots, before);
-        remove_old_images(&failed, failed_before);
-    })
-    .await;
+    for (directory, before) in [(&settings.screenshots_path, before), (&settings.failed_path, failed_before)] {
+        for e in files::remove_old_files(Path::new(directory), &files::IMAGE_EXTENSIONS, before).await {
+            log!(lprs.logger, Level::Error, "{e}");
+        }
+    }
 }

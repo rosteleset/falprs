@@ -8,8 +8,8 @@ use anyhow::{Result, bail};
 use futures::future::join_all;
 use image::RgbImage;
 
-use super::geometry::{BBox, area, distance, has_intersection, intersection_area, iou};
 use super::vstream_config::{ModelConfig, VStreamConfig, WorkAreaPolygon};
+use crate::geometry::{BBox, area, distance, has_intersection, intersection_area, iou};
 use crate::imaging::{crop, perspective_transform, prepare_lpc, prepare_vc, prepare_yolo, warp_perspective};
 use crate::log;
 use crate::logging::{Level, StreamLog};

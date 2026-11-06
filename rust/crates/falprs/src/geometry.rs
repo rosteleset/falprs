@@ -1,4 +1,4 @@
-//! Box and polygon geometry of the recognition pipeline, matching OpenCV's `Rect2f` and
+//! Box and polygon geometry of the recognition pipelines, matching OpenCV's `Rect2f` and
 //! `intersectConvexConvex` as the C++ service uses them.
 
 /// `[x1, y1, x2, y2]`.
