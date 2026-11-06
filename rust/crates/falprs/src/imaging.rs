@@ -21,58 +21,72 @@ pub fn decode(data: &[u8]) -> Result<RgbImage> {
 /// Fixed-point scale of OpenCV's resize interpolation coefficients (`INTER_RESIZE_COEF_SCALE`).
 const COEF_SCALE: f32 = 2048.0;
 
-/// Source index and fixed-point weights of one destination coordinate.
-type Tap = (usize, i32, i32);
+/// The two source indices and their fixed-point weights for one destination coordinate.
+type Tap = (usize, usize, i32, i32);
 
-fn make_tap(src_len: u32, s: i64, frac: f32) -> Tap {
-    let (s, frac) = if s < 0 {
-        (0, 0.0)
-    } else if s >= src_len as i64 - 1 {
-        (src_len as i64 - 1, 0.0)
-    } else {
-        (s, frac)
-    };
-    let w0 = ((1.0 - frac) * COEF_SCALE).round_ties_even() as i32;
-    (s as usize, w0, COEF_SCALE as i32 - w0)
+/// The axis a tap is made for: OpenCV clamps the weights at the image edges along x only; along y it clamps
+/// the source rows and keeps the weights, so an edge row is blended with itself.
+#[derive(Clone, Copy, PartialEq)]
+enum Axis {
+    X,
+    Y,
 }
 
-/// Taps of OpenCV's `INTER_LINEAR`: half-pixel centres, no antialiasing, edges clamped.
-fn linear_taps(src_len: u32, dst_len: u32) -> Vec<Tap> {
-    let scale = src_len as f64 / dst_len as f64;
+fn make_tap(axis: Axis, src_len: u32, s: i64, frac: f32) -> Tap {
+    let last = src_len as i64 - 1;
+    let (s, frac) = match axis {
+        Axis::X if s < 0 => (0, 0.0),
+        Axis::X if s >= last => (last, 0.0),
+        _ => (s, frac),
+    };
+    // Both weights are rounded on their own, as `saturate_cast<short>(cbuf[k] * INTER_RESIZE_COEF_SCALE)`
+    let w0 = ((1.0 - frac) * COEF_SCALE).round_ties_even() as i32;
+    let w1 = (frac * COEF_SCALE).round_ties_even() as i32;
+    (s.clamp(0, last) as usize, (s + 1).clamp(0, last) as usize, w0, w1)
+}
+
+/// The scale OpenCV's `resize` uses with a destination size: `1 / inv_scale`, whose rounding differs from
+/// `src / dst`, so that `d * scale` lands on the other side of a whole number now and then.
+fn resize_scale(src_len: u32, dst_len: u32) -> f64 {
+    1.0 / (dst_len as f64 / src_len as f64)
+}
+
+/// Taps of OpenCV's `INTER_LINEAR`: half-pixel centres, no antialiasing.
+fn linear_taps(axis: Axis, src_len: u32, dst_len: u32) -> Vec<Tap> {
+    let scale = resize_scale(src_len, dst_len);
     (0..dst_len)
         .map(|d| {
             let f = ((d as f64 + 0.5) * scale - 0.5) as f32;
             let s = f.floor();
-            make_tap(src_len, s as i64, f - s)
+            make_tap(axis, src_len, s as i64, f - s)
         })
         .collect()
 }
 
 /// Taps of OpenCV's `INTER_AREA` when the image is enlarged along at least one axis.
-fn area_upscale_taps(src_len: u32, dst_len: u32) -> Vec<Tap> {
-    let scale = src_len as f64 / dst_len as f64;
+fn area_upscale_taps(axis: Axis, src_len: u32, dst_len: u32) -> Vec<Tap> {
     let inv_scale = dst_len as f64 / src_len as f64;
+    let scale = 1.0 / inv_scale;
     (0..dst_len)
         .map(|d| {
             let s = (d as f64 * scale).floor() as i64;
             let f = ((d + 1) as f64 - (s + 1) as f64 * inv_scale) as f32;
             let f = if f <= 0.0 { 0.0 } else { f - f.floor() };
-            make_tap(src_len, s, f)
+            make_tap(axis, src_len, s, f)
         })
         .collect()
 }
 
 /// Two-pass fixed-point interpolation with the given taps, rounding like OpenCV.
 fn resize_with_taps(src: &RgbImage, width: u32, height: u32, xs: &[Tap], ys: &[Tap]) -> RgbImage {
-    let (src_w, src_h) = src.dimensions();
+    let src_w = src.width();
     let src_raw = src.as_raw();
     let row_len = src_w as usize * 3;
 
     // Horizontal pass of one source row into fixed-point intermediate values
     let horizontal = |y: usize, out: &mut [i32]| {
         let row = &src_raw[y * row_len..(y + 1) * row_len];
-        for (&(sx, w0, w1), out) in xs.iter().zip(out.as_chunks_mut::<3>().0) {
-            let next = (sx + 1).min(src_w as usize - 1);
+        for (&(sx, next, w0, w1), out) in xs.iter().zip(out.as_chunks_mut::<3>().0) {
             for c in 0..3 {
                 out[c] = row[sx * 3 + c] as i32 * w0 + row[next * 3 + c] as i32 * w1;
             }
@@ -86,8 +100,7 @@ fn resize_with_taps(src: &RgbImage, width: u32, height: u32, xs: &[Tap], ys: &[T
     // destination rows use them: when upscaling, several destination rows share their source rows
     let (mut row0, mut row1) = (vec![0; dst_row_len], vec![0; dst_row_len]);
     let (mut y0, mut y1) = (usize::MAX, usize::MAX);
-    for (dy, &(sy, w0, w1)) in ys.iter().enumerate() {
-        let sy1 = (sy + 1).min(src_h as usize - 1);
+    for (dy, &(sy, sy1, w0, w1)) in ys.iter().enumerate() {
         if y0 != sy {
             if y1 == sy {
                 std::mem::swap(&mut row0, &mut row1);
@@ -113,8 +126,8 @@ fn resize_with_taps(src: &RgbImage, width: u32, height: u32, xs: &[Tap], ys: &[T
 
 /// Bilinear resize with OpenCV `INTER_LINEAR` semantics and rounding.
 pub fn resize_linear(src: &RgbImage, width: u32, height: u32) -> RgbImage {
-    let xs = linear_taps(src.width(), width);
-    let ys = linear_taps(src.height(), height);
+    let xs = linear_taps(Axis::X, src.width(), width);
+    let ys = linear_taps(Axis::Y, src.height(), height);
     resize_with_taps(src, width, height, &xs, &ys)
 }
 
@@ -163,11 +176,11 @@ fn area_taps(src_len: u32, dst_len: u32, scale: f64) -> Vec<AreaTap> {
 /// a variant of bilinear interpolation when enlarging.
 pub fn resize_area(src: &RgbImage, width: u32, height: u32) -> RgbImage {
     let (src_w, src_h) = src.dimensions();
-    let scale_x = src_w as f64 / width as f64;
-    let scale_y = src_h as f64 / height as f64;
+    let scale_x = resize_scale(src_w, width);
+    let scale_y = resize_scale(src_h, height);
     if scale_x < 1.0 || scale_y < 1.0 {
-        let xs = area_upscale_taps(src_w, width);
-        let ys = area_upscale_taps(src_h, height);
+        let xs = area_upscale_taps(Axis::X, src_w, width);
+        let ys = area_upscale_taps(Axis::Y, src_h, height);
         return resize_with_taps(src, width, height, &xs, &ys);
     }
 
