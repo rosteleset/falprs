@@ -789,11 +789,12 @@ async fn cluster_faces_by_similarity(frs: &Frs, id_group: i32, body: &Value) -> 
     let available: Vec<i32> = faces.into_iter().filter(|id| descriptors.contains_key(id)).collect();
 
     // Connected components of the similarity graph, found by BFS
+    let vectors: Vec<&[f32]> = available.iter().map(|id| descriptors[id].as_slice()).collect();
     let n = available.len();
     let mut adjacent = vec![Vec::new(); n];
     for i in 0..n {
         for j in i + 1..n {
-            if cosine_similarity(&descriptors[&available[i]], &descriptors[&available[j]]) >= f64::from(threshold) {
+            if cosine_similarity(vectors[i], vectors[j]) >= f64::from(threshold) {
                 adjacent[i].push(j);
                 adjacent[j].push(i);
             }

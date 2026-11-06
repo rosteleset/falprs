@@ -30,7 +30,13 @@ impl Tensor {
             name: name.to_string(),
             datatype: "FP32".to_string(),
             shape,
-            data: values.iter().flat_map(|v| v.to_le_bytes()).collect(),
+            data: {
+                let mut data = Vec::with_capacity(values.len() * 4);
+                for v in values {
+                    data.extend_from_slice(&v.to_le_bytes());
+                }
+                data
+            },
         }
     }
 
