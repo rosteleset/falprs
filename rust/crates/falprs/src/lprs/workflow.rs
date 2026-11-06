@@ -299,8 +299,12 @@ async fn recognize(lprs: &Lprs, stream: StreamLog<'_>, ext_id: &str, id_vstream:
             pipeline::classify_plates(triton, &frame, config, &mut plates, stream).await?;
             stream_log!(stream, Level::Trace, "after doInferenceLpcNet");
             stream_log!(stream, Level::Trace, "before doInferenceLprNet");
-            pipeline::recognize_plates(triton, &frame, config, &mut plates, stream).await?;
+            let recognized = pipeline::recognize_plates(triton, &frame, config, &mut plates, stream).await?;
             stream_log!(stream, Level::Trace, "after doInferenceLprNet");
+            // As in the C++ service, a frame where no plate got an LPRNet result is dropped
+            if !recognized {
+                return Ok(());
+            }
         }
     }
 

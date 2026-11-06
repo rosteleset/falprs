@@ -4,7 +4,7 @@
 
 use std::collections::HashSet;
 
-use anyhow::{Context, Result, bail};
+use anyhow::{Result, bail};
 use futures::future::join_all;
 use image::RgbImage;
 
@@ -68,20 +68,33 @@ fn nchw(model: &ModelConfig) -> Vec<i64> {
     vec![1, 3, model.input_height as i64, model.input_width as i64]
 }
 
-/// Runs the requests concurrently; like userver's `WaitAllChecked`, any failure fails them all.
-async fn infer_all(triton: &Triton, requests: Vec<InferRequest<'_>>, log: StreamLog<'_>) -> Result<Vec<Vec<f32>>> {
-    join_all(requests.into_iter().map(|r| triton.infer(r)))
-        .await
-        .into_iter()
+/// Runs the requests of the items that have one concurrently and returns the first output of each
+/// item. Like userver's `WaitAllChecked`, a failed request fails them all; a response without
+/// outputs is logged and gives `None`, so that only its vehicle or plate is skipped, as in the C++
+/// service. An item without a request gives `None` silently.
+async fn infer_all(triton: &Triton, requests: Vec<Option<InferRequest<'_>>>, log: StreamLog<'_>) -> Result<Vec<Option<Vec<f32>>>> {
+    let responses = join_all(requests.into_iter().map(|request| async {
+        match request {
+            Some(request) => triton.infer(request).await.map(Some),
+            None => Ok(None),
+        }
+    }))
+    .await;
+    let responses = responses.into_iter().collect::<Result<Vec<_>>>()?;
+    let outputs = first_outputs(&responses);
+    for (index, _) in outputs
+        .iter()
         .enumerate()
-        .map(|(index, outputs)| {
-            let Some(output) = outputs?.first().map(|output| output.as_f32()) else {
-                log!(log.logger, Level::Error, "Error! Unable to receive inference result (vindex = {index})");
-                bail!("inference returned no outputs");
-            };
-            Ok(output)
-        })
-        .collect()
+        .filter(|(index, output)| output.is_none() && responses[*index].is_some())
+    {
+        log!(log.logger, Level::Error, "Error! Unable to receive inference result (vindex = {index})");
+    }
+    Ok(outputs)
+}
+
+/// The first output of each response, or `None` for a missing response or one without outputs.
+fn first_outputs(responses: &[Option<Vec<Tensor>>]) -> Vec<Option<Vec<f32>>> {
+    responses.iter().map(|outputs| outputs.as_ref()?.first().map(Tensor::as_f32)).collect()
 }
 
 /// The ROI of a box as the C++ service takes it: corners truncated to integers.
@@ -187,11 +200,12 @@ pub async fn classify_special(triton: &Triton, image: &RgbImage, config: &VStrea
             })
             .collect::<Result<Vec<_>>>()
     })?;
-    let requests = tensors.iter().map(|t| request(model, nchw(model), t, config)).collect();
+    let requests = tensors.iter().map(|t| Some(request(model, nchw(model), t, config))).collect();
     let outputs = infer_all(triton, requests, log).await?;
     stream_log!(log, Level::Trace, "after inference VcNet");
     stream_log!(log, Level::Trace, "special confidence threshold: {:.3}", config.special_confidence);
     for (vindex, (vehicle, scores)) in vehicles.iter_mut().zip(outputs).enumerate() {
+        let Some(scores) = scores else { continue };
         stream_log!(log, Level::Trace, "vindex = {vindex};  softmax scores: {scores:?}");
         let scores = softmax(&scores);
         let b = vehicle.bbox;
@@ -240,12 +254,13 @@ pub async fn detect_plates(triton: &Triton, image: &RgbImage, config: &VStreamCo
             })
             .collect::<Result<Vec<_>>>()
     })?;
-    let requests = inputs.iter().map(|input| request(model, nchw(model), &input.tensor, config)).collect();
+    let requests = inputs.iter().map(|input| Some(request(model, nchw(model), &input.tensor, config))).collect();
     let outputs = infer_all(triton, requests, log).await?;
     stream_log!(log, Level::Trace, "after inference LPDNet");
 
     let work_area = absolute_work_area(&config.work_area, image.width(), image.height());
     for (vindex, ((vehicle, input), data)) in vehicles.iter_mut().zip(&inputs).zip(outputs).enumerate() {
+        let Some(data) = data else { continue };
         // Rows of 14: left, top, right, bottom, confidence, class, 4 key points clockwise from the top left
         const COLUMNS: usize = 14;
         let inv_scale = 1.0 / input.scale as f32;
@@ -416,10 +431,11 @@ pub async fn classify_plates(triton: &Triton, image: &RgbImage, config: &VStream
             })
             .collect::<Result<Vec<_>>>()
     })?;
-    let requests = tensors.iter().map(|t| request(model, nchw(model), t, config)).collect();
+    let requests = tensors.iter().map(|t| Some(request(model, nchw(model), t, config))).collect();
     let outputs = infer_all(triton, requests, log).await?;
     stream_log!(log, Level::Trace, "after inference LpcNet");
     for (pindex, (plate, scores)) in plates.iter_mut().zip(outputs).enumerate() {
+        let Some(scores) = scores else { continue };
         stream_log!(log, Level::Trace, "pindex = {pindex};  softmax scores: {scores:?}");
         let scores = softmax(&scores);
         let b = plate.bbox;
@@ -600,8 +616,9 @@ fn assemble_numbers(chars: &[CharData], plate_class: i32, char_iou_threshold: f3
     numbers
 }
 
-/// LPRNet: straightens every plate and reads its number.
-pub async fn recognize_plates(triton: &Triton, image: &RgbImage, config: &VStreamConfig, plates: &mut [&mut LicensePlate], log: StreamLog<'_>) -> Result<()> {
+/// LPRNet: straightens every plate and reads its number. Returns whether any plate got an inference
+/// result, as `doInferenceLprNet` of the C++ service, whose caller drops the frame otherwise.
+pub async fn recognize_plates(triton: &Triton, image: &RgbImage, config: &VStreamConfig, plates: &mut [&mut LicensePlate], log: StreamLog<'_>) -> Result<bool> {
     let model = &config.lpr_net;
     stream_log!(log, Level::Trace, "before inference LPRNet");
     let inputs = tokio::task::block_in_place(|| {
@@ -614,19 +631,34 @@ pub async fn recognize_plates(triton: &Triton, image: &RgbImage, config: &VStrea
                 let width = model.input_width as f32;
                 let height = width * HEIGHT_RATIO_BY_PLATE_CLASS[class];
                 let dst = [[0.0, 0.0], [width - 1.0, 0.0], [width - 1.0, height - 1.0], [0.0, height - 1.0]];
-                let transform = perspective_transform(plate.corners(), dst).context("degenerate plate corners")?;
-                let straightened = warp_perspective(image, &transform, model.input_width, height as u32).context("degenerate plate transform")?;
+                // Unlike the C++ service, which reads a plate filled with one pixel of the frame
+                // there, a plate with degenerate corners is not recognised
+                let straightened = perspective_transform(plate.corners(), dst).and_then(|m| warp_perspective(image, &m, model.input_width, height as u32));
+                let Some(straightened) = straightened else {
+                    stream_log!(
+                        log,
+                        Level::Trace,
+                        "degenerate plate corners (pindex = {pindex}): {}",
+                        format_key_points(&plate.kpts)
+                    );
+                    return None;
+                };
                 let input = prepare_yolo(&straightened, model.input_width, model.input_height);
                 stream_log!(log, Level::Trace, "after preprocess image {pindex} for LPRNet");
-                Ok(input)
+                Some(input)
             })
-            .collect::<Result<Vec<_>>>()
-    })?;
-    let requests = inputs.iter().map(|input| request(model, nchw(model), &input.tensor, config)).collect();
+            .collect::<Vec<_>>()
+    });
+    let requests = inputs
+        .iter()
+        .map(|input| Some(request(model, nchw(model), &input.as_ref()?.tensor, config)))
+        .collect();
     let outputs = infer_all(triton, requests, log).await?;
     stream_log!(log, Level::Trace, "after inference LPRNet");
 
+    let mut is_ok = false;
     for (pindex, ((plate, input), data)) in plates.iter_mut().zip(&inputs).zip(outputs).enumerate() {
+        let (Some(input), Some(data)) = (input, data) else { continue };
         // Rows of 6: left, top, right, bottom, confidence, class
         let inv_scale = 1.0 / input.scale as f32;
         let (shift_x, shift_y) = input.shift;
@@ -665,13 +697,21 @@ pub async fn recognize_plates(triton: &Triton, image: &RgbImage, config: &VStrea
         });
         numbers.sort_by(|a, b| b.score.total_cmp(&a.score));
         plate.numbers = numbers;
+        is_ok = true;
     }
-    Ok(())
+    Ok(is_ok)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_response_without_outputs_skips_only_its_item() {
+        let tensor = Tensor::fp32("output", vec![2], &[1.5, -2.0]);
+        let outputs = first_outputs(&[Some(vec![tensor.clone()]), Some(Vec::new()), None, Some(vec![tensor])]);
+        assert_eq!(outputs, [Some(vec![1.5, -2.0]), None, None, Some(vec![1.5, -2.0])]);
+    }
 
     fn number(text: &str, plate_class: i32) -> PlateNumber {
         PlateNumber {
