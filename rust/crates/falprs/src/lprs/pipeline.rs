@@ -184,22 +184,27 @@ fn softmax(values: &[f32]) -> Vec<f32> {
     values.iter().map(|v| v.exp() / sum).collect()
 }
 
-/// VCNet: marks special vehicles.
-pub async fn classify_special(triton: &Triton, image: &RgbImage, config: &VStreamConfig, vehicles: &mut [Vehicle], log: StreamLog<'_>) -> Result<()> {
+/// The region of every vehicle, cut out of the frame once for VcNet and LPDNet.
+pub fn crop_vehicles(image: &RgbImage, vehicles: &[Vehicle]) -> Result<Vec<RgbImage>> {
+    tokio::task::block_in_place(|| vehicles.iter().map(|v| roi(image, &v.bbox)).collect())
+}
+
+/// VCNet: marks special vehicles, from their regions (`crops`, in vehicle order).
+pub async fn classify_special(triton: &Triton, crops: &[RgbImage], config: &VStreamConfig, vehicles: &mut [Vehicle], log: StreamLog<'_>) -> Result<()> {
     let model = &config.vc_net;
     stream_log!(log, Level::Trace, "before inference VcNet");
     let tensors = tokio::task::block_in_place(|| {
-        vehicles
+        crops
             .iter()
             .enumerate()
-            .map(|(vindex, v)| {
+            .map(|(vindex, crop)| {
                 stream_log!(log, Level::Trace, "before preprocess image {vindex} for VcNet");
-                let tensor = prepare_vc(&roi(image, &v.bbox)?, model.input_width, model.input_height);
+                let tensor = prepare_vc(crop, model.input_width, model.input_height);
                 stream_log!(log, Level::Trace, "after preprocess image {vindex} for VcNet");
-                Ok(tensor)
+                tensor
             })
-            .collect::<Result<Vec<_>>>()
-    })?;
+            .collect::<Vec<_>>()
+    });
     let requests = tensors.iter().map(|t| Some(request(model, nchw(model), t, config))).collect();
     let outputs = infer_all(triton, requests, log).await?;
     stream_log!(log, Level::Trace, "after inference VcNet");
@@ -239,21 +244,28 @@ fn absolute_work_area(work_area: &[WorkAreaPolygon], width: u32, height: u32) ->
 }
 
 /// LPDNet: plates of every vehicle, filtered by the work area and the minimum plate height.
-pub async fn detect_plates(triton: &Triton, image: &RgbImage, config: &VStreamConfig, vehicles: &mut [Vehicle], log: StreamLog<'_>) -> Result<()> {
+pub async fn detect_plates(
+    triton: &Triton,
+    image: &RgbImage,
+    crops: &[RgbImage],
+    config: &VStreamConfig,
+    vehicles: &mut [Vehicle],
+    log: StreamLog<'_>,
+) -> Result<()> {
     let model = &config.lpd_net;
     stream_log!(log, Level::Trace, "before inference LPDNet");
     let inputs = tokio::task::block_in_place(|| {
-        vehicles
+        crops
             .iter()
             .enumerate()
-            .map(|(vindex, v)| {
+            .map(|(vindex, crop)| {
                 stream_log!(log, Level::Trace, "before preprocess image {vindex} for LPDNet");
-                let input = prepare_yolo(&roi(image, &v.bbox)?, model.input_width, model.input_height);
+                let input = prepare_yolo(crop, model.input_width, model.input_height);
                 stream_log!(log, Level::Trace, "after preprocess image {vindex} for LPDNet");
-                Ok(input)
+                input
             })
-            .collect::<Result<Vec<_>>>()
-    })?;
+            .collect::<Vec<_>>()
+    });
     let requests = inputs.iter().map(|input| Some(request(model, nchw(model), &input.tensor, config))).collect();
     let outputs = infer_all(triton, requests, log).await?;
     stream_log!(log, Level::Trace, "after inference LPDNet");

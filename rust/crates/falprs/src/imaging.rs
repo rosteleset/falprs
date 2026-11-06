@@ -267,7 +267,22 @@ pub fn crop(image: &RgbImage, x1: i32, y1: i32, x2: i32, y2: i32) -> Result<RgbI
     if left < 0 || top < 0 || right as u32 > image.width() || bottom as u32 > image.height() || left == right || top == bottom {
         anyhow::bail!("invalid region [{x1}, {y1}, {x2}, {y2}] of a {}x{} image", image.width(), image.height());
     }
-    Ok(image::imageops::crop_imm(image, left as u32, top as u32, (right - left) as u32, (bottom - top) as u32).to_image())
+    Ok(crop_clamped(image, left as u32, top as u32, (right - left) as u32, (bottom - top) as u32))
+}
+
+/// A copy of the `width` x `height` region at `(x, y)`, clamped to the image as
+/// `image::imageops::crop_imm` clamps it, copied whole rows at a time.
+pub fn crop_clamped(image: &RgbImage, x: u32, y: u32, width: u32, height: u32) -> RgbImage {
+    let (x, y) = (x.min(image.width()), y.min(image.height()));
+    let (width, height) = (width.min(image.width() - x), height.min(image.height() - y));
+    let (row_len, left, len) = (image.width() as usize * 3, x as usize * 3, width as usize * 3);
+    let mut data = Vec::with_capacity(len * height as usize);
+    if row_len > 0 {
+        for row in image.as_raw().chunks_exact(row_len).skip(y as usize).take(height as usize) {
+            data.extend_from_slice(&row[left..left + len]);
+        }
+    }
+    RgbImage::from_raw(width, height, data).expect("whole rows of the region")
 }
 
 /// Packs an RGB image into an NCHW float tensor with `(pixel - mean) * scale`, like OpenCV's
@@ -883,6 +898,33 @@ mod tests {
         let image = RgbImage::new(6, 5);
         let singular = [1.0, 2.0, 3.0, 2.0, 4.0, 6.0, 0.0, 0.0, 1.0];
         assert_eq!(warp_perspective(&image, &singular, 8, 3), None);
+    }
+
+    #[test]
+    fn crop_copies_the_region() {
+        let image = RgbImage::from_fn(7, 5, |x, y| Rgb([(x * 30) as u8, (y * 40) as u8, (x + y) as u8]));
+        for (x1, y1, x2, y2) in [(0, 0, 7, 5), (2, 1, 5, 4), (6, 4, 0, 0), (3, 2, 4, 3)] {
+            let (l, t, r, b) = (x1.min(x2), y1.min(y2), x1.max(x2), y1.max(y2));
+            let expected = image::imageops::crop_imm(&image, l, t, r - l, b - t).to_image();
+            assert_eq!(crop(&image, x1 as i32, y1 as i32, x2 as i32, y2 as i32).unwrap(), expected);
+        }
+        assert!(crop(&image, 2, 2, 2, 4).is_err() && crop(&image, -1, 0, 3, 3).is_err() && crop(&image, 0, 0, 8, 3).is_err());
+        // Clamped like crop_imm, also past the image
+        for (x, y, w, h) in [
+            (0, 0, 7, 5),
+            (5, 3, 10, 10),
+            (7, 5, 2, 2),
+            (9, 1, 3, 3),
+            (1, 9, 3, 3),
+            (2, 2, 0, 3),
+            (u32::MAX, 0, 2, 2),
+        ] {
+            assert_eq!(
+                crop_clamped(&image, x, y, w, h),
+                image::imageops::crop_imm(&image, x, y, w, h).to_image(),
+                "{x} {y} {w} {h}"
+            );
+        }
     }
 
     #[test]
