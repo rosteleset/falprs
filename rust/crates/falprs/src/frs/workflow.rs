@@ -927,7 +927,8 @@ async fn spawn_descriptor(ctx: &Run<'_>, key: &str, descriptor: &[f32], id_paren
         spawned
     };
     if let Some((spawned_descriptor, face_image)) = spawned {
-        let id_spawned = add_face_descriptor(ctx, config.id_group, config.id_vstream, &spawned_descriptor, &face_image, id_parent).await;
+        let jpeg = encode_face_jpeg(&face_image);
+        let id_spawned = add_face_descriptor(ctx, config.id_group, config.id_vstream, &spawned_descriptor, &jpeg, id_parent).await;
         if config.logs(Level::Trace) {
             log_to!(
                 frs.logger,
@@ -1177,13 +1178,14 @@ async fn register_descriptor(
     let face = &face_data[best];
     let (cols, rows) = (frame.width() as i32, frame.height() as i32);
     let r = enlarge_face_rect(&face.face_rect, f64::from(config.face_enlarge_scale)).intersect(&Rect::new(0, 0, cols, rows));
-    let face_image = crop(frame, &r);
+    // Encoded once, for the stored descriptor image and for the result
+    let face_jpeg = encode_face_jpeg(&crop(frame, &r));
     result.id_descriptor = if face.cosine_similarity > 0.999 {
         face.id_descriptor
     } else if task.id_sgroup > 0 {
-        add_sgroup_face_descriptor(ctx, task.id_sgroup, &face.descriptor, &face_image).await
+        add_sgroup_face_descriptor(ctx, task.id_sgroup, &face.descriptor, &face_jpeg).await
     } else {
-        add_face_descriptor(ctx, config.id_group, config.id_vstream, &face.descriptor, &face_image, 0).await
+        add_face_descriptor(ctx, config.id_group, config.id_vstream, &face.descriptor, &face_jpeg, 0).await
     };
     if result.id_descriptor <= 0 {
         result.comments = common.comments_descriptor_creation_error.clone();
@@ -1210,21 +1212,26 @@ async fn register_descriptor(
             );
         }
     }
-    result.face_image_jpeg = imaging::encode_jpeg(&face_image).unwrap_or_default();
+    result.face_image_jpeg = face_jpeg;
     result.face_left = face.face_rect.x;
     result.face_top = face.face_rect.y;
     result.face_width = face.face_rect.width;
     result.face_height = face.face_rect.height;
 }
 
-/// Stores a descriptor with its face image; a descriptor without a parent is attached to the video stream.
-async fn add_face_descriptor(ctx: &Run<'_>, id_group: i32, id_vstream: i32, descriptor: &[f32], face_image: &RgbImage, id_parent: i32) -> i32 {
+/// A face image as the JPEG stored with its descriptor, empty if it cannot be encoded. Encoding is
+/// CPU work, done off the async worker thread.
+fn encode_face_jpeg(face_image: &RgbImage) -> Vec<u8> {
+    tokio::task::block_in_place(|| imaging::encode_jpeg(face_image).unwrap_or_default())
+}
+
+/// Stores a descriptor with its face image (JPEG); a descriptor without a parent is attached to the video stream.
+async fn add_face_descriptor(ctx: &Run<'_>, id_group: i32, id_vstream: i32, descriptor: &[f32], jpeg: &[u8], id_parent: i32) -> i32 {
     let frs = ctx.frs;
     let output_size = frs.config.get().common.get(&id_group).map_or(512, |common| common.fr_net.output_size);
     let mut data = descriptor.to_vec();
     data.resize(output_size, 0.0);
     let bytes = descriptor_to_bytes(&data);
-    let jpeg = imaging::encode_jpeg(face_image).unwrap_or_default();
     let id_parent = (id_parent > 0).then_some(id_parent);
     let result: Result<i32> = async {
         let mut client = frs.cluster.client(HostType::Master).await?;
@@ -1264,7 +1271,7 @@ async fn add_face_descriptor(ctx: &Run<'_>, id_group: i32, id_vstream: i32, desc
     })
 }
 
-async fn add_sgroup_face_descriptor(ctx: &Run<'_>, id_sgroup: i32, descriptor: &[f32], face_image: &RgbImage) -> i32 {
+async fn add_sgroup_face_descriptor(ctx: &Run<'_>, id_sgroup: i32, descriptor: &[f32], jpeg: &[u8]) -> i32 {
     let frs = ctx.frs;
     let id_group = frs.sg_config.get().by_id(id_sgroup).map_or(-1, |sg| sg.id_group);
     if id_group <= 0 {
@@ -1274,7 +1281,6 @@ async fn add_sgroup_face_descriptor(ctx: &Run<'_>, id_sgroup: i32, descriptor: &
     let mut data = descriptor.to_vec();
     data.resize(output_size, 0.0);
     let bytes = descriptor_to_bytes(&data);
-    let jpeg = imaging::encode_jpeg(face_image).unwrap_or_default();
     let result: Result<i32> = async {
         let mut client = frs.cluster.client(HostType::Master).await?;
         let transaction = client.transaction().await?;
