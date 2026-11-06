@@ -1,10 +1,13 @@
-//! File operations shared by FRS and LPRS, asynchronous through `tokio::fs` so that a slow disk
-//! does not stall the runtime's worker threads.
+//! File operations shared by FRS and LPRS, asynchronous so that a slow disk does not stall the
+//! runtime's worker threads: single files through `tokio::fs`, directory walks with `std::fs` in one
+//! blocking task each, as one `tokio::fs` call per entry would cost a trip to the blocking pool.
 
 use std::fs::Metadata;
 use std::io;
 use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::SystemTime;
 
 use anyhow::{Context, Result};
@@ -44,19 +47,55 @@ pub async fn exists(path: &Path) -> bool {
 
 /// Regular files under `dir`, recursively, whose extension is one of `extensions`, with their
 /// metadata. Directories are walked depth first from the last one found; unreadable entries are
-/// skipped.
+/// skipped. The walk runs on the blocking pool in one go, and stops early once the returned future
+/// is dropped, e.g. by a shutdown or a client that went away.
 pub async fn files_with_extensions(dir: &Path, extensions: &[&str]) -> Vec<(PathBuf, Metadata)> {
+    let (dir, extensions) = (dir.to_path_buf(), owned(extensions));
+    run_blocking(move |cancelled| walk(&dir, &extensions, cancelled)).await
+}
+
+/// Removes the files under `dir` with one of `extensions` last modified before `before`, and
+/// returns the errors of the removals that failed. Runs on the blocking pool like
+/// [`files_with_extensions`].
+pub async fn remove_old_files(dir: &Path, extensions: &[&str], before: SystemTime) -> Vec<io::Error> {
+    let (dir, extensions) = (dir.to_path_buf(), owned(extensions));
+    run_blocking(move |cancelled| {
+        let mut errors = Vec::new();
+        for (path, metadata) in walk(&dir, &extensions, cancelled) {
+            if cancelled.load(Ordering::Relaxed) {
+                break;
+            }
+            if metadata.modified().is_ok_and(|modified| modified < before)
+                && let Err(e) = std::fs::remove_file(&path)
+            {
+                errors.push(e);
+            }
+        }
+        errors
+    })
+    .await
+}
+
+fn owned(extensions: &[&str]) -> Vec<String> {
+    extensions.iter().map(|e| e.to_string()).collect()
+}
+
+/// The walk of [`files_with_extensions`], with `std::fs`; it ends early once `cancelled` is set.
+fn walk(dir: &Path, extensions: &[String], cancelled: &AtomicBool) -> Vec<(PathBuf, Metadata)> {
     let mut files = Vec::new();
     let mut pending = vec![dir.to_path_buf()];
     while let Some(dir) = pending.pop() {
-        let Ok(mut entries) = tokio::fs::read_dir(&dir).await else { continue };
-        while let Ok(Some(entry)) = entries.next_entry().await {
-            let Ok(file_type) = entry.file_type().await else { continue };
+        if cancelled.load(Ordering::Relaxed) {
+            break;
+        }
+        let Ok(entries) = std::fs::read_dir(&dir) else { continue };
+        for entry in entries.flatten() {
+            let Ok(file_type) = entry.file_type() else { continue };
             let path = entry.path();
             if file_type.is_dir() {
                 pending.push(path);
-            } else if file_type.is_file() && path.extension().and_then(|e| e.to_str()).is_some_and(|e| extensions.contains(&e)) {
-                let Ok(metadata) = entry.metadata().await else { continue };
+            } else if file_type.is_file() && path.extension().and_then(|e| e.to_str()).is_some_and(|e| extensions.iter().any(|x| x == e)) {
+                let Ok(metadata) = entry.metadata() else { continue };
                 files.push((path, metadata));
             }
         }
@@ -64,18 +103,25 @@ pub async fn files_with_extensions(dir: &Path, extensions: &[&str]) -> Vec<(Path
     files
 }
 
-/// Removes the files under `dir` with one of `extensions` last modified before `before`, and
-/// returns the errors of the removals that failed.
-pub async fn remove_old_files(dir: &Path, extensions: &[&str], before: SystemTime) -> Vec<io::Error> {
-    let mut errors = Vec::new();
-    for (path, metadata) in files_with_extensions(dir, extensions).await {
-        if metadata.modified().is_ok_and(|modified| modified < before)
-            && let Err(e) = tokio::fs::remove_file(&path).await
-        {
-            errors.push(e);
-        }
+/// Sets its flag when dropped.
+struct CancelOnDrop(Arc<AtomicBool>);
+
+impl Drop for CancelOnDrop {
+    fn drop(&mut self) {
+        self.0.store(true, Ordering::Relaxed);
     }
-    errors
+}
+
+/// Runs `work` on tokio's blocking pool. `work` gets a flag that is set once the returned future is
+/// dropped before it ends, as a blocking task cannot be aborted: checking it lets a long walk stop
+/// instead of delaying a shutdown. A panic of `work` resumes in the caller.
+async fn run_blocking<T: Send + 'static>(work: impl FnOnce(&AtomicBool) -> T + Send + 'static) -> T {
+    let cancelled = Arc::new(AtomicBool::new(false));
+    let _cancel_on_drop = CancelOnDrop(cancelled.clone());
+    match tokio::task::spawn_blocking(move || work(&cancelled)).await {
+        Ok(result) => result,
+        Err(e) => std::panic::resume_unwind(e.into_panic()),
+    }
 }
 
 #[cfg(test)]
@@ -101,6 +147,28 @@ mod tests {
         assert_eq!(std::fs::read(dir.join("a/log.dat")).unwrap(), b"1234");
         assert!(exists(&path).await && !exists(&dir.join("missing")).await);
         std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn dropping_the_future_cancels_the_blocking_work() {
+        let observed = Arc::new(AtomicBool::new(false));
+        let seen = observed.clone();
+        let task = tokio::spawn(run_blocking(move |cancelled| {
+            // A long walk that only ends when cancelled
+            let start = std::time::Instant::now();
+            while !cancelled.load(Ordering::Relaxed) && start.elapsed() < Duration::from_secs(5) {
+                std::thread::sleep(Duration::from_millis(5));
+            }
+            seen.store(cancelled.load(Ordering::Relaxed), Ordering::Relaxed);
+        }));
+        tokio::time::sleep(Duration::from_millis(50)).await;
+        task.abort();
+        let start = std::time::Instant::now();
+        while !observed.load(Ordering::Relaxed) && start.elapsed() < Duration::from_secs(5) {
+            tokio::time::sleep(Duration::from_millis(5)).await;
+        }
+        assert!(observed.load(Ordering::Relaxed));
+        assert!(walk(Path::new("/"), &owned(&["jpg"]), &AtomicBool::new(true)).is_empty());
     }
 
     #[tokio::test]
