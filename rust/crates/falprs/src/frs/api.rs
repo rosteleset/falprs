@@ -21,6 +21,7 @@ use serde_json::{Map, Value, json};
 
 use super::Frs;
 use super::caches::{descriptor_from_bytes, vstream_key};
+use super::config::LocalConfig;
 use super::events::{EVENT_DATA_SIZE, EventData};
 use super::workflow::{self, TaskData, TaskType};
 use crate::converters;
@@ -1356,9 +1357,10 @@ async fn sg_search_faces(frs: &Arc<Frs>, id_sgroup: i32, body: &Value) -> Result
         .map_err(db_error(frs))?;
     let descriptors = stored_descriptors(&rows);
     let frs = frs.clone();
-    let results = tokio::task::spawn_blocking(move || search_files(&frs, id_group, &descriptors, threshold, (date_start, date_end), (flag_logs, flag_events)))
-        .await
-        .map_err(|_| ApiError::server_error())?;
+    let results =
+        tokio::task::spawn_blocking(move || search_files(&frs.local, id_group, &descriptors, threshold, (date_start, date_end), (flag_logs, flag_events)))
+            .await
+            .map_err(|_| ApiError::server_error())?;
     Ok(Value::Array(
         results
             .into_iter()
@@ -1378,7 +1380,7 @@ async fn sg_search_faces(frs: &Arc<Frs>, id_sgroup: i32, body: &Value) -> Result
 
 /// Searches the copied events and then the face logs of a stream group for the descriptors.
 fn search_files(
-    frs: &Frs,
+    local: &LocalConfig,
     id_group: i32,
     descriptors: &HashMap<i32, Vec<f32>>,
     threshold: f32,
@@ -1391,51 +1393,57 @@ fn search_files(
     let descriptors: Vec<(i32, &[f32], f64)> = descriptors.iter().map(|(&id, d)| (id, d.as_slice(), similarity::norm(d))).collect();
     let mut results = Vec::new();
     let mut event_ids = HashSet::new();
-    let local = &frs.local;
 
     let events_dir = PathBuf::from(format!("{}group_{id_group}/", local.events_path));
     if flag_events && events_dir.exists() {
         // Event files are named by local date and filtered by name
         let file_name = |date: DateTime<Utc>| format!("{}.dat", date.with_timezone(&Local).format("%Y-%m-%d"));
         let (first, last) = (file_name(date_start), file_name(date_end));
+        let group_dir = format!("{}group_{id_group}", local.events_path);
         for path in files_with_extension(&events_dir, "dat") {
             let name = path.file_name().and_then(|n| n.to_str()).unwrap_or_default().to_string();
             if name < first || name > last {
                 continue;
             }
+            let stem = name.trim_end_matches(".dat");
             for data in read_event_data(&path) {
                 let norm = similarity::norm(&data.descriptor);
+                // The event's JSON, read on the first match of the record and shared by the others
+                let mut event: Option<Option<(String, String, String)>> = None;
                 for &(id_descriptor, descriptor, descriptor_norm) in &descriptors {
                     let similarity = similarity::cosine_with_norms(descriptor, descriptor_norm, &data.descriptor, norm);
                     if similarity <= threshold {
                         continue;
                     }
-                    let event_id = data.event_id.clone();
-                    event_ids.insert(event_id.clone());
-                    let c = id_chars(&event_id);
-                    let group_dir = format!("{}group_{id_group}", local.events_path);
-                    let mut json_path = PathBuf::from(format!("{group_dir}/{}/{}/{}/{}/{event_id}.json", c[0], c[1], c[2], c[3]));
-                    if !json_path.exists() {
-                        // The shorter path of the old project
-                        json_path = PathBuf::from(format!("{group_dir}/{}/{}/{}/{event_id}.json", c[0], c[1], c[2]));
-                    }
-                    let Some(event) = read_json(&json_path) else { continue };
-                    let uuid = event.get("event_uuid").and_then(Value::as_str).unwrap_or_default().to_string();
-                    let url_image = if uuid.is_empty() {
-                        format!(
-                            "{}group_{id_group}/{}/{}/{}/{}/{event_id}.jpg",
-                            local.screenshots_url_prefix, c[0], c[1], c[2], c[3]
-                        )
-                    } else {
-                        String::new()
+                    let event_id = &data.event_id;
+                    let Some((event_date, uuid, url_image)) = event.get_or_insert_with(|| {
+                        event_ids.insert(event_id.clone());
+                        let c = id_chars(event_id);
+                        let mut json_path = PathBuf::from(format!("{group_dir}/{}/{}/{}/{}/{event_id}.json", c[0], c[1], c[2], c[3]));
+                        if !json_path.exists() {
+                            // The shorter path of the old project
+                            json_path = PathBuf::from(format!("{group_dir}/{}/{}/{}/{event_id}.json", c[0], c[1], c[2]));
+                        }
+                        let event = read_json(&json_path)?;
+                        let uuid = event.get("event_uuid").and_then(Value::as_str).unwrap_or_default().to_string();
+                        let url_image = if uuid.is_empty() {
+                            format!(
+                                "{}group_{id_group}/{}/{}/{}/{}/{event_id}.jpg",
+                                local.screenshots_url_prefix, c[0], c[1], c[2], c[3]
+                            )
+                        } else {
+                            String::new()
+                        };
+                        let event_date = event.get("event_date").and_then(Value::as_str).unwrap_or(stem).to_string();
+                        Some((event_date, uuid, url_image))
+                    }) else {
+                        continue;
                     };
-                    let stem = name.trim_end_matches(".dat").to_string();
-                    let event_date = event.get("event_date").and_then(Value::as_str).map_or(stem, str::to_string);
                     results.push(SearchResult {
-                        event_date,
-                        event_id,
-                        uuid,
-                        url_image,
+                        event_date: event_date.clone(),
+                        event_id: event_id.clone(),
+                        uuid: uuid.clone(),
+                        url_image: url_image.clone(),
                         id_descriptor,
                         similarity,
                     });
@@ -1452,31 +1460,40 @@ fn search_files(
             if !modified.is_ok_and(|modified| modified >= start && modified < end) {
                 continue;
             }
+            // The log's JSON and image URL, read on the first match in the file and shared by the others
+            let mut log: Option<Option<(String, String)>> = None;
             for data in read_event_data(&path) {
+                // A log entry already found among the events is skipped
+                if event_ids.contains(&data.event_id) {
+                    continue;
+                }
                 let norm = similarity::norm(&data.descriptor);
                 for &(id_descriptor, descriptor, descriptor_norm) in &descriptors {
                     let similarity = similarity::cosine_with_norms(descriptor, descriptor_norm, &data.descriptor, norm);
-                    // A log entry already found among the events is skipped
-                    if similarity <= threshold || event_ids.contains(&data.event_id) {
+                    if similarity <= threshold {
                         continue;
                     }
-                    let stem = path.file_stem().and_then(|s| s.to_str()).unwrap_or_default().to_string();
-                    let Some(event) = read_json(&path.with_extension("json")) else { continue };
-                    let Some(event_date) = event.get("event_date").and_then(Value::as_str) else {
-                        continue;
-                    };
-                    let c = id_chars(&stem);
-                    if c.len() < 4 {
-                        continue;
-                    }
-                    results.push(SearchResult {
-                        event_date: event_date.to_string(),
-                        event_id: data.event_id.clone(),
-                        uuid: String::new(),
-                        url_image: format!(
+                    let Some((event_date, url_image)) = log.get_or_insert_with(|| {
+                        let stem = path.file_stem().and_then(|s| s.to_str()).unwrap_or_default();
+                        let event = read_json(&path.with_extension("json"))?;
+                        let event_date = event.get("event_date").and_then(Value::as_str)?.to_string();
+                        let c = id_chars(stem);
+                        if c.len() < 4 {
+                            return None;
+                        }
+                        let url_image = format!(
                             "{}group_{id_group}/{}/{}/{}/{}/{stem}.jpg",
                             local.screenshots_url_prefix, c[0], c[1], c[2], c[3]
-                        ),
+                        );
+                        Some((event_date, url_image))
+                    }) else {
+                        continue;
+                    };
+                    results.push(SearchResult {
+                        event_date: event_date.clone(),
+                        event_id: data.event_id.clone(),
+                        uuid: String::new(),
+                        url_image: url_image.clone(),
                         id_descriptor,
                         similarity,
                     });
