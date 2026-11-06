@@ -189,23 +189,32 @@ pub fn resize_area(src: &RgbImage, width: u32, height: u32) -> RgbImage {
     let mut dst = RgbImage::new(width, height);
     let (ix, iy) = (scale_x.round(), scale_y.round());
     if (scale_x - ix).abs() < f64::EPSILON && (scale_y - iy).abs() < f64::EPSILON {
-        // Whole-pixel cells: plain averages
+        // Whole-pixel cells: plain averages. The cells of a destination row are summed while
+        // their source rows are read front to back, all three channels at once
         let (ix, iy) = (ix as usize, iy as usize);
         let area = (ix * iy) as i32;
         let inv_area = 1.0 / area as f32;
-        for (x, y, pixel) in dst.enumerate_pixels_mut() {
-            for c in 0..3 {
-                let mut sum = 0;
-                for sy in y as usize * iy..(y as usize + 1) * iy {
-                    for sx in x as usize * ix..(x as usize + 1) * ix {
-                        sum += src_raw[(sy * src_w as usize + sx) * 3 + c] as i32;
+        let src_row_len = src_w as usize * 3;
+        let mut sums = vec![[0i32; 3]; width as usize];
+        for (dy, out_row) in dst.chunks_exact_mut(width as usize * 3).enumerate() {
+            sums.fill([0; 3]);
+            for source_row in src_raw.chunks_exact(src_row_len).skip(dy * iy).take(iy) {
+                for (sum, cell) in sums.iter_mut().zip(source_row.chunks_exact(ix * 3)) {
+                    for pixel in cell.as_chunks::<3>().0 {
+                        for c in 0..3 {
+                            sum[c] += pixel[c] as i32;
+                        }
                     }
                 }
-                pixel[c] = if area == 4 {
-                    ((sum + 2) >> 2) as u8
-                } else {
-                    (sum as f32 * inv_area).round_ties_even().clamp(0.0, 255.0) as u8
-                };
+            }
+            for (out, sum) in out_row.as_chunks_mut::<3>().0.iter_mut().zip(&sums) {
+                *out = sum.map(|sum| {
+                    if area == 4 {
+                        ((sum + 2) >> 2) as u8
+                    } else {
+                        (sum as f32 * inv_area).round_ties_even().clamp(0.0, 255.0) as u8
+                    }
+                });
             }
         }
         return dst;

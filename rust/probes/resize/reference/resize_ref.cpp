@@ -47,6 +47,9 @@ int main(int argc, char** argv) {
     {"linear", 1, 1, 5, 5}, {"linear", 5, 1, 3, 9}, {"linear", 100, 100, 100, 100},
     {"area", 1920, 1080, 320, 180}, {"area", 1920, 1080, 640, 360}, {"area", 1000, 700, 317, 211},
     {"area", 40, 13, 160, 40}, {"area", 317, 211, 112, 112}, {"area", 300, 200, 100, 100},
+    // Whole-pixel cells: 2x2 (rounded with a shift), 3x3, 4x4, 2x1 and 3x2
+    {"area", 448, 448, 224, 224}, {"area", 1920, 1080, 960, 540}, {"area", 672, 672, 224, 224},
+    {"area", 896, 896, 224, 224}, {"area", 450, 90, 225, 90}, {"area", 9, 4, 3, 2},
   };
   for (int i = 0; i < random_cases; ++i) {
     const auto size = [](uint32_t max) { return static_cast<int>(next() % max) + 1; };
