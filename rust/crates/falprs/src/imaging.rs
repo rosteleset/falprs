@@ -723,11 +723,21 @@ pub fn variance_of_laplacian(image: &RgbImage) -> f64 {
     if width <= 2 * MARGIN || height <= 2 * MARGIN {
         return 0.0;
     }
-    let blue = |x: u32, y: u32| f64::from(image.get_pixel(x, y)[2]);
+    // Rows above, at and below each output row, read as slices; the sums keep the order of a
+    // pixel-by-pixel walk
+    let (margin, row_len) = (MARGIN as usize, width as usize * 3);
+    let inner = margin..width as usize - margin;
+    let rows: Vec<&[[u8; 3]]> = image.as_raw().chunks_exact(row_len).map(|row| row.as_chunks::<3>().0).collect();
+    let blue = |pixel: &[u8; 3]| f64::from(pixel[2]);
     let (mut sum, mut sqsum) = (0.0, 0.0);
-    for y in MARGIN..height - MARGIN {
-        for x in MARGIN..width - MARGIN {
-            let v = blue(x, y - 1) + blue(x - 1, y) + blue(x + 1, y) + blue(x, y + 1) - 4.0 * blue(x, y);
+    for y in margin..height as usize - margin {
+        let (above, row, below) = (
+            &rows[y - 1][inner.clone()],
+            &rows[y][inner.start - 1..inner.end + 1],
+            &rows[y + 1][inner.clone()],
+        );
+        for ((up, neighbours), down) in above.iter().zip(row.windows(3)).zip(below) {
+            let v = blue(up) + blue(&neighbours[0]) + blue(&neighbours[2]) + blue(down) - 4.0 * blue(&neighbours[1]);
             sum += v;
             sqsum += v * v;
         }
