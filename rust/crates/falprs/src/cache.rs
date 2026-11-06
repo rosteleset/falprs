@@ -86,10 +86,14 @@ impl<T: Send + Sync + 'static> PgCache<T> {
         A: Fn(&mut T, Vec<R>) + Send + Sync + 'static,
     {
         let host_type = config.host_type;
+        // Snapshots are built in `block_in_place`: applying rows (decoding, normalising, hashing) or
+        // cloning a large snapshot would stall the other tasks of a worker thread
         let full = move |rows: Vec<R>, apply: &A| {
-            let mut data = T::default();
-            apply(&mut data, rows);
-            data
+            tokio::task::block_in_place(|| {
+                let mut data = T::default();
+                apply(&mut data, rows);
+                data
+            })
         };
         let mut last_update = Utc::now();
         let (full_cluster, incremental_cluster) = (
@@ -124,9 +128,12 @@ impl<T: Send + Sync + 'static> PgCache<T> {
                             let data = if is_full {
                                 full(rows, &apply)
                             } else {
-                                let mut data = T::clone(&cache.get());
-                                apply(&mut data, rows);
-                                data
+                                let current = cache.get();
+                                tokio::task::block_in_place(|| {
+                                    let mut data = T::clone(&current);
+                                    apply(&mut data, rows);
+                                    data
+                                })
                             };
                             *cache.data.write().unwrap_or_else(|e| e.into_inner()) = Arc::new(data);
                         }
