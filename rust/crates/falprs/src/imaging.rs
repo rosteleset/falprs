@@ -4,7 +4,7 @@
 use std::io::Cursor;
 
 use anyhow::{Context, Result};
-use image::{DynamicImage, ImageDecoder, ImageReader, Rgb, RgbImage};
+use image::{DynamicImage, ImageDecoder, ImageReader, RgbImage};
 
 /// Decodes an image, applying its EXIF orientation like OpenCV's `imdecode` with `IMREAD_COLOR`.
 pub fn decode(data: &[u8]) -> Result<RgbImage> {
@@ -442,20 +442,11 @@ fn invert(m: &Homography) -> Option<Homography> {
 /// OpenCV's `warpPerspective` with `INTER_LINEAR` and a black constant border: source positions
 /// are quantised to 1/32 pixel and blended with 15-bit fixed-point weights.
 pub fn warp_perspective(src: &RgbImage, m: &Homography, width: u32, height: u32) -> Option<RgbImage> {
-    const INTER_BITS: i32 = 5;
-    const INTER_TAB_SIZE: f64 = (1 << INTER_BITS) as f64;
-    const COEF_BITS: i32 = 15;
+    const INTER_TAB_SIZE: f64 = 32.0;
 
     let inv = invert(m)?;
-    let (src_w, src_h) = (src.width() as i64, src.height() as i64);
-    let pixel = |x: i64, y: i64, c: usize| -> i32 {
-        if x < 0 || y < 0 || x >= src_w || y >= src_h {
-            0
-        } else {
-            src.get_pixel(x as u32, y as u32)[c] as i32
-        }
-    };
     let mut dst = RgbImage::new(width, height);
+    let mut out = dst.as_chunks_mut::<3>().0.iter_mut();
     for y in 0..height {
         let (x0, y0, w0) = (inv[1] * y as f64 + inv[2], inv[4] * y as f64 + inv[5], inv[7] * y as f64 + inv[8]);
         for x in 0..width {
@@ -463,19 +454,8 @@ pub fn warp_perspective(src: &RgbImage, m: &Homography, width: u32, height: u32)
             let w = if w != 0.0 { INTER_TAB_SIZE / w } else { 0.0 };
             let fx = ((x0 + inv[0] * x as f64) * w).clamp(i32::MIN as f64, i32::MAX as f64);
             let fy = ((y0 + inv[3] * x as f64) * w).clamp(i32::MIN as f64, i32::MAX as f64);
-            let (qx, qy) = (fx.round_ties_even() as i64, fy.round_ties_even() as i64);
-            let (sx, sy) = (qx >> INTER_BITS, qy >> INTER_BITS);
-            let (ax, ay) = ((qx & 31) as i32, (qy & 31) as i32);
-            // Products of (1 - t, t) at 1/32 steps are exact in 15-bit fixed point
-            let weights = [(32 - ax) * (32 - ay) * 32, ax * (32 - ay) * 32, (32 - ax) * ay * 32, ax * ay * 32];
-            let out = dst.get_pixel_mut(x, y);
-            for c in 0..3 {
-                let sum = pixel(sx, sy, c) * weights[0]
-                    + pixel(sx + 1, sy, c) * weights[1]
-                    + pixel(sx, sy + 1, c) * weights[2]
-                    + pixel(sx + 1, sy + 1, c) * weights[3];
-                out[c] = ((sum + (1 << (COEF_BITS - 1))) >> COEF_BITS).clamp(0, 255) as u8;
-            }
+            let pixel = remap_linear(src, fx.round_ties_even() as i64, fy.round_ties_even() as i64);
+            *out.next().expect("one output pixel per position") = pixel;
         }
     }
     Some(dst)
@@ -491,16 +471,20 @@ fn remap_linear(src: &RgbImage, qx: i64, qy: i64) -> [u8; 3] {
     let (ax, ay) = ((qx & 31) as i32, (qy & 31) as i32);
     // Products of (1 - t, t) at 1/32 steps are exact in 15-bit fixed point
     let weights = [(32 - ax) * (32 - ay) * 32, ax * (32 - ay) * 32, (32 - ax) * ay * 32, ax * ay * 32];
-    let pixel = |x: i64, y: i64, c: usize| -> i32 {
-        if x < 0 || y < 0 || x >= w || y >= h {
-            0
-        } else {
-            src.get_pixel(x as u32, y as u32)[c] as i32
-        }
+    let raw = src.as_raw();
+    let stride = w as usize * 3;
+    let at = |i: usize| -> [u8; 3] { *raw[i..].first_chunk().expect("pixel inside the buffer") };
+    // Each neighbour is read once as a whole pixel; the bounds are checked per neighbour only at the border
+    let neighbours = if sx >= 0 && sy >= 0 && sx + 1 < w && sy + 1 < h {
+        let top = sy as usize * stride + sx as usize * 3;
+        [at(top), at(top + 3), at(top + stride), at(top + stride + 3)]
+    } else {
+        let pixel = |x: i64, y: i64| if x < 0 || y < 0 || x >= w || y >= h { [0; 3] } else { at(y as usize * stride + x as usize * 3) };
+        [pixel(sx, sy), pixel(sx + 1, sy), pixel(sx, sy + 1), pixel(sx + 1, sy + 1)]
     };
     let mut out = [0; 3];
     for (c, value) in out.iter_mut().enumerate() {
-        let sum = pixel(sx, sy, c) * weights[0] + pixel(sx + 1, sy, c) * weights[1] + pixel(sx, sy + 1, c) * weights[2] + pixel(sx + 1, sy + 1, c) * weights[3];
+        let sum: i32 = neighbours.iter().zip(weights).map(|(p, w)| p[c] as i32 * w).sum();
         *value = ((sum + (1 << (COEF_BITS - 1))) >> COEF_BITS).clamp(0, 255) as u8;
     }
     out
@@ -524,13 +508,14 @@ pub fn warp_affine(src: &RgbImage, m: &Affine, width: u32, height: u32) -> RgbIm
     let adelta: Vec<i64> = (0..width).map(|x| fixed(a11 * x as f64 * AB_SCALE)).collect();
     let bdelta: Vec<i64> = (0..width).map(|x| fixed(a21 * x as f64 * AB_SCALE)).collect();
     let mut dst = RgbImage::new(width, height);
+    let mut out = dst.as_chunks_mut::<3>().0.iter_mut();
     for y in 0..height {
         let x0 = fixed((a12 * y as f64 + b1) * AB_SCALE) + ROUND_DELTA;
         let y0 = fixed((a22 * y as f64 + b2) * AB_SCALE) + ROUND_DELTA;
         for x in 0..width {
             let qx = (x0 + adelta[x as usize]) >> (AB_BITS - 5);
             let qy = (y0 + bdelta[x as usize]) >> (AB_BITS - 5);
-            dst.put_pixel(x, y, Rgb(remap_linear(src, qx, qy)));
+            *out.next().expect("one output pixel per position") = remap_linear(src, qx, qy);
         }
     }
     dst
@@ -686,6 +671,7 @@ pub fn encode_jpeg(image: &RgbImage) -> Result<Vec<u8>> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use image::Rgb;
 
     #[test]
     fn decodes_supported_formats() {
