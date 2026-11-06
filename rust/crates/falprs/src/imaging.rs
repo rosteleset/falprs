@@ -487,18 +487,33 @@ fn invert(m: &Homography) -> Option<Homography> {
 pub fn warp_perspective(src: &RgbImage, m: &Homography, width: u32, height: u32) -> Option<RgbImage> {
     const INTER_TAB_SIZE: f64 = 32.0;
 
+    const BLOCK_SIZE: u32 = 32;
+
     let inv = invert(m)?;
     let mut dst = RgbImage::new(width, height);
+    if width == 0 || height == 0 {
+        return Some(dst);
+    }
+    // OpenCV maps blocks of up to 16 rows by `1024 / rows` columns, and starts the sums of each
+    // block row anew at its first column; columns within a block add their offset to that start
+    let block_width = (BLOCK_SIZE * BLOCK_SIZE / height.min(BLOCK_SIZE / 2)).min(width);
     let mut out = dst.as_chunks_mut::<3>().0.iter_mut();
     for y in 0..height {
-        let (x0, y0, w0) = (inv[1] * y as f64 + inv[2], inv[4] * y as f64 + inv[5], inv[7] * y as f64 + inv[8]);
-        for x in 0..width {
-            let w = w0 + inv[6] * x as f64;
-            let w = if w != 0.0 { INTER_TAB_SIZE / w } else { 0.0 };
-            let fx = ((x0 + inv[0] * x as f64) * w).clamp(i32::MIN as f64, i32::MAX as f64);
-            let fy = ((y0 + inv[3] * x as f64) * w).clamp(i32::MIN as f64, i32::MAX as f64);
-            let pixel = remap_linear(src, fx.round_ties_even() as i64, fy.round_ties_even() as i64);
-            *out.next().expect("one output pixel per position") = pixel;
+        let y = y as f64;
+        for block_x in (0..width).step_by(block_width as usize) {
+            let bx = block_x as f64;
+            let x0 = inv[0] * bx + inv[1] * y + inv[2];
+            let y0 = inv[3] * bx + inv[4] * y + inv[5];
+            let w0 = inv[6] * bx + inv[7] * y + inv[8];
+            for x1 in 0..block_width.min(width - block_x) {
+                let x1 = x1 as f64;
+                let w = w0 + inv[6] * x1;
+                let w = if w != 0.0 { INTER_TAB_SIZE / w } else { 0.0 };
+                let fx = ((x0 + inv[0] * x1) * w).clamp(i32::MIN as f64, i32::MAX as f64);
+                let fy = ((y0 + inv[3] * x1) * w).clamp(i32::MIN as f64, i32::MAX as f64);
+                let pixel = remap_linear(src, fx.round_ties_even() as i64, fy.round_ties_even() as i64);
+                *out.next().expect("one output pixel per position") = pixel;
+            }
         }
     }
     Some(dst)
