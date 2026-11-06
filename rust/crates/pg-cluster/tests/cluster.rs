@@ -436,3 +436,27 @@ async fn lost_connection_fails_the_request_at_once() {
     assert!(started.elapsed() < Duration::from_secs(10));
     assert_eq!(cluster.topology()[0].1, Role::Unavailable);
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_busy_pool_is_not_a_host_failure() {
+    let test = TestCluster::start(false);
+    let settings = ClusterSettings {
+        max_pool_size: 1,
+        connect_timeout: Duration::from_millis(300),
+        ..settings()
+    };
+    let cluster = Cluster::connect(&test.dsn(), settings).await.unwrap();
+    let held = cluster.client(HostType::Master).await.unwrap();
+
+    // The only pooled connection is taken: requests wait for it and fail, the master stays
+    let busy = in_recovery(&cluster, HostType::Master).await;
+    assert!(matches!(busy, Err(Error::PoolExhausted { max_size: 1, .. })), "{busy:?}");
+    assert_eq!(cluster.topology()[0].1, Role::Master);
+    // Discoveries keep running on their own connection and still find the master
+    tokio::time::sleep(Duration::from_millis(1500)).await;
+    assert_eq!(cluster.topology()[0].1, Role::Master);
+    assert!(matches!(in_recovery(&cluster, HostType::Master).await, Err(Error::PoolExhausted { .. })));
+
+    drop(held);
+    assert!(!in_recovery(&cluster, HostType::Master).await.unwrap());
+}

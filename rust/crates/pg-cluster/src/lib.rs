@@ -9,7 +9,9 @@
 //! Every request is bounded as userver's `CommandControl` bounds it: by a network timeout, how long
 //! the client waits for each response, and by a statement timeout, how long the server may execute
 //! a statement. A connection that timed out on the network or failed is closed at once, and its host
-//! is marked unavailable until the next discovery finds it again.
+//! is marked unavailable until the next discovery finds it again. A request that finds every pooled
+//! connection busy fails with [`Error::PoolExhausted`] instead: a busy pool says nothing about the
+//! host. Discovery checks roles over a connection of its own per host, so it works under any load.
 
 use std::fmt;
 use std::future::Future;
@@ -18,7 +20,7 @@ use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, RwLock, Weak};
 use std::time::Duration;
 
-use deadpool_postgres::{Manager, ManagerConfig, Object, Pool, PoolError, RecyclingMethod, Runtime};
+use deadpool_postgres::{Manager, ManagerConfig, Object, Pool, PoolError, RecyclingMethod, Runtime, TimeoutType};
 use tokio::sync::Notify;
 use tokio_postgres::config::Host as ConfigHost;
 use tokio_postgres::error::SqlState;
@@ -135,6 +137,10 @@ pub enum Error {
     Config(String),
     #[error("no available host for {0:?}")]
     NoHost(HostType),
+    /// Every pooled connection to the host stayed busy for the whole wait: the host is fine, the
+    /// pool is too small for the load.
+    #[error("no free connection to PostgreSQL host {host} within {} ms: all {max_size} pooled connections are busy", .wait.as_millis())]
+    PoolExhausted { host: String, max_size: usize, wait: Duration },
     #[error(transparent)]
     Pool(#[from] PoolError),
     #[error("{}", error_message(.0))]
@@ -202,12 +208,56 @@ struct Host {
     /// several databases on the same hosts.
     label: String,
     pool: Pool,
+    /// The host's connection parameters, for the discovery connection.
+    config: Config,
+    /// The connection role checks run on, apart from the request pool so that they work while
+    /// every pooled connection is busy; opened on first use and after it fails.
+    discovery: tokio::sync::Mutex<Option<DiscoveryConnection>>,
     role: RwLock<Role>,
+}
+
+/// A connection of its own for role checks, closed when dropped.
+struct DiscoveryConnection {
+    client: tokio_postgres::Client,
+    task: tokio::task::JoinHandle<()>,
+}
+
+impl Drop for DiscoveryConnection {
+    fn drop(&mut self) {
+        self.task.abort();
+    }
 }
 
 impl Host {
     fn role(&self) -> Role {
         *self.role.read().unwrap_or_else(|e| e.into_inner())
+    }
+
+    /// Asks the host whether it is in recovery, i.e. a replica, over the discovery connection,
+    /// within `timeout`; `None` when it does not answer. A failed or timed out connection is closed
+    /// and opened again by the next check.
+    async fn in_recovery(&self, timeout: Duration) -> Option<bool> {
+        let mut slot = self.discovery.lock().await;
+        let check = async {
+            if slot.as_ref().is_none_or(|connection| connection.client.is_closed()) {
+                *slot = None;
+                let (client, connection) = self.config.connect(NoTls).await.ok()?;
+                let task = tokio::spawn(async move {
+                    let _ = connection.await;
+                });
+                *slot = Some(DiscoveryConnection { client, task });
+            }
+            let messages = slot.as_ref()?.client.simple_query("SELECT pg_is_in_recovery()").await.ok()?;
+            messages.iter().find_map(|message| match message {
+                tokio_postgres::SimpleQueryMessage::Row(row) => row.get(0).map(|value| value == "t"),
+                _ => None,
+            })
+        };
+        let in_recovery = tokio::time::timeout(timeout, check).await.ok().flatten();
+        if in_recovery.is_none() {
+            *slot = None;
+        }
+        in_recovery
     }
 }
 
@@ -254,21 +304,11 @@ impl Inner {
     }
 
     async fn discover_role(self: &Arc<Self>, host: &Arc<Host>) {
-        let command_control = CommandControl {
-            network_timeout: self.discovery_timeout,
-            statement_timeout: self.session_statement_timeout,
-        };
-        let check = async {
-            let mut client = self.connect_to(host, command_control).await.ok()?;
-            // Hosts are reported by their roles, not by each failed check
-            client.ctx.log_timeouts = false;
-            let row = client.query_one_prepared("SELECT pg_is_in_recovery()", &[]).await.ok()?;
-            row.try_get::<_, bool>(0).ok()
-        };
-        let role = match tokio::time::timeout(self.discovery_timeout, check).await {
-            Ok(Some(true)) => Role::Replica,
-            Ok(Some(false)) => Role::Master,
-            _ => Role::Unavailable,
+        // Hosts are reported by their roles, not by each failed check
+        let role = match host.in_recovery(self.discovery_timeout).await {
+            Some(true) => Role::Replica,
+            Some(false) => Role::Master,
+            None => Role::Unavailable,
         };
         self.set_role(host, role);
     }
@@ -315,21 +355,38 @@ impl Inner {
                 // Nothing usable is known: the topology may have changed since the last discovery
                 self.discover().await;
             }
+            let mut host_failed = false;
             for host in self.candidates(host_type) {
                 match self.connect_to(&host, command_control).await {
                     Ok(client) => return Ok(client),
+                    // A busy pool says nothing about the host: neither mark it nor rediscover
+                    Err(e @ Error::PoolExhausted { .. }) => last_error = Some(e),
                     Err(e) => {
                         self.mark_unavailable(&host);
+                        host_failed = true;
                         last_error = Some(e);
                     }
                 }
+            }
+            if last_error.is_some() && !host_failed {
+                break;
             }
         }
         Err(last_error.unwrap_or(Error::NoHost(host_type)))
     }
 
     async fn connect_to(self: &Arc<Self>, host: &Arc<Host>, command_control: CommandControl) -> Result<Client> {
-        let object = host.pool.get().await?;
+        let object = host.pool.get().await.map_err(|e| match e {
+            PoolError::Timeout(TimeoutType::Wait) => {
+                let status = host.pool.status();
+                Error::PoolExhausted {
+                    host: host.label.clone(),
+                    max_size: status.max_size,
+                    wait: host.pool.timeouts().wait.unwrap_or_default(),
+                }
+            }
+            e => Error::Pool(e),
+        })?;
         Ok(Client {
             object: Some(object),
             ctx: Context {
@@ -651,10 +708,13 @@ impl Cluster {
         let hosts = split_hosts(&config)?
             .into_iter()
             .map(|(name, host_config)| {
-                make_pool(host_config, &settings).map(|pool| Host {
+                let config = session_config(host_config, &settings);
+                make_pool(config.clone(), &settings).map(|pool| Host {
                     label: format!("{name}/{dbname}"),
                     name,
                     pool,
+                    config,
+                    discovery: tokio::sync::Mutex::new(None),
                     role: RwLock::new(Role::Unknown),
                 })
             })
@@ -781,7 +841,8 @@ fn split_hosts(config: &Config) -> Result<Vec<(String, Config)>> {
         .collect()
 }
 
-fn make_pool(mut config: Config, settings: &ClusterSettings) -> Result<Pool> {
+/// A host's connection parameters with the cluster's connect timeout and session statement timeout.
+fn session_config(mut config: Config, settings: &ClusterSettings) -> Config {
     let connect_timeout = config.get_connect_timeout().copied().unwrap_or(settings.connect_timeout);
     config.connect_timeout(connect_timeout);
     // Appended last, so it takes precedence over a statement_timeout in the connection string,
@@ -792,6 +853,11 @@ fn make_pool(mut config: Config, settings: &ClusterSettings) -> Result<Pool> {
         None => statement_timeout,
     };
     config.options(&options);
+    config
+}
+
+fn make_pool(config: Config, settings: &ClusterSettings) -> Result<Pool> {
+    let connect_timeout = config.get_connect_timeout().copied().unwrap_or(settings.connect_timeout);
     let manager = Manager::from_config(
         config,
         NoTls,
