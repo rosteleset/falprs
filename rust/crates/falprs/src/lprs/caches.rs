@@ -1,6 +1,7 @@
 //! LPRS caches: stream group tokens, video stream configs and video stream membership.
 
 use std::collections::HashMap;
+use std::sync::Arc;
 
 use anyhow::Result;
 use pg_cluster::{Cluster, HostType};
@@ -27,7 +28,8 @@ pub struct VStreamEntry {
 }
 
 /// Video stream configs by `<id_group>_<stream ID>`; a stream group's default config is under `<id_group>`.
-pub type VStreamsConfigData = HashMap<String, VStreamEntry>;
+/// Entries are shared, so that a frame takes its config without copying it.
+pub type VStreamsConfigData = HashMap<String, Arc<VStreamEntry>>;
 
 pub fn vstream_key(id_group: i32, ext_id: &str) -> String {
     format!("{id_group}_{ext_id}")
@@ -70,7 +72,7 @@ pub async fn load_vstreams_config(cluster: Cluster, host_type: HostType) -> Resu
                 ext_id: row.get(3),
                 config: VStreamConfig::from_json(&config),
             };
-            Some((row.get(0), entry))
+            Some((row.get(0), Arc::new(entry)))
         })
         .collect())
 }
