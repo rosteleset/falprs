@@ -791,16 +791,23 @@ async fn cluster_faces_by_similarity(frs: &Frs, id_group: i32, body: &Value) -> 
     let descriptors = stored_descriptors(&rows);
     let available: Vec<i32> = faces.into_iter().filter(|id| descriptors.contains_key(id)).collect();
 
-    // Connected components of the similarity graph, found by BFS
     let vectors: Vec<&[f32]> = available.iter().map(|id| descriptors[id].as_slice()).collect();
+    // O(n²) similarities: off the async worker thread
+    let clusters = tokio::task::block_in_place(|| similarity_clusters(&available, &vectors, f64::from(threshold)));
+    Ok(Value::Array(clusters.into_iter().map(|cluster| json!(cluster)).collect()))
+}
+
+/// Connected components of the graph joining descriptors whose similarity is at least
+/// `threshold`, found by BFS from each unvisited descriptor in order, as ids.
+fn similarity_clusters(ids: &[i32], vectors: &[&[f32]], threshold: f64) -> Vec<Vec<i32>> {
     // Cosine similarity accumulated in single precision like the C++ service's AVX version, with
     // each norm computed once instead of twice per pair
     let norms: Vec<f64> = vectors.iter().map(|v| similarity::norm(v)).collect();
-    let n = available.len();
+    let n = ids.len();
     let mut adjacent = vec![Vec::new(); n];
     for i in 0..n {
         for j in i + 1..n {
-            if similarity::cosine_with_norms(vectors[i], norms[i], vectors[j], norms[j]) >= f64::from(threshold) {
+            if similarity::cosine_with_norms(vectors[i], norms[i], vectors[j], norms[j]) >= threshold {
                 adjacent[i].push(j);
                 adjacent[j].push(i);
             }
@@ -816,7 +823,7 @@ async fn cluster_faces_by_similarity(frs: &Frs, id_group: i32, body: &Value) -> 
         let mut queue = VecDeque::from([i]);
         visited[i] = true;
         while let Some(u) = queue.pop_front() {
-            component.push(available[u]);
+            component.push(ids[u]);
             for &v in &adjacent[u] {
                 if !visited[v] {
                     visited[v] = true;
@@ -824,9 +831,9 @@ async fn cluster_faces_by_similarity(frs: &Frs, id_group: i32, body: &Value) -> 
                 }
             }
         }
-        clusters.push(json!(component));
+        clusters.push(component);
     }
-    Ok(Value::Array(clusters))
+    clusters
 }
 
 async fn delete_faces(frs: &Frs, id_group: i32, body: &Value) -> Result<(), ApiError> {
@@ -1588,6 +1595,23 @@ async fn get_barcode_event(frs: &Frs, id_group: i32, body: &Value) -> Result<Val
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn clusters_follow_chains_of_similar_faces() {
+        // 32-float descriptors pointing along x, between x and y, along y, and against x
+        let descriptor = |x: f32, y: f32| -> Vec<f32> {
+            let mut v = vec![0.0; 32];
+            (v[0], v[1]) = (x, y);
+            v
+        };
+        let vectors = [descriptor(1.0, 0.0), descriptor(1.0, 1.0), descriptor(0.0, 1.0), descriptor(-1.0, 0.0)];
+        let slices: Vec<&[f32]> = vectors.iter().map(Vec::as_slice).collect();
+        // Neighbours are 45° apart (0.707): x and y join only through the middle one
+        assert_eq!(similarity_clusters(&[10, 20, 30, 40], &slices, 0.7), [vec![10, 20, 30], vec![40]]);
+        assert_eq!(similarity_clusters(&[10, 20, 30, 40], &slices, 0.8), [vec![10], vec![20], vec![30], vec![40]]);
+        assert_eq!(similarity_clusters(&[10, 20, 30, 40], &slices, -1.0), [vec![10, 20, 30, 40]]);
+        assert!(similarity_clusters(&[], &[], 0.5).is_empty());
+    }
 
     #[test]
     fn old_api_params() {
