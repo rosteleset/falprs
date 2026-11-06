@@ -31,9 +31,10 @@ impl Tensor {
             datatype: "FP32".to_string(),
             shape,
             data: {
-                let mut data = Vec::with_capacity(values.len() * 4);
-                for v in values {
-                    data.extend_from_slice(&v.to_le_bytes());
+                // Whole 4-byte chunks, which the compiler copies in bulk on little-endian targets
+                let mut data = vec![0; values.len() * 4];
+                for (bytes, v) in data.as_chunks_mut::<4>().0.iter_mut().zip(values) {
+                    *bytes = v.to_le_bytes();
                 }
                 data
             },
@@ -41,10 +42,7 @@ impl Tensor {
     }
 
     pub fn as_f32(&self) -> Vec<f32> {
-        self.data
-            .chunks_exact(4)
-            .map(|bytes| f32::from_le_bytes([bytes[0], bytes[1], bytes[2], bytes[3]]))
-            .collect()
+        self.data.as_chunks::<4>().0.iter().map(|bytes| f32::from_le_bytes(*bytes)).collect()
     }
 }
 
@@ -128,5 +126,19 @@ impl Triton {
                 data,
             })
             .collect())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn fp32_tensors_hold_little_endian_floats() {
+        let values = [1.0f32, -2.5, f32::MIN_POSITIVE, 0.1];
+        let tensor = Tensor::fp32("input", vec![1, 4], &values);
+        let expected: Vec<u8> = values.iter().flat_map(|v| v.to_le_bytes()).collect();
+        assert_eq!(tensor.data, expected);
+        assert_eq!(tensor.as_f32(), values);
     }
 }
