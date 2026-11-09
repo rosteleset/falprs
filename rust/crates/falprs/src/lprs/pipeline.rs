@@ -54,18 +54,36 @@ pub struct Vehicle {
     pub plates: Vec<LicensePlate>,
 }
 
-fn request<'a>(model: &'a ModelConfig, shape: Vec<i64>, tensor: &[f32], config: &VStreamConfig) -> InferRequest<'a> {
+fn request<'a>(model: &'a ModelConfig, input: Tensor, config: &VStreamConfig) -> InferRequest<'a> {
     InferRequest {
         endpoint: &model.inference_server,
         model_name: &model.model_name,
-        inputs: vec![Tensor::fp32(&model.input_tensor_name, shape, tensor)],
+        inputs: vec![input],
         outputs: vec![&model.output_tensor_name],
         timeout: config.inference_timeout,
     }
 }
 
-fn nchw(model: &ModelConfig) -> Vec<i64> {
-    vec![1, 3, model.input_height as i64, model.input_width as i64]
+/// The model's input as sent to Triton. Built where the input is prepared, off the async threads,
+/// so that only the bytes live on while the inference runs.
+fn input_tensor(model: &ModelConfig, values: &[f32]) -> Tensor {
+    let shape = vec![1, 3, model.input_height as i64, model.input_width as i64];
+    Tensor::fp32(&model.input_tensor_name, shape, values)
+}
+
+/// Where a YOLO input holds the image, to map the outputs back.
+struct Letterbox {
+    shift: (f32, f32),
+    scale: f64,
+}
+
+fn prepare_yolo_tensor(model: &ModelConfig, image: &RgbImage) -> (Tensor, Letterbox) {
+    let input = prepare_yolo(image, model.input_width, model.input_height);
+    let letterbox = Letterbox {
+        shift: input.shift,
+        scale: input.scale,
+    };
+    (input_tensor(model, &input.tensor), letterbox)
 }
 
 /// Runs the requests of the items that have one concurrently and returns the first output of each
@@ -133,10 +151,10 @@ fn suppress<T>(items: &mut Vec<T>, overlaps: impl Fn(&T, &T) -> bool) {
 /// VDNet: vehicles in the frame. An inference failure yields no vehicles, as in the C++ service.
 pub async fn detect_vehicles(triton: &Triton, image: &RgbImage, config: &VStreamConfig, log: StreamLog<'_>) -> Result<Vec<Vehicle>> {
     stream_log!(log, Level::Trace, "before preprocess image for VDNet");
-    let input = tokio::task::block_in_place(|| prepare_yolo(image, config.vd_net.input_width, config.vd_net.input_height));
+    let (tensor, input) = tokio::task::block_in_place(|| prepare_yolo_tensor(&config.vd_net, image));
     stream_log!(log, Level::Trace, "after preprocess image for VDNet");
     stream_log!(log, Level::Trace, "before inference VDNet");
-    let outputs = triton.infer(request(&config.vd_net, nchw(&config.vd_net), &input.tensor, config)).await?;
+    let outputs = triton.infer(request(&config.vd_net, tensor, config)).await?;
     stream_log!(log, Level::Trace, "after inference VDNet");
     let Some(output) = outputs.first() else {
         log!(log.logger, Level::Error, "Error! Unable to receive inference result");
@@ -206,13 +224,13 @@ pub async fn classify_special(triton: &Triton, crops: &[RgbImage], config: &VStr
             .enumerate()
             .map(|(vindex, crop)| {
                 stream_log!(log, Level::Trace, "before preprocess image {vindex} for VcNet");
-                let tensor = prepare_vc(crop, model.input_width, model.input_height);
+                let tensor = input_tensor(model, &prepare_vc(crop, model.input_width, model.input_height));
                 stream_log!(log, Level::Trace, "after preprocess image {vindex} for VcNet");
                 tensor
             })
             .collect::<Vec<_>>()
     });
-    let requests = tensors.iter().map(|t| Some(request(model, nchw(model), t, config))).collect();
+    let requests = tensors.into_iter().map(|t| Some(request(model, t, config))).collect();
     let outputs = infer_all(triton, requests, log).await?;
     stream_log!(log, Level::Trace, "after inference VcNet");
     stream_log!(log, Level::Trace, "special confidence threshold: {:.3}", config.special_confidence);
@@ -267,13 +285,14 @@ pub async fn detect_plates(
             .enumerate()
             .map(|(vindex, crop)| {
                 stream_log!(log, Level::Trace, "before preprocess image {vindex} for LPDNet");
-                let input = prepare_yolo(crop, model.input_width, model.input_height);
+                let input = prepare_yolo_tensor(model, crop);
                 stream_log!(log, Level::Trace, "after preprocess image {vindex} for LPDNet");
                 input
             })
-            .collect::<Vec<_>>()
+            .unzip::<_, _, Vec<_>, Vec<_>>()
     });
-    let requests = inputs.iter().map(|input| Some(request(model, nchw(model), &input.tensor, config))).collect();
+    let (tensors, inputs) = inputs;
+    let requests = tensors.into_iter().map(|t| Some(request(model, t, config))).collect();
     let outputs = infer_all(triton, requests, log).await?;
     stream_log!(log, Level::Trace, "after inference LPDNet");
 
@@ -444,13 +463,13 @@ pub async fn classify_plates(triton: &Triton, image: &RgbImage, config: &VStream
             .enumerate()
             .map(|(pindex, p)| {
                 stream_log!(log, Level::Trace, "before preprocess image {pindex} for LpcNet");
-                let tensor = prepare_lpc(&roi(image, &p.bbox)?, model.input_width, model.input_height);
+                let tensor = input_tensor(model, &prepare_lpc(&roi(image, &p.bbox)?, model.input_width, model.input_height));
                 stream_log!(log, Level::Trace, "after preprocess image {pindex} for LpcNet");
                 Ok(tensor)
             })
             .collect::<Result<Vec<_>>>()
     })?;
-    let requests = tensors.iter().map(|t| Some(request(model, nchw(model), t, config))).collect();
+    let requests = tensors.into_iter().map(|t| Some(request(model, t, config))).collect();
     let outputs = infer_all(triton, requests, log).await?;
     stream_log!(log, Level::Trace, "after inference LpcNet");
     for (pindex, (plate, scores)) in plates.iter_mut().zip(outputs).enumerate() {
@@ -662,16 +681,15 @@ pub async fn recognize_plates(triton: &Triton, image: &RgbImage, config: &VStrea
                     );
                     return None;
                 };
-                let input = prepare_yolo(&straightened, model.input_width, model.input_height);
+                let input = prepare_yolo_tensor(model, &straightened);
                 stream_log!(log, Level::Trace, "after preprocess image {pindex} for LPRNet");
                 Some(input)
             })
-            .collect::<Vec<_>>()
+            .map(Option::unzip)
+            .unzip::<_, _, Vec<_>, Vec<_>>()
     });
-    let requests = inputs
-        .iter()
-        .map(|input| Some(request(model, nchw(model), &input.as_ref()?.tensor, config)))
-        .collect();
+    let (tensors, inputs) = inputs;
+    let requests = tensors.into_iter().map(|t| Some(request(model, t?, config))).collect();
     let outputs = infer_all(triton, requests, log).await?;
     stream_log!(log, Level::Trace, "after inference LPRNet");
 

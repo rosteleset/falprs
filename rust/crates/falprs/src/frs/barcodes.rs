@@ -50,7 +50,11 @@ fn nms_barcodes(mut detections: Vec<Detection>) -> Vec<Detection> {
 async fn detect_barcodes(frs: &Frs, frame: &RgbImage, common: &CommonConfig, config: &VStreamConfig, log: StreamLog<'_>) -> Result<Vec<Detection>> {
     let model = &common.bd_net;
     let (width, height) = (model.input_width, model.input_height);
-    let input = tokio::task::block_in_place(|| imaging::prepare_yolo(frame, width, height));
+    let (input, shift, scale) = tokio::task::block_in_place(|| {
+        let input = imaging::prepare_yolo(frame, width, height);
+        let tensor = Tensor::fp32(&model.input_tensor_name, vec![1, 3, height as i64, width as i64], &input.tensor);
+        (tensor, input.shift, input.scale)
+    });
     stream_log!(log, Level::Trace, "after image preprocessing for face detection");
     stream_log!(log, Level::Trace, "before inference barcode detection");
     let outputs = frs
@@ -58,7 +62,7 @@ async fn detect_barcodes(frs: &Frs, frame: &RgbImage, common: &CommonConfig, con
         .infer(InferRequest {
             endpoint: &config.bd_inference_server,
             model_name: &model.model_name,
-            inputs: vec![Tensor::fp32(&model.input_tensor_name, vec![1, 3, height as i64, width as i64], &input.tensor)],
+            inputs: vec![input],
             outputs: vec![&model.output_tensor_name],
             timeout: config.inference_timeout,
         })
@@ -73,8 +77,8 @@ async fn detect_barcodes(frs: &Frs, frame: &RgbImage, common: &CommonConfig, con
     if data.len() < 5 * NUM_COLS {
         bail!("unexpected barcode detection output size {}", data.len());
     }
-    let inv_scale = 1.0 / input.scale as f32;
-    let (shift_x, shift_y) = input.shift;
+    let inv_scale = 1.0 / scale as f32;
+    let (shift_x, shift_y) = shift;
     let (max_x, max_y) = ((frame.width() - 1) as f32, (frame.height() - 1) as f32);
     stream_log!(log, Level::Trace, "barcode confidence threshold: {:.3}", config.barcode_confidence);
     let detections: Vec<Detection> = (0..NUM_COLS)

@@ -124,7 +124,11 @@ pub async fn detect_faces(triton: &Triton, frame: &RgbImage, common: &CommonConf
     let model = &common.fd_net;
     let (width, height) = (model.input_width, model.input_height);
     stream_log!(log, Level::Trace, "before image preprocessing for face detection");
-    let (tensor, scale) = tokio::task::block_in_place(|| imaging::prepare_scrfd(frame, width, height));
+    // The input converted to bytes off the async thread too, and the floats dropped before the inference
+    let (input, scale) = tokio::task::block_in_place(|| {
+        let (tensor, scale) = imaging::prepare_scrfd(frame, width, height);
+        (Tensor::fp32(&model.input_tensor_name, vec![1, 3, height as i64, width as i64], &tensor), scale)
+    });
     stream_log!(log, Level::Trace, "after image preprocessing for face detection");
     stream_log!(log, Level::Trace, "before inference face detection");
     let names: Vec<&str> = [0, 1, 2].iter().flat_map(|&k| SCRFD_OUTPUTS.iter().map(move |s| s[k])).collect();
@@ -132,7 +136,7 @@ pub async fn detect_faces(triton: &Triton, frame: &RgbImage, common: &CommonConf
         .infer(InferRequest {
             endpoint: &config.fd_inference_server,
             model_name: &model.model_name,
-            inputs: vec![Tensor::fp32(&model.input_tensor_name, vec![1, 3, height as i64, width as i64], &tensor)],
+            inputs: vec![input],
             outputs: names.clone(),
             timeout: config.inference_timeout,
         })
@@ -212,13 +216,16 @@ pub async fn infer_face_class(
 ) -> Result<Vec<(usize, f32)>> {
     let model = &common.fc_net;
     let (width, height) = (model.input_width, model.input_height);
-    let tensor = imaging::prepare_genet(aligned_face, width, height);
+    let input = tokio::task::block_in_place(|| {
+        let tensor = imaging::prepare_genet(aligned_face, width, height);
+        Tensor::fp32(&model.input_tensor_name, vec![1, 3, height as i64, width as i64], &tensor)
+    });
     stream_log!(log, Level::Trace, "before inference face class");
     let outputs = triton
         .infer(InferRequest {
             endpoint: &config.fc_inference_server,
             model_name: &model.model_name,
-            inputs: vec![Tensor::fp32(&model.input_tensor_name, vec![1, 3, height as i64, width as i64], &tensor)],
+            inputs: vec![input],
             outputs: vec![&model.output_tensor_name],
             timeout: config.inference_timeout,
         })
@@ -244,13 +251,16 @@ pub async fn extract_face_descriptor(
 ) -> Result<Option<Vec<f32>>> {
     let model = &common.fr_net;
     let (width, height) = (model.input_width, model.input_height);
-    let tensor = imaging::prepare_arcface(aligned_face, width, height);
+    let input = tokio::task::block_in_place(|| {
+        let tensor = imaging::prepare_arcface(aligned_face, width, height);
+        Tensor::fp32(&model.input_tensor_name, vec![1, 3, height as i64, width as i64], &tensor)
+    });
     stream_log!(log, Level::Trace, "before inference for extracting descriptor");
     let outputs = triton
         .infer(InferRequest {
             endpoint: &config.fr_inference_server,
             model_name: &model.model_name,
-            inputs: vec![Tensor::fp32(&model.input_tensor_name, vec![1, 3, height as i64, width as i64], &tensor)],
+            inputs: vec![input],
             outputs: vec![&model.output_tensor_name],
             timeout: config.inference_timeout,
         })
