@@ -227,18 +227,23 @@ pub fn resize_area(src: &RgbImage, width: u32, height: u32) -> RgbImage {
     let mut sum = vec![0.0f32; row_len];
     let mut buf = vec![0.0f32; row_len];
     let mut previous: Option<usize> = None;
+    // The source row `buf` holds: the boundary row of two cells is read by both
+    let mut buf_row: Option<usize> = None;
     let write = |dy: usize, sum: &[f32], dst_raw: &mut [u8]| {
         for (value, s) in dst_raw[dy * row_len..(dy + 1) * row_len].iter_mut().zip(sum) {
             *value = s.round_ties_even().clamp(0.0, 255.0) as u8;
         }
     };
     for tap_y in &ys {
-        buf.iter_mut().for_each(|b| *b = 0.0);
-        let row = &src_raw[tap_y.src * src_w as usize * 3..(tap_y.src + 1) * src_w as usize * 3];
-        for tap_x in &xs {
-            for c in 0..3 {
-                buf[tap_x.dst * 3 + c] += row[tap_x.src * 3 + c] as f32 * tap_x.weight;
+        if buf_row != Some(tap_y.src) {
+            buf.iter_mut().for_each(|b| *b = 0.0);
+            let row = &src_raw[tap_y.src * src_w as usize * 3..(tap_y.src + 1) * src_w as usize * 3];
+            for tap_x in &xs {
+                for c in 0..3 {
+                    buf[tap_x.dst * 3 + c] += row[tap_x.src * 3 + c] as f32 * tap_x.weight;
+                }
             }
+            buf_row = Some(tap_y.src);
         }
         if previous == Some(tap_y.dst) {
             for (s, b) in sum.iter_mut().zip(&buf) {
