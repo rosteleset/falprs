@@ -141,20 +141,51 @@ pub enum Error {
     /// pool is too small for the load.
     #[error("no free connection to PostgreSQL host {host} within {} ms: all {max_size} pooled connections are busy", .wait.as_millis())]
     PoolExhausted { host: String, max_size: usize, wait: Duration },
-    #[error(transparent)]
-    Pool(#[from] PoolError),
+    /// Its message includes the causes, so it reports no source of its own.
+    #[error("{}", pool_error_message(.0))]
+    Pool(PoolError),
+    /// Its message includes the causes, so it reports no source of its own.
     #[error("{}", error_message(.0))]
-    Db(#[from] tokio_postgres::Error),
+    Db(tokio_postgres::Error),
     #[error("network timeout: no response within {} ms", .0.as_millis())]
     NetworkTimeout(Duration),
 }
 
+impl From<PoolError> for Error {
+    fn from(error: PoolError) -> Self {
+        Error::Pool(error)
+    }
+}
+
+impl From<tokio_postgres::Error> for Error {
+    fn from(error: tokio_postgres::Error) -> Self {
+        Error::Db(error)
+    }
+}
+
 /// The server's message for errors reported by the server (tokio-postgres displays them only as
-/// "db error"), the error itself otherwise.
+/// "db error"), the error with its causes otherwise: tokio-postgres displays only the kind of an
+/// error, e.g. "error connecting to server" without why.
 pub fn error_message(error: &tokio_postgres::Error) -> String {
-    match error.as_db_error() {
-        Some(db_error) => db_error.to_string(),
-        None => error.to_string(),
+    if let Some(db_error) = error.as_db_error() {
+        return db_error.to_string();
+    }
+    let mut message = error.to_string();
+    let mut source = std::error::Error::source(error);
+    while let Some(cause) = source {
+        message.push_str(": ");
+        message.push_str(&cause.to_string());
+        source = cause.source();
+    }
+    message
+}
+
+/// A pool error with the full message of the database error behind it, e.g. the server's message
+/// when it refuses a new connection.
+fn pool_error_message(error: &PoolError) -> String {
+    match error {
+        PoolError::Backend(e) => format!("Error occurred while creating a new object: {}", error_message(e)),
+        e => e.to_string(),
     }
 }
 
@@ -877,6 +908,34 @@ fn make_pool(config: Config, settings: &ClusterSettings) -> Result<Pool> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A closed local port: connecting is refused at once.
+    fn refused_config() -> Config {
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = listener.local_addr().unwrap().port();
+        drop(listener);
+        Config::from_str(&format!("postgresql://u:p@127.0.0.1:{port}/db")).unwrap()
+    }
+
+    #[tokio::test]
+    async fn connection_errors_name_their_cause() {
+        let error = refused_config().connect(NoTls).await.err().unwrap();
+        let message = Error::from(error).to_string();
+        assert!(message.starts_with("error connecting to server: "), "{message}");
+        assert!(message.contains("refused"), "{message}");
+    }
+
+    #[tokio::test]
+    async fn pool_errors_name_their_cause() {
+        let pool = make_pool(refused_config(), &ClusterSettings::default()).unwrap();
+        let error = pool.get().await.err().unwrap();
+        let message = Error::from(error).to_string();
+        assert!(
+            message.starts_with("Error occurred while creating a new object: error connecting to server: "),
+            "{message}"
+        );
+        assert!(message.contains("refused"), "{message}");
+    }
 
     fn names(dsn: &str) -> Vec<String> {
         split_hosts(&Config::from_str(dsn).unwrap())

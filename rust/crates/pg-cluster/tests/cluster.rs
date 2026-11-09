@@ -460,3 +460,16 @@ async fn a_busy_pool_is_not_a_host_failure() {
     drop(held);
     assert!(!in_recovery(&cluster, HostType::Master).await.unwrap());
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_refused_login_reports_the_server_message() {
+    let test = TestCluster::start(false);
+    let cluster = Cluster::connect(&test.dsn(), settings()).await.unwrap();
+    cluster.execute(HostType::Master, "ALTER USER postgres PASSWORD 'rotated'", &[]).await.unwrap();
+    let _held = cluster.client(HostType::Master).await.unwrap();
+
+    // The held connection keeps the pool's only open one busy, so the next request logs in anew
+    let error = in_recovery(&cluster, HostType::Master).await.unwrap_err();
+    let message = error.to_string();
+    assert!(message.contains("password authentication failed"), "{message}");
+}

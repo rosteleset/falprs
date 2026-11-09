@@ -35,19 +35,6 @@ impl ApiError {
     }
 }
 
-/// Any database failure is reported to the client as an internal server error.
-impl From<pg_cluster::Error> for ApiError {
-    fn from(_: pg_cluster::Error) -> Self {
-        Self::server_error()
-    }
-}
-
-impl From<pg_cluster::tokio_postgres::Error> for ApiError {
-    fn from(_: pg_cluster::tokio_postgres::Error) -> Self {
-        Self::server_error()
-    }
-}
-
 pub fn json_response(status: StatusCode, body: Value) -> Response {
     let content_type = HeaderValue::from_static("application/json; charset=utf-8");
     (status, [(header::CONTENT_TYPE, content_type)], body.to_string()).into_response()

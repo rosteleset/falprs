@@ -25,6 +25,14 @@ use crate::logging::{Level, StreamLog};
 use crate::stream_log;
 use crate::{log, log_to};
 
+/// Turns a database error into the internal server error answer, logging it.
+fn db_error(lprs: &Lprs) -> impl Fn(pg_cluster::Error) -> ApiError + '_ {
+    move |e| {
+        log!(lprs.logger, Level::Error, "{e}");
+        ApiError::server_error()
+    }
+}
+
 pub fn router(lprs: Arc<Lprs>) -> Router {
     Router::new().route("/lprs/api/{method}", post(handle)).with_state(lprs)
 }
@@ -106,28 +114,32 @@ async fn add_stream(lprs: &Lprs, id_group: i32, body: &Value) -> ApiResult {
         Some(_) => return Err(ApiError::bad_request("Invalid member `config`.")),
     };
 
-    let mut client = lprs.cluster.client(HostType::Master).await?;
-    let transaction = client.transaction().await?;
-    let existing = transaction
-        .query_opt("select id_vstream from vstreams where id_group = $1 and ext_id = $2", &[&id_group, &ext_id])
-        .await?;
-    match existing {
-        None => {
-            transaction
-                .execute(
-                    "insert into vstreams(id_group, ext_id, config) values($1, $2, $3)",
-                    &[&id_group, &ext_id, &config],
-                )
-                .await?
-        }
-        Some(row) => {
-            let id_vstream: i32 = row.get(0);
-            transaction
-                .execute("update vstreams set config = $1 where id_vstream = $2", &[&config, &id_vstream])
-                .await?
-        }
-    };
-    transaction.commit().await?;
+    let mut client = lprs.cluster.client(HostType::Master).await.map_err(db_error(lprs))?;
+    async {
+        let transaction = client.transaction().await?;
+        let existing = transaction
+            .query_opt("select id_vstream from vstreams where id_group = $1 and ext_id = $2", &[&id_group, &ext_id])
+            .await?;
+        match existing {
+            None => {
+                transaction
+                    .execute(
+                        "insert into vstreams(id_group, ext_id, config) values($1, $2, $3)",
+                        &[&id_group, &ext_id, &config],
+                    )
+                    .await?
+            }
+            Some(row) => {
+                let id_vstream: i32 = row.get(0);
+                transaction
+                    .execute("update vstreams set config = $1 where id_vstream = $2", &[&config, &id_vstream])
+                    .await?
+            }
+        };
+        transaction.commit().await
+    }
+    .await
+    .map_err(db_error(lprs))?;
     Ok(no_content())
 }
 
@@ -139,7 +151,8 @@ async fn remove_stream(lprs: &Lprs, id_group: i32, body: &Value) -> ApiResult {
             "delete from vstreams where id_group = $1 and ext_id = $2",
             &[&id_group, &ext_id],
         )
-        .await?;
+        .await
+        .map_err(db_error(lprs))?;
     Ok(no_content())
 }
 
@@ -151,7 +164,8 @@ async fn list_streams(lprs: &Lprs, id_group: i32) -> ApiResult {
             "select ext_id, config from vstreams where id_group = $1 order by ext_id",
             &[&id_group],
         )
-        .await?;
+        .await
+        .map_err(db_error(lprs))?;
     let streams = rows
         .iter()
         .map(|row| {
@@ -181,7 +195,8 @@ async fn get_event_data(lprs: &Lprs, id_group: i32, body: &Value) -> ApiResult {
                 "select log_date, info, id_vstream from events_log where id_event = $1::bigint",
                 &[&event_id],
             )
-            .await?;
+            .await
+            .map_err(db_error(lprs))?;
         let Some(row) = rows.first() else {
             return Ok(no_content());
         };
@@ -231,7 +246,8 @@ async fn get_event_data(lprs: &Lprs, id_group: i32, body: &Value) -> ApiResult {
             "#,
             &[&id_vstream, &date, &before, &after],
         )
-        .await?;
+        .await
+        .map_err(db_error(lprs))?;
     Ok(match rows.first() {
         Some(row) => data_response(event_data(row.get(1), row.get(0))),
         None => no_content(),
@@ -250,10 +266,7 @@ async fn set_stream_default_config(lprs: &Lprs, id_group: i32, body: &Value) -> 
             &[&id_group, body],
         )
         .await;
-    if let Err(e) = result {
-        log_to!(lprs.logger, Level::Error, "{e}");
-        return Err(ApiError::server_error());
-    }
+    result.map_err(db_error(lprs))?;
     Ok(no_content())
 }
 
@@ -262,7 +275,7 @@ async fn get_stream_default_config(lprs: &Lprs, id_group: i32) -> ApiResult {
         .cluster
         .query(HostType::Master, "select config from default_vstream_config where id_group = $1", &[&id_group])
         .await
-        .inspect_err(|e| log!(lprs.logger, Level::Error, "{e}"))?;
+        .map_err(db_error(lprs))?;
     let config = rows.first().and_then(|row| row.get::<_, Option<Value>>(0));
     Ok(data_response(config.unwrap_or(Value::Null)))
 }
