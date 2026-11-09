@@ -16,19 +16,16 @@ use anyhow::{Context, Result};
 pub const IMAGE_EXTENSIONS: [&str; 6] = ["png", "jpg", "jpeg", "bmp", "ppm", "tiff"];
 
 /// Writes a file readable and writable by its owner and others (mode 0606), creating its
-/// directories, as the C++ service writes screenshots.
+/// directories, as the C++ service writes screenshots. The three steps run in one blocking section,
+/// without copying `contents`, where `tokio::fs` would make three trips to the blocking pool.
 pub async fn write_shared(path: &Path, contents: &[u8]) -> Result<()> {
-    if let Some(parent) = path.parent() {
-        tokio::fs::create_dir_all(parent)
-            .await
-            .with_context(|| format!("can't create {}", parent.display()))?;
-    }
-    tokio::fs::write(path, contents)
-        .await
-        .with_context(|| format!("can't write {}", path.display()))?;
-    tokio::fs::set_permissions(path, std::fs::Permissions::from_mode(0o606))
-        .await
-        .with_context(|| format!("can't set the permissions of {}", path.display()))
+    tokio::task::block_in_place(|| {
+        if let Some(parent) = path.parent() {
+            std::fs::create_dir_all(parent).with_context(|| format!("can't create {}", parent.display()))?;
+        }
+        std::fs::write(path, contents).with_context(|| format!("can't write {}", path.display()))?;
+        std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o606)).with_context(|| format!("can't set the permissions of {}", path.display()))
+    })
 }
 
 /// Appends `contents` to a file, creating it if needed.
@@ -141,7 +138,8 @@ mod tests {
         dir
     }
 
-    #[tokio::test]
+    // write_shared blocks in place, which needs the multi-threaded runtime
+    #[tokio::test(flavor = "multi_thread")]
     async fn shared_files_get_their_directories_and_mode() {
         let dir = temp_dir("shared");
         let path = dir.join("a/b/c.jpg");
@@ -177,7 +175,8 @@ mod tests {
         assert!(walk(Path::new("/"), &owned(&["jpg"]), &AtomicBool::new(true)).is_empty());
     }
 
-    #[tokio::test]
+    // write_shared blocks in place, which needs the multi-threaded runtime
+    #[tokio::test(flavor = "multi_thread")]
     async fn old_files_with_listed_extensions_are_removed() {
         let dir = temp_dir("old");
         for name in ["x/old.jpg", "x/y/old.dat", "x/keep.txt", "new.jpg"] {

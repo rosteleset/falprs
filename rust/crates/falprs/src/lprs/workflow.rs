@@ -10,6 +10,7 @@ use anyhow::Result;
 use chrono::{DateTime, Utc};
 use image::{Rgb, RgbImage};
 use pg_cluster::HostType;
+use pg_cluster::tokio_postgres::types::ToSql;
 use serde_json::{Map, Value, json};
 
 use super::Lprs;
@@ -476,25 +477,28 @@ async fn record_event(
         "date": date,
     });
 
-    // A failed insert is logged and the event goes on with id -1, as in the C++ service
-    let id_event = match lprs
-        .cluster
-        .query(
+    // The screenshot is written while the event is inserted, both before the callback
+    let screenshot = PathBuf::from(format!("{}{path_suffix}{uuid}.jpg", settings.screenshots_path));
+    let params: [&(dyn ToSql + Sync); 3] = [&id_vstream, &log_date, &info];
+    let (inserted, written) = tokio::join!(
+        // The insert first: its request is out before the write blocks the task
+        biased;
+        lprs.cluster.query(
             HostType::Master,
             "insert into events_log(id_vstream, log_date, info) values($1, $2, $3) returning id_event",
-            &[&id_vstream, &log_date, &info],
-        )
-        .await
-    {
+            &params,
+        ),
+        files::write_shared(&screenshot, image_data),
+    );
+    // A failed insert is logged and the event goes on with id -1, as in the C++ service
+    let id_event = match inserted {
         Ok(rows) => rows.first().map_or(-1, |row| row.get::<_, i32>(0) as i64),
         Err(e) => {
             log!(lprs.logger, Level::Error, "can't add event: {e}");
             -1
         }
     };
-
-    let screenshot = PathBuf::from(format!("{}{path_suffix}{uuid}.jpg", settings.screenshots_path));
-    files::write_shared(&screenshot, image_data).await?;
+    written?;
 
     let mut payload = Map::new();
     payload.insert("streamId".to_string(), Value::String(ext_id.to_string()));

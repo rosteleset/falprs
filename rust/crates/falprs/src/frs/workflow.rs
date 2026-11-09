@@ -8,6 +8,7 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant, SystemTime};
 
 use anyhow::{Context, Result};
+use bytes::Bytes;
 use chrono::{DateTime, Local, Utc};
 use image::{Rgb, RgbImage};
 use pg_cluster::HostType;
@@ -367,10 +368,11 @@ async fn run_pipeline(frs: &Arc<Frs>, task: &mut TaskData, slot_wait: Option<Dur
             }
         }
     }
+    // The frame URL is used once: taken, not copied, as a data URL may hold megabytes
     let url = if task.task_type == TaskType::Recognize {
         config.url.clone()
     } else {
-        task.frame_url.clone()
+        std::mem::take(&mut task.frame_url)
     };
     let mut ctx = Run { frs, task, common, config };
 
@@ -423,14 +425,16 @@ async fn run_pipeline(frs: &Arc<Frs>, task: &mut TaskData, slot_wait: Option<Dur
 }
 
 /// Gets the frame's encoded image, or the flow to return with when it can't be had.
-async fn acquire_image(ctx: &Run<'_>, url: &str) -> Result<Vec<u8>, Flow> {
+async fn acquire_image(ctx: &Run<'_>, url: &str) -> Result<Bytes, Flow> {
     let (frs, key) = (ctx.frs, &ctx.task.vstream_key);
     if url.starts_with("data:") {
-        let Some(comma) = url.find(',') else { return Ok(Vec::new()) };
+        let Some(comma) = url.find(',') else { return Ok(Bytes::new()) };
         if !url.contains(";base64,") {
-            return Ok(Vec::new());
+            return Ok(Bytes::new());
         }
-        return decode_base64(&url[comma + 1..]).ok_or_else(|| {
+        // About a millisecond per megabyte
+        let decoded = tokio::task::block_in_place(|| decode_base64(&url[comma + 1..]));
+        return decoded.map(Bytes::from).ok_or_else(|| {
             if ctx.logs(Level::Error) {
                 log_to!(frs.logger, Level::Error, "Error decoding image from BASE64: vstream_key = {key};");
             }
@@ -448,7 +452,7 @@ async fn acquire_image(ctx: &Run<'_>, url: &str) -> Result<Vec<u8>, Flow> {
         log_to!(frs.logger, Level::Trace, "vstream_key = {key};  after image acquisition");
     }
     match fetched {
-        Ok(data) => Ok(data.to_vec()),
+        Ok(data) => Ok(data),
         Err(e) => {
             if ctx.logs(Level::Error) {
                 let status = match &e {
@@ -1038,21 +1042,25 @@ async fn log_face_event(ctx: &Run<'_>, key: &str, face_data: &[FaceData], best: 
     let log_date = Utc::now();
     let best_face = &face_data[best];
     let screenshot_url = format!("{}{suffix}{s_uuid}.jpg", local.screenshots_url_prefix);
-    let id_log = add_log_face(
-        ctx,
-        log_date,
-        best_face.id_descriptor,
-        best_face.laplacian,
-        &best_face.face_rect,
-        &screenshot_url,
-        &log_uuid,
-        COPY_EVENT_DATA_NONE,
-    )
-    .await;
-
     let path_prefix = format!("{}{suffix}", local.screenshots_path);
     let screenshot = PathBuf::from(format!("{path_prefix}{s_uuid}.jpg"));
-    if let Err(e) = files::write_shared(&screenshot, image_data).await {
+    // The screenshot is written while the log is inserted, both before the callback, which points to them
+    let (id_log, written) = tokio::join!(
+        // The insert first: its request is out before the write blocks the task
+        biased;
+        add_log_face(
+            ctx,
+            log_date,
+            best_face.id_descriptor,
+            best_face.laplacian,
+            &best_face.face_rect,
+            &screenshot_url,
+            &log_uuid,
+            COPY_EVENT_DATA_NONE,
+        ),
+        files::write_shared(&screenshot, image_data),
+    );
+    if let Err(e) = written {
         log_to!(frs.logger, Level::Error, "{e:#}");
     }
 

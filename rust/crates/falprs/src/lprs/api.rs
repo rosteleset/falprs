@@ -19,7 +19,7 @@ use super::footprints;
 use super::workflow;
 use crate::converters;
 use crate::fetch::{FetchError, fetch_image};
-use crate::http_api::{ApiError, ApiResult, data_response, no_content, require_member};
+use crate::http_api::{ApiError, ApiResult, clipped_json, data_response, no_content, require_member};
 use crate::imaging;
 use crate::logging::{Level, StreamLog};
 use crate::stream_log;
@@ -53,9 +53,10 @@ async fn handle(
         Ok(body) => body,
         Err(e) => return ApiError::bad_request(format!("Invalid JSON body: {e}")).into_response(),
     };
-    let text = body.to_string();
-    let clipped: String = text.chars().take(300).collect();
-    log!(lprs.logger, Level::Info, "API call from: {remote};  method: {method};  body: {clipped}");
+    if lprs.logger.should_log(Level::Info) {
+        let clipped = clipped_json(&body, 300);
+        log!(lprs.logger, Level::Info, "API call from: {remote};  method: {method};  body: {clipped}");
+    }
 
     let id_group = match authorize(&lprs, &headers) {
         Ok(id_group) => id_group,

@@ -27,7 +27,7 @@ use super::events::{DESCRIPTOR_SIZE, EventRecord};
 use super::workflow::{self, TaskData, TaskType};
 use crate::converters;
 use crate::files;
-use crate::http_api::{ApiError, ApiResult, data_response, no_content, require_member};
+use crate::http_api::{ApiError, ApiResult, clipped_json, data_response, no_content, require_member};
 use crate::log;
 use crate::logging::Level;
 use falprs::similarity;
@@ -128,9 +128,10 @@ async fn handle_post(
         Ok(body) => body,
         Err(e) => return ApiError::bad_request(format!("Invalid JSON body: {e}")).into_response(),
     };
-    let text = body.to_string();
-    let clipped: String = text.chars().take(300).collect();
-    log!(frs.logger, Level::Info, "API call from: {remote};  method: {method};  body: {clipped}");
+    if frs.logger.should_log(Level::Info) {
+        let clipped = clipped_json(&body, 300);
+        log!(frs.logger, Level::Info, "API call from: {remote};  method: {method};  body: {clipped}");
+    }
 
     let auth = headers
         .get(header::AUTHORIZATION)
