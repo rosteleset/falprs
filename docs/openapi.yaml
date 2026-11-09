@@ -463,6 +463,64 @@ paths:
         '400':
           description: Bad request
 
+  /frs/api/processFrame:
+    post:
+      tags:
+        - Host --> FRS
+      summary: Recognize faces in a frame
+      description: |
+        Recognizes faces in an image and returns the identifiers of the matched face descriptors.
+        The descriptors are taken from the video stream (`streamId`) or from the special group (`groupId`).
+        At least one of them is required. When both are given, `streamId` takes priority and `groupId` is ignored.
+        A special group of another stream group, or an unknown one, matches nothing.
+      operationId: frs_processFrame
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - url
+              properties:
+                streamId:
+                  $ref: '#/components/schemas/streamId'
+                groupId:
+                  $ref: '#/components/schemas/groupId'
+                url:
+                  description: Image URL
+                  type: string
+                  format: url
+                  example: https://my.server/image.jpg
+            example:
+              streamId: '1234'
+              url: "https://my.server/image.jpg"
+      responses:
+        '200':
+          description: Successful operation
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ResponseBase'
+                  - type: object
+                    required:
+                      - data
+                    properties:
+                      data:
+                        description: Identifiers of the matched face descriptors
+                        type: array
+                        items:
+                          type: integer
+              example:
+                code: "200"
+                message: "Ok"
+                data: [4567, 4568]
+        '204':
+          description: No faces matched
+        '400':
+          description: Bad request
+
   /frs/api/motionDetection:
     post:
       tags:
