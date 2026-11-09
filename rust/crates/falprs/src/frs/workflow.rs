@@ -1634,8 +1634,10 @@ async fn copy_event_files(local: &LocalConfig, job: &CopyJob, now: DateTime<Utc>
         source = format!("{}{suffix}", local.screenshots_path);
     }
     let source_json = format!("{source}{s_uuid}.json");
+    // The files of a recent log may not be written yet, or only in part
+    let recent = now - job.log_date < COPY_SOURCE_GRACE;
     if !files::exists(Path::new(&source_json)).await {
-        return Ok(if now - job.log_date < COPY_SOURCE_GRACE {
+        return Ok(if recent {
             CopyOutcome::Later
         } else {
             CopyOutcome::Failed(format!("{source_json} does not exist"))
@@ -1645,6 +1647,7 @@ async fn copy_event_files(local: &LocalConfig, job: &CopyJob, now: DateTime<Utc>
     // The JSON data with the external event uuid added
     let mut event: Value = match serde_json::from_slice(&tokio::fs::read(&source_json).await?) {
         Ok(event) => event,
+        Err(_) if recent => return Ok(CopyOutcome::Later),
         Err(e) => return Ok(CopyOutcome::Failed(format!("{source_json}: {e}"))),
     };
     // The descriptors were written before the JSON: missing now, they are lost
@@ -1742,6 +1745,19 @@ mod tests {
             copy_event_files(&local, &job(missing, 10), now).await.unwrap(),
             CopyOutcome::Failed(_)
         ));
+
+        // A JSON written only in part (empty or cut short): later while the log is recent
+        source("ffff6666-0000-0000-0000-000000000006", Some(b"y"), Some(""), false);
+        assert_eq!(
+            copy_event_files(&local, &job("ffff6666-0000-0000-0000-000000000006", 1), now).await.unwrap(),
+            CopyOutcome::Later
+        );
+        source("ffff6666-0000-0000-0000-000000000006", Some(b"y"), Some(r#"{"faces":["#), false);
+        assert_eq!(
+            copy_event_files(&local, &job("ffff6666-0000-0000-0000-000000000006", 1), now).await.unwrap(),
+            CopyOutcome::Later
+        );
+        assert_eq!(std::fs::read(&events_file).unwrap(), b"0123");
 
         source("dddd4444-0000-0000-0000-000000000004", Some(b"x"), Some("not json"), false);
         assert!(matches!(
