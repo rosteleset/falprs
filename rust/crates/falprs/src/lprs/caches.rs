@@ -41,7 +41,8 @@ const SQL_VSTREAMS_CONFIG: &str = r#"
       vs.id_group,
       vs.id_vstream,
       vs.ext_id,
-      coalesce(d.config, '{}') || coalesce(vs.config, '{}') config
+      -- a JSON null (stored by addStream without a config before) counts as no config
+      coalesce(d.config, '{}') || coalesce(nullif(vs.config, 'null'), '{}') config
     from
       vstreams vs
       left join default_vstream_config d

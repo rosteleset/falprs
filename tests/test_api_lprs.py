@@ -337,6 +337,22 @@ def test_add_stream4():
 def test_list_streams4():
     test_list_streams2
 
+# addStream without config: the stream has no own config and uses its group's default one
+@pytest.mark.order(++order)
+def test_add_stream_without_config():
+    url = API_URL + "addStream"
+    response = requests.post(url, json={STREAM_ID: "no-config"})
+    assert response.status_code == 204
+
+    response = requests.post(API_URL + "listStreams")
+    assert response.status_code == 200
+    streams = {item[STREAM_ID]: item for item in response.json()[DATA]}
+    assert "no-config" in streams
+    assert streams["no-config"].get(CONFIG) is None
+
+    response = requests.post(API_URL + "removeStream", json={STREAM_ID: "no-config"})
+    assert response.status_code == 204
+
 # add more video streams
 @pytest.mark.order(++order)
 def test_add_more_streams():

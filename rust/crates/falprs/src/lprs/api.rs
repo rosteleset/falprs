@@ -98,9 +98,11 @@ fn stream_id(body: &Value) -> Result<String, ApiError> {
 
 async fn add_stream(lprs: &Lprs, id_group: i32, body: &Value) -> ApiResult {
     let ext_id = stream_id(body)?;
+    // An absent config is stored as SQL NULL, not as a JSON null, which would turn the merge with
+    // the stream group's default config into an array
     let config = match body.get("config") {
-        None => Value::Null,
-        Some(config @ Value::Object(_)) => config.clone(),
+        None => None,
+        Some(config @ Value::Object(_)) => Some(config.clone()),
         Some(_) => return Err(ApiError::bad_request("Invalid member `config`.")),
     };
 
