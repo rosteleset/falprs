@@ -8,6 +8,34 @@ use pulp::{Arch, Simd, WithSimd};
 /// Independent vector accumulators per sum; 8 spill registers in the full cosine (3 sums)
 const ACC: usize = 4;
 
+/// Scales a descriptor to unit L2 norm (a zero descriptor is left as is) bit-identically to
+/// `fd / cv::norm(fd)` of OpenCV 4.6: `Mat / double` multiplies by the reciprocal of the norm
+/// rounded to single precision (`convertTo` with `alpha = 1 / norm`).
+pub fn normalize(descriptor: &mut [f32]) {
+    let norm = opencv_norm_l2(descriptor);
+    let norm = if norm <= 0.0 { 1.0 } else { norm };
+    let scale = (1.0 / norm) as f32;
+    for v in descriptor {
+        *v *= scale;
+    }
+}
+
+/// `cv::norm(a, NORM_L2)` of a `CV_32F` row in OpenCV 4.6 (`normL2Sqr`): the squares are summed in
+/// double precision four at a time, each group added up before it joins the sum.
+pub fn opencv_norm_l2(a: &[f32]) -> f64 {
+    let (groups, tail) = a.as_chunks::<4>();
+    let mut sum = 0.0f64;
+    for group in groups {
+        let [v0, v1, v2, v3] = group.map(f64::from);
+        sum += v0 * v0 + v1 * v1 + v2 * v2 + v3 * v3;
+    }
+    for &v in tail {
+        let v = f64::from(v);
+        sum += v * v;
+    }
+    sum.sqrt()
+}
+
 /// Cosine similarity of two descriptors in single precision, as `cosineSimilaritySIMD` of the
 /// C++ service.
 pub fn cosine(a: &[f32], b: &[f32]) -> f64 {

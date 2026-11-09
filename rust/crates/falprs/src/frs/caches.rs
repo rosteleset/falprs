@@ -143,14 +143,7 @@ pub fn descriptor_to_bytes(descriptor: &[f32]) -> Vec<u8> {
     descriptor.iter().flat_map(|v| v.to_ne_bytes()).collect()
 }
 
-/// Scales a descriptor to unit L2 norm (a zero descriptor is left as is), as `fd / cv::norm(fd)`.
-pub fn normalize(descriptor: &mut [f32]) {
-    let norm = descriptor.iter().map(|&v| f64::from(v) * f64::from(v)).sum::<f64>().sqrt();
-    let norm = if norm <= 0.0 { 1.0 } else { norm };
-    for v in descriptor {
-        *v = (f64::from(*v) / norm) as f32;
-    }
-}
+pub use falprs::similarity::normalize;
 
 #[derive(Debug, Default, Clone)]
 pub struct FaceDescriptorData {
