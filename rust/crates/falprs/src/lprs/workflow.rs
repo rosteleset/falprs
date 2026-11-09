@@ -93,7 +93,15 @@ pub fn start_workflow(lprs: &Arc<Lprs>, vstream_key: String) {
         lock(&lprs.workflows.timeouts).insert(vstream_key.clone(), Instant::now() + workflow_timeout);
     }
     if is_new {
-        crate::tasks::spawn(run(lprs.clone(), vstream_key));
+        let on_panic = {
+            let (lprs, vstream_key) = (lprs.clone(), vstream_key.clone());
+            move |message: &str| {
+                log_to!(lprs.logger, Level::Error, "The workflow of vstream_key = {vstream_key} failed: {message}");
+                // Only the workflow itself removes its entry, so the entry is still its own
+                stop_workflow(&lprs, &vstream_key, true);
+            }
+        };
+        crate::tasks::spawn(crate::tasks::catch_panic(run(lprs.clone(), vstream_key), on_panic));
     }
 }
 

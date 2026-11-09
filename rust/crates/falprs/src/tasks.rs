@@ -5,8 +5,10 @@
 //! runtime's timer driver is already gone.
 
 use std::future::Future;
+use std::panic::AssertUnwindSafe;
 use std::sync::LazyLock;
 
+use futures::FutureExt;
 use tokio_util::sync::CancellationToken;
 use tokio_util::task::TaskTracker;
 
@@ -52,6 +54,22 @@ where
     BACKGROUND.spawn(task);
 }
 
+/// Runs `task`, calling `on_panic` with the panic message if it panics: tokio would end the task
+/// silently, leaving behind whatever state the task undoes on its normal ways out.
+pub async fn catch_panic<F>(task: F, on_panic: impl FnOnce(&str))
+where
+    F: Future<Output = ()>,
+{
+    if let Err(payload) = AssertUnwindSafe(task).catch_unwind().await {
+        let message = payload
+            .downcast_ref::<&str>()
+            .copied()
+            .or_else(|| payload.downcast_ref::<String>().map(String::as_str))
+            .unwrap_or("unknown panic");
+        on_panic(message);
+    }
+}
+
 /// Stops the background tasks of the service and waits for them.
 pub async fn shutdown() {
     BACKGROUND.shutdown().await;
@@ -81,6 +99,24 @@ mod tests {
 
         tokio::time::timeout(Duration::from_secs(5), tasks.shutdown()).await.unwrap();
         assert!(left_block_in_place.load(Ordering::SeqCst));
+    }
+
+    #[tokio::test]
+    async fn a_panic_is_reported_instead_of_ending_the_task_silently() {
+        let mut reported = None;
+        catch_panic(
+            async {
+                tokio::task::yield_now().await;
+                panic!("frame {}", 7);
+            },
+            |message| reported = Some(message.to_string()),
+        )
+        .await;
+        assert_eq!(reported.as_deref(), Some("frame 7"));
+
+        let mut called = false;
+        catch_panic(async {}, |_| called = true).await;
+        assert!(!called);
     }
 
     #[tokio::test]

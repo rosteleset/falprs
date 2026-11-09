@@ -240,8 +240,18 @@ pub fn start_workflow(frs: &Arc<Frs>, vstream_key: String, duration: Duration) {
         lock(&frs.workflows.timeouts).insert(vstream_key.clone(), Instant::now() + workflow_timeout);
     }
     if let Some(generation) = generation {
-        let task = TaskData::new(id_group, vstream_key, TaskType::Recognize, String::new());
-        crate::tasks::spawn(recognize_loop(frs.clone(), task, generation));
+        let task = TaskData::new(id_group, vstream_key.clone(), TaskType::Recognize, String::new());
+        let on_panic = {
+            let frs = frs.clone();
+            move |message: &str| {
+                log_to!(frs.logger, Level::Error, "The workflow of vstream_key = {vstream_key} failed: {message}");
+                // As the loop's own way out, so that the stream can be started again
+                if frs.workflows.recognition_loops.forget_own(&vstream_key, generation) {
+                    lock(&frs.workflows.timeouts).remove(&vstream_key);
+                }
+            }
+        };
+        crate::tasks::spawn(crate::tasks::catch_panic(recognize_loop(frs.clone(), task, generation), on_panic));
     }
 }
 
