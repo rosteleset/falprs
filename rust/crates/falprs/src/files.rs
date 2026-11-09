@@ -45,18 +45,24 @@ pub async fn exists(path: &Path) -> bool {
     tokio::fs::try_exists(path).await.unwrap_or(false)
 }
 
-/// Regular files under `dir`, recursively, whose extension is one of `extensions`, with their
-/// metadata. Directories are walked depth first from the last one found; unreadable entries are
-/// skipped. The walk runs on the blocking pool in one go, and stops early once the returned future
-/// is dropped, e.g. by a shutdown or a client that went away.
-pub async fn files_with_extensions(dir: &Path, extensions: &[&str]) -> Vec<(PathBuf, Metadata)> {
+/// Hands the regular files under `dir`, recursively, whose extension is one of `extensions`, with
+/// their metadata, to `work`. Directories are walked depth first from the last one found;
+/// unreadable entries are skipped. The walk and `work` run on the blocking pool in one task, so
+/// that reading and processing many small files costs no trip to the blocking pool per file. The
+/// walk stops early, and `work` gets the flag to stop on, once the returned future is dropped,
+/// e.g. by a shutdown or a client that went away.
+pub async fn with_files_with_extensions<T: Send + 'static>(
+    dir: &Path,
+    extensions: &[&str],
+    work: impl FnOnce(Vec<(PathBuf, Metadata)>, &AtomicBool) -> T + Send + 'static,
+) -> T {
     let (dir, extensions) = (dir.to_path_buf(), owned(extensions));
-    run_blocking(move |cancelled| walk(&dir, &extensions, cancelled)).await
+    run_blocking(move |cancelled| work(walk(&dir, &extensions, cancelled), cancelled)).await
 }
 
 /// Removes the files under `dir` with one of `extensions` last modified before `before`, and
 /// returns the errors of the removals that failed. Runs on the blocking pool like
-/// [`files_with_extensions`].
+/// [`with_files_with_extensions`].
 pub async fn remove_old_files(dir: &Path, extensions: &[&str], before: SystemTime) -> Vec<io::Error> {
     let (dir, extensions) = (dir.to_path_buf(), owned(extensions));
     run_blocking(move |cancelled| {
@@ -80,7 +86,7 @@ fn owned(extensions: &[&str]) -> Vec<String> {
     extensions.iter().map(|e| e.to_string()).collect()
 }
 
-/// The walk of [`files_with_extensions`], with `std::fs`; it ends early once `cancelled` is set.
+/// The walk of [`with_files_with_extensions`], with `std::fs`; it ends early once `cancelled` is set.
 fn walk(dir: &Path, extensions: &[String], cancelled: &AtomicBool) -> Vec<(PathBuf, Metadata)> {
     let mut files = Vec::new();
     let mut pending = vec![dir.to_path_buf()];
@@ -177,7 +183,11 @@ mod tests {
         for name in ["x/old.jpg", "x/y/old.dat", "x/keep.txt", "new.jpg"] {
             write_shared(&dir.join(name), b"").await.unwrap();
         }
-        let mut found: Vec<PathBuf> = files_with_extensions(&dir, &["jpg", "dat"]).await.into_iter().map(|(p, _)| p).collect();
+        let mut found: Vec<PathBuf> = with_files_with_extensions(&dir, &["jpg", "dat"], |files, _| files)
+            .await
+            .into_iter()
+            .map(|(p, _)| p)
+            .collect();
         found.sort();
         assert_eq!(found, [dir.join("new.jpg"), dir.join("x/old.jpg"), dir.join("x/y/old.dat")]);
 
@@ -187,7 +197,7 @@ mod tests {
                 .await
                 .is_empty()
         );
-        assert_eq!(files_with_extensions(&dir, &["jpg", "dat"]).await.len(), 3);
+        assert_eq!(with_files_with_extensions(&dir, &["jpg", "dat"], |files, _| files).await.len(), 3);
         let later = SystemTime::now() + Duration::from_secs(1);
         assert!(remove_old_files(&dir.join("x"), &["jpg", "dat"], later).await.is_empty());
         assert!(!dir.join("x/old.jpg").exists() && !dir.join("x/y/old.dat").exists());

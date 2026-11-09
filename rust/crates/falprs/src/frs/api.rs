@@ -6,6 +6,7 @@ use std::collections::{HashMap, HashSet, VecDeque};
 use std::net::SocketAddr;
 use std::path::{Path as FsPath, PathBuf};
 use std::sync::Arc;
+use std::sync::atomic::Ordering;
 use std::time::{Duration, SystemTime};
 
 use axum::Router;
@@ -1336,6 +1337,11 @@ fn matching_records(bytes: &[u8], descriptors: &[(i32, &[f32], f64)], threshold:
     matched
 }
 
+/// The descriptors to search for as `matching_records` takes them.
+fn borrowed(descriptors: &[(i32, Vec<f32>, f64)]) -> Vec<(i32, &[f32], f64)> {
+    descriptors.iter().map(|(id, d, norm)| (*id, d.as_slice(), *norm)).collect()
+}
+
 /// Characters of an event id used as directory levels.
 fn id_chars(id: &str) -> Vec<char> {
     id.chars().collect()
@@ -1422,8 +1428,9 @@ async fn search_files(
 ) -> Vec<SearchResult> {
     let threshold = f64::from(threshold);
     // Cosine similarity accumulated in single precision like the C++ service's AVX version, with
-    // the norms computed once per descriptor
-    let descriptors: Vec<(i32, &[f32], f64)> = descriptors.iter().map(|(&id, d)| (id, d.as_slice(), similarity::norm(d))).collect();
+    // the norms computed once per descriptor. Owned, as the files are read and scored in a
+    // blocking task of their own
+    let descriptors: Arc<Vec<(i32, Vec<f32>, f64)>> = Arc::new(descriptors.iter().map(|(&id, d)| (id, d.clone(), similarity::norm(d))).collect());
     let mut results = Vec::new();
     let mut event_ids = HashSet::new();
 
@@ -1433,14 +1440,29 @@ async fn search_files(
         let file_name = |date: DateTime<Utc>| format!("{}.dat", date.with_timezone(&Local).format("%Y-%m-%d"));
         let (first, last) = (file_name(date_start), file_name(date_end));
         let group_dir = format!("{}group_{id_group}", local.events_path);
-        for (path, _) in files::files_with_extensions(&events_dir, &["dat"]).await {
-            let name = path.file_name().and_then(|n| n.to_str()).unwrap_or_default().to_string();
-            if name < first || name > last {
-                continue;
+        let scored = files::with_files_with_extensions(&events_dir, &["dat"], {
+            let descriptors = descriptors.clone();
+            move |files, cancelled| {
+                let descriptors = borrowed(&descriptors);
+                let mut scored = Vec::new();
+                for (path, _) in files {
+                    if cancelled.load(Ordering::Relaxed) {
+                        break;
+                    }
+                    let name = path.file_name().and_then(|n| n.to_str()).unwrap_or_default().to_string();
+                    if name < first || name > last {
+                        continue;
+                    }
+                    let Ok(bytes) = std::fs::read(&path) else { continue };
+                    let matched = matching_records(&bytes, &descriptors, threshold, |_| false);
+                    scored.push((name.trim_end_matches(".dat").to_string(), matched));
+                }
+                scored
             }
-            let stem = name.trim_end_matches(".dat");
-            let Ok(bytes) = tokio::fs::read(&path).await else { continue };
-            let matched = tokio::task::block_in_place(|| matching_records(&bytes, &descriptors, threshold, |_| false));
+        })
+        .await;
+        for (stem, matched) in scored {
+            let stem = stem.as_str();
             for (event_id, matches) in matched {
                 // The event's JSON, read once for all descriptors matching the record
                 let event_id = &event_id;
@@ -1479,16 +1501,27 @@ async fn search_files(
     let logs_dir = PathBuf::from(format!("{}group_{id_group}/", local.screenshots_path));
     if flag_logs && files::exists(&logs_dir).await {
         let (start, end) = (SystemTime::from(date_start), SystemTime::from(date_end));
-        for (path, metadata) in files::files_with_extensions(&logs_dir, &["dat"]).await {
-            if !metadata.modified().is_ok_and(|modified| modified >= start && modified < end) {
-                continue;
+        let scored = files::with_files_with_extensions(&logs_dir, &["dat"], move |files, cancelled| {
+            let descriptors = borrowed(&descriptors);
+            let mut scored = Vec::new();
+            for (path, metadata) in files {
+                if cancelled.load(Ordering::Relaxed) {
+                    break;
+                }
+                if !metadata.modified().is_ok_and(|modified| modified >= start && modified < end) {
+                    continue;
+                }
+                let Ok(bytes) = std::fs::read(&path) else { continue };
+                // A log entry already found among the events is skipped
+                let matched = matching_records(&bytes, &descriptors, threshold, |event_id| event_ids.contains(event_id));
+                if !matched.is_empty() {
+                    scored.push((path, matched));
+                }
             }
-            let Ok(bytes) = tokio::fs::read(&path).await else { continue };
-            // A log entry already found among the events is skipped
-            let matched = tokio::task::block_in_place(|| matching_records(&bytes, &descriptors, threshold, |event_id| event_ids.contains(event_id)));
-            if matched.is_empty() {
-                continue;
-            }
+            scored
+        })
+        .await;
+        for (path, matched) in scored {
             // The log's JSON, the same for all its records, read once
             let stem = path.file_stem().and_then(|s| s.to_str()).unwrap_or_default();
             let Some(event) = read_json(&path.with_extension("json")).await else {
