@@ -204,9 +204,16 @@ pub struct Workflows {
     recognition_loops: RecognitionLoops,
     timeouts: Mutex<HashMap<String, Instant>>,
     unknown_descriptors: Mutex<HashMap<i32, Vec<UnknownDescriptor>>>,
-    dnn_stats: Mutex<BTreeMap<i32, DnnStats>>,
-    /// Inference statistics of removed video streams, counted only in the totals.
-    removed_dnn_stats: Mutex<DnnStats>,
+    /// One lock for both parts, so that no code path can take them in different orders.
+    dnn_stats: Mutex<DnnStatsData>,
+}
+
+/// Inference statistics per video stream, and those of removed video streams, which are counted
+/// only in the totals.
+#[derive(Default)]
+struct DnnStatsData {
+    per_stream: BTreeMap<i32, DnnStats>,
+    removed: DnnStats,
 }
 
 fn lock<T>(mutex: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
@@ -780,7 +787,7 @@ async fn pipeline_body(ctx: &mut Run<'_>, url: &str) -> Result<Flow> {
 
     {
         let mut dnn_stats = lock(&frs.workflows.dnn_stats);
-        let entry = dnn_stats.entry(config.id_vstream).or_default();
+        let entry = dnn_stats.per_stream.entry(config.id_vstream).or_default();
         entry.fd_count += stats.fd_count;
         entry.fc_count += stats.fc_count;
         entry.fr_count += stats.fr_count;
@@ -1391,12 +1398,12 @@ pub async fn load_dnn_stats(frs: &Frs) {
                     .unwrap_or(0)
             };
             let sum = |field: fn(&DnnStats) -> i64| stats.values().map(field).sum::<i64>();
-            *lock(&frs.workflows.removed_dnn_stats) = DnnStats {
+            let removed = DnnStats {
                 fd_count: (all("fd_count") - sum(|s| s.fd_count)).max(0),
                 fc_count: (all("fc_count") - sum(|s| s.fc_count)).max(0),
                 fr_count: (all("fr_count") - sum(|s| s.fr_count)).max(0),
             };
-            *lock(&frs.workflows.dnn_stats) = stats;
+            *lock(&frs.workflows.dnn_stats) = DnnStatsData { per_stream: stats, removed };
         }
         None => log!(frs.logger, Level::Error, "invalid inference statistics in {}", path.display()),
     }
@@ -1406,8 +1413,9 @@ pub async fn load_dnn_stats(frs: &Frs) {
 pub async fn save_dnn_stats(frs: &Frs) {
     let (all, data) = {
         let stats = lock(&frs.workflows.dnn_stats);
-        let mut all = *lock(&frs.workflows.removed_dnn_stats);
+        let mut all = stats.removed;
         let data: Vec<Value> = stats
+            .per_stream
             .iter()
             .map(|(id_vstream, s)| {
                 all.fd_count += s.fd_count;
@@ -1486,8 +1494,9 @@ pub async fn flag_deleted_maintenance(frs: &Frs) {
 fn clean_up_workflow_data(frs: &Frs) {
     let id_vstreams: HashSet<i32> = frs.vstreams_config.get().values().map(|config| config.id_vstream).collect();
     prune_unknown_descriptors(&mut lock(&frs.workflows.unknown_descriptors), &id_vstreams, Instant::now());
-    let mut removed = lock(&frs.workflows.removed_dnn_stats);
-    prune_dnn_stats(&mut lock(&frs.workflows.dnn_stats), &mut removed, &id_vstreams);
+    let mut stats = lock(&frs.workflows.dnn_stats);
+    let DnnStatsData { per_stream, removed } = &mut *stats;
+    prune_dnn_stats(per_stream, removed, &id_vstreams);
 }
 
 /// Drops expired unknown descriptors, then empty lists and the lists of removed video streams.
