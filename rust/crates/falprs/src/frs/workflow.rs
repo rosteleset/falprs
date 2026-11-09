@@ -10,6 +10,7 @@ use std::time::{Duration, Instant, SystemTime};
 use anyhow::{Context, Result};
 use bytes::Bytes;
 use chrono::{DateTime, Local, Utc};
+use futures::future::join_all;
 use image::{Rgb, RgbImage};
 use pg_cluster::HostType;
 use serde_json::{Value, json};
@@ -593,6 +594,8 @@ async fn pipeline_body(ctx: &mut Run<'_>, url: &str) -> Result<Flow> {
             detected.len()
         );
     }
+    // Faces that pass the checks before the inferences, with their aligned images
+    let mut candidates = Vec::new();
     for face in &detected {
         if ctx.logs(Level::Trace) {
             log_to!(frs.logger, Level::Trace, "vstream_key = {key};  face probability: {:.3}", face.confidence);
@@ -680,8 +683,21 @@ async fn pipeline_body(ctx: &mut Run<'_>, url: &str) -> Result<Flow> {
         if task.task_type == TaskType::Test {
             write_test_image(&format!("aligned_face_class_{}.jpg", face_data.len()), &aligned_face_class).await;
         }
+        candidates.push((index, aligned_face, aligned_face_class));
+    }
 
-        match pipeline::infer_face_class(&frs.triton, &aligned_face_class, &common, &config, ctx.stream()).await {
+    // The inferences of all faces run at once, each stage for every face that reaches it; their
+    // results are taken in face order, as when the faces were processed one after another
+    let classes = join_all(
+        candidates
+            .iter()
+            .map(|(_, _, aligned_face_class)| pipeline::infer_face_class(&frs.triton, aligned_face_class, &common, &config, ctx.stream())),
+    )
+    .await;
+    let mut normal_faces = Vec::new();
+    for ((index, aligned_face, _), classes) in candidates.into_iter().zip(classes) {
+        let face_rect = face_data[index].face_rect;
+        match classes {
             Ok(classes) => {
                 stats.fc_count += 1;
                 if let Some(&(class_index, score)) = classes.first() {
@@ -715,8 +731,18 @@ async fn pipeline_body(ctx: &mut Run<'_>, url: &str) -> Result<Flow> {
                 face_data[index].ioa = intersection as f64 / face_rect.area() as f64;
             }
         }
+        normal_faces.push((index, aligned_face));
+    }
 
-        let descriptor = match pipeline::extract_face_descriptor(&frs.triton, &aligned_face, &common, &config, ctx.stream()).await {
+    let descriptors = join_all(
+        normal_faces
+            .iter()
+            .map(|(_, aligned_face)| pipeline::extract_face_descriptor(&frs.triton, aligned_face, &common, &config, ctx.stream())),
+    )
+    .await;
+    for ((index, _), descriptor) in normal_faces.into_iter().zip(descriptors) {
+        let face_rect = face_data[index].face_rect;
+        let descriptor = match descriptor {
             Ok(Some(descriptor)) => descriptor,
             Ok(None) => continue,
             Err(e) => {

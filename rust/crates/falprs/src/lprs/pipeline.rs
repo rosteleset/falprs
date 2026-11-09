@@ -214,8 +214,15 @@ pub fn crop_vehicles(image: &RgbImage, vehicles: &[Vehicle]) -> Result<Vec<RgbIm
     tokio::task::block_in_place(|| vehicles.iter().map(|v| roi(image, &v.bbox)).collect())
 }
 
-/// VCNet: marks special vehicles, from their regions (`crops`, in vehicle order).
-pub async fn classify_special(triton: &Triton, crops: &[RgbImage], config: &VStreamConfig, vehicles: &mut [Vehicle], log: StreamLog<'_>) -> Result<()> {
+/// VCNet: whether each vehicle is special, from their regions (`crops`, in vehicle order); `None`
+/// for a vehicle without an inference result.
+pub async fn classify_special(
+    triton: &Triton,
+    crops: &[RgbImage],
+    config: &VStreamConfig,
+    vehicles: &[Vehicle],
+    log: StreamLog<'_>,
+) -> Result<Vec<Option<bool>>> {
     let model = &config.vc_net;
     stream_log!(log, Level::Trace, "before inference VcNet");
     let tensors = tokio::task::block_in_place(|| {
@@ -234,7 +241,8 @@ pub async fn classify_special(triton: &Triton, crops: &[RgbImage], config: &VStr
     let outputs = infer_all(triton, requests, log).await?;
     stream_log!(log, Level::Trace, "after inference VcNet");
     stream_log!(log, Level::Trace, "special confidence threshold: {:.3}", config.special_confidence);
-    for (vindex, (vehicle, scores)) in vehicles.iter_mut().zip(outputs).enumerate() {
+    let mut special = vec![None; vehicles.len()];
+    for (vindex, (vehicle, scores)) in vehicles.iter().zip(outputs).enumerate() {
         let Some(scores) = scores else { continue };
         stream_log!(log, Level::Trace, "vindex = {vindex};  softmax scores: {scores:?}");
         let scores = softmax(&scores);
@@ -249,10 +257,10 @@ pub async fn classify_special(triton: &Triton, crops: &[RgbImage], config: &VStr
             b[3]
         );
         if scores.len() >= 2 {
-            vehicle.is_special = scores[1] > scores[0] && scores[1] > config.special_confidence;
+            special[vindex] = Some(scores[1] > scores[0] && scores[1] > config.special_confidence);
         }
     }
-    Ok(())
+    Ok(special)
 }
 
 /// Work area polygons in frame pixels, truncated to integers like the C++ service.
@@ -268,15 +276,16 @@ fn absolute_work_area(work_area: &[WorkAreaPolygon], width: u32, height: u32) ->
         .collect()
 }
 
-/// LPDNet: plates of every vehicle, filtered by the work area and the minimum plate height.
+/// LPDNet: the plates of every vehicle, in vehicle order, filtered by the work area and the minimum
+/// plate height.
 pub async fn detect_plates(
     triton: &Triton,
     image: &RgbImage,
     crops: &[RgbImage],
     config: &VStreamConfig,
-    vehicles: &mut [Vehicle],
+    vehicles: &[Vehicle],
     log: StreamLog<'_>,
-) -> Result<()> {
+) -> Result<Vec<Vec<LicensePlate>>> {
     let model = &config.lpd_net;
     stream_log!(log, Level::Trace, "before inference LPDNet");
     let inputs = tokio::task::block_in_place(|| {
@@ -297,7 +306,8 @@ pub async fn detect_plates(
     stream_log!(log, Level::Trace, "after inference LPDNet");
 
     let work_area = absolute_work_area(&config.work_area, image.width(), image.height());
-    for (vindex, ((vehicle, input), data)) in vehicles.iter_mut().zip(&inputs).zip(outputs).enumerate() {
+    let mut detected = vec![Vec::new(); vehicles.len()];
+    for (vindex, ((vehicle, input), data)) in vehicles.iter().zip(&inputs).zip(outputs).enumerate() {
         let Some(data) = data else { continue };
         // Rows of 14: left, top, right, bottom, confidence, class, 4 key points clockwise from the top left
         const COLUMNS: usize = 14;
@@ -374,9 +384,9 @@ pub async fn detect_plates(
             });
         }
         stream_log!(log, Level::Trace, "detected plate count (vindex = {vindex}): {}", plates.len());
-        vehicle.plates = plates;
+        detected[vindex] = plates;
     }
-    Ok(())
+    Ok(detected)
 }
 
 /// Key points as the C++ service logs them: `[(x, y) (x, y) (x, y) (x, y)]`.

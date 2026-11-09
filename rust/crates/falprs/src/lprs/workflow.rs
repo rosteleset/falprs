@@ -269,10 +269,32 @@ async fn recognize(lprs: &Lprs, stream: StreamLog<'_>, ext_id: &str, id_vstream:
     };
     stream_log!(stream, Level::Trace, "after doInferenceVdNet");
     let crops = pipeline::crop_vehicles(&frame, &vehicles)?;
-    if config.flag_process_special {
+    // VcNet and LPDNet read the same vehicles and crops and answer for different fields: their
+    // inferences run at once, and a failure of either fails the frame as before
+    let classify = async {
+        if !config.flag_process_special {
+            return Ok(None);
+        }
         stream_log!(stream, Level::Trace, "before doInferenceVcNet");
-        pipeline::classify_special(triton, &crops, config, &mut vehicles, stream).await?;
+        let special = pipeline::classify_special(triton, &crops, config, &vehicles, stream).await?;
         stream_log!(stream, Level::Trace, "after doInferenceVcNet");
+        Ok(Some(special))
+    };
+    let detect = async {
+        stream_log!(stream, Level::Trace, "before doInferenceLpdNet");
+        let plates = pipeline::detect_plates(triton, &frame, &crops, config, &vehicles, stream).await?;
+        stream_log!(stream, Level::Trace, "after doInferenceLpdNet");
+        anyhow::Ok(plates)
+    };
+    let (special, plates) = tokio::try_join!(classify, detect)?;
+    drop(crops);
+    for (vehicle, special) in vehicles.iter_mut().zip(special.into_iter().flatten()) {
+        if let Some(special) = special {
+            vehicle.is_special = special;
+        }
+    }
+    for (vehicle, plates) in vehicles.iter_mut().zip(plates) {
+        vehicle.plates = plates;
     }
     if config.logs(Level::Trace) {
         for (i, vehicle) in vehicles.iter().enumerate() {
@@ -298,10 +320,6 @@ async fn recognize(lprs: &Lprs, stream: StreamLog<'_>, ext_id: &str, id_vstream:
         }
     };
 
-    stream_log!(stream, Level::Trace, "before doInferenceLpdNet");
-    pipeline::detect_plates(triton, &frame, &crops, config, &mut vehicles, stream).await?;
-    drop(crops);
-    stream_log!(stream, Level::Trace, "after doInferenceLpdNet");
     pipeline::remove_duplicate_plates(config, &mut vehicles, frame.width(), frame.height(), stream);
     {
         let mut plates: Vec<&mut LicensePlate> = vehicles
