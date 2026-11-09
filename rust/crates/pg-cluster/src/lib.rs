@@ -16,7 +16,7 @@
 use std::fmt;
 use std::future::Future;
 use std::str::FromStr;
-use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Arc, RwLock, Weak};
 use std::time::Duration;
 
@@ -265,30 +265,44 @@ impl Host {
     }
 
     /// Asks the host whether it is in recovery, i.e. a replica, over the discovery connection,
-    /// within `timeout`; `None` when it does not answer. A failed or timed out connection is closed
-    /// and opened again by the next check.
+    /// within `timeout`, waiting for the connection included; `None` when it does not answer. A
+    /// failed or timed out connection is closed and opened again by the next check.
     async fn in_recovery(&self, timeout: Duration) -> Option<bool> {
-        let mut slot = self.discovery.lock().await;
         let check = async {
-            if slot.as_ref().is_none_or(|connection| connection.client.is_closed()) {
+            let mut slot = self.discovery.lock().await;
+            let in_recovery = Self::check_role(&self.config, &mut slot).await;
+            if in_recovery.is_none() {
                 *slot = None;
-                let (client, connection) = self.config.connect(NoTls).await.ok()?;
-                let task = tokio::spawn(async move {
-                    let _ = connection.await;
-                });
-                *slot = Some(DiscoveryConnection { client, task });
             }
-            let messages = slot.as_ref()?.client.simple_query("SELECT pg_is_in_recovery()").await.ok()?;
-            messages.iter().find_map(|message| match message {
-                tokio_postgres::SimpleQueryMessage::Row(row) => row.get(0).map(|value| value == "t"),
-                _ => None,
-            })
+            in_recovery
         };
-        let in_recovery = tokio::time::timeout(timeout, check).await.ok().flatten();
-        if in_recovery.is_none() {
-            *slot = None;
+        match tokio::time::timeout(timeout, check).await {
+            Ok(in_recovery) => in_recovery,
+            Err(_) => {
+                // A connection left mid-check would answer the next check out of turn; a check
+                // still holding it closes it itself if it fails
+                if let Ok(mut slot) = self.discovery.try_lock() {
+                    *slot = None;
+                }
+                None
+            }
         }
-        in_recovery
+    }
+
+    async fn check_role(config: &Config, slot: &mut Option<DiscoveryConnection>) -> Option<bool> {
+        if slot.as_ref().is_none_or(|connection| connection.client.is_closed()) {
+            *slot = None;
+            let (client, connection) = config.connect(NoTls).await.ok()?;
+            let task = tokio::spawn(async move {
+                let _ = connection.await;
+            });
+            *slot = Some(DiscoveryConnection { client, task });
+        }
+        let messages = slot.as_ref()?.client.simple_query("SELECT pg_is_in_recovery()").await.ok()?;
+        messages.iter().find_map(|message| match message {
+            tokio_postgres::SimpleQueryMessage::Row(row) => row.get(0).map(|value| value == "t"),
+            _ => None,
+        })
     }
 }
 
@@ -296,6 +310,11 @@ struct Inner {
     hosts: Vec<Arc<Host>>,
     next_replica: AtomicUsize,
     rediscover: Notify,
+    /// Tickets of the callers of `discover`, in the order they called it.
+    discovery_tickets: AtomicU64,
+    /// Held while a discovery runs; the first ticket not covered by the last finished discovery,
+    /// i.e. of a caller that came after it started.
+    discovered: tokio::sync::Mutex<u64>,
     discovery_timeout: Duration,
     /// The statement timeout every connection starts its session with.
     session_statement_timeout: Option<Duration>,
@@ -322,9 +341,24 @@ impl Inner {
         }
     }
 
+    /// Checks the roles of all hosts, or waits for a discovery that started after this call: one
+    /// discovery serves every caller that came while another one ran, so concurrent requests
+    /// wait for one discovery of a hung host rather than for one after another.
+    async fn discover(self: &Arc<Self>) {
+        let ticket = self.discovery_tickets.fetch_add(1, Ordering::SeqCst);
+        let mut discovered = self.discovered.lock().await;
+        if ticket < *discovered {
+            return;
+        }
+        // The discovery starts now, so it serves every caller that has come so far
+        let covered = self.discovery_tickets.load(Ordering::SeqCst);
+        self.discover_now().await;
+        *discovered = covered;
+    }
+
     /// Checks the roles of all hosts in parallel; each check is bounded by the discovery timeout,
     /// so a host that does not answer delays neither the others nor the next discovery.
-    async fn discover(self: &Arc<Self>) {
+    async fn discover_now(self: &Arc<Self>) {
         let mut tasks = tokio::task::JoinSet::new();
         for host in &self.hosts {
             let (inner, host) = (self.clone(), host.clone());
@@ -755,6 +789,8 @@ impl Cluster {
             hosts,
             next_replica: AtomicUsize::new(0),
             rediscover: Notify::new(),
+            discovery_tickets: AtomicU64::new(0),
+            discovered: tokio::sync::Mutex::new(0),
             discovery_timeout: settings.discovery_timeout,
             session_statement_timeout: settings.command_control.statement_timeout,
             log: settings.log.clone(),

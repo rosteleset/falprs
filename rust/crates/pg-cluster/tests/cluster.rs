@@ -473,3 +473,30 @@ async fn a_refused_login_reports_the_server_message() {
     let message = error.to_string();
     assert!(message.contains("password authentication failed"), "{message}");
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn requests_share_a_discovery_of_a_hung_host() {
+    let test = TestCluster::start(false);
+    let settings = ClusterSettings {
+        command_control: CommandControl {
+            network_timeout: Duration::from_millis(1000),
+            statement_timeout: None,
+        },
+        ..settings()
+    };
+    let cluster = Cluster::connect(&test.dsn(), settings).await.unwrap();
+    assert!(!in_recovery(&cluster, HostType::Master).await.unwrap());
+
+    test.primary.pause();
+    // The first request times out and marks the master unavailable
+    assert!(matches!(in_recovery(&cluster, HostType::Master).await, Err(Error::NetworkTimeout(_))));
+    // Every further request needs a discovery, each check of the hung host takes the whole
+    // discovery timeout (1 s): concurrent requests wait for one discovery, not in a row
+    let started = Instant::now();
+    let requests = (0..20).map(|_| in_recovery(&cluster, HostType::Master));
+    for result in futures::future::join_all(requests).await {
+        assert!(matches!(result, Err(Error::NoHost(HostType::Master))), "{result:?}");
+    }
+    assert!(started.elapsed() < Duration::from_secs(4), "{:?}", started.elapsed());
+    test.primary.unpause();
+}
