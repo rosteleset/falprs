@@ -535,12 +535,12 @@ fn door_is_open(frs: &Arc<Frs>, id_group: i32, body: &Value) -> Result<(), ApiEr
     Ok(())
 }
 
-/// An integer given as a JSON number or a numeric string, like `convertToInt`.
+/// An integer given as a JSON number or a numeric string, like `convertToInt`; a boolean is not
+/// one, as `absl::SimpleAtoi` rejects "true" and "false".
 fn to_int(value: Option<&Value>) -> Option<i32> {
     match value? {
         Value::Number(number) => number.as_i64().and_then(|v| i32::try_from(v).ok()),
         Value::String(text) => text.trim().parse().ok(),
-        Value::Bool(b) => Some(i32::from(*b)),
         _ => None,
     }
 }
@@ -1606,6 +1606,18 @@ async fn get_barcode_event(frs: &Frs, id_group: i32, body: &Value) -> Result<Val
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn integers_are_numbers_or_numeric_strings() {
+        assert_eq!(to_int(Some(&json!(42))), Some(42));
+        assert_eq!(to_int(Some(&json!(" 42 "))), Some(42));
+        assert_eq!(to_int(Some(&json!(true))), None);
+        assert_eq!(to_int(Some(&json!(false))), None);
+        assert_eq!(to_int(Some(&json!(4.5))), None);
+        assert_eq!(to_int(Some(&json!("x"))), None);
+        assert_eq!(to_int(Some(&Value::Null)), None);
+        assert_eq!(to_int(None), None);
+    }
 
     #[test]
     fn repeated_event_records_match_once() {
