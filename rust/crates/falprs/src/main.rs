@@ -87,6 +87,14 @@ async fn main() -> Result<()> {
     ignore_sigusr1()?;
     let config = Config::load(&config_path)?;
     let loggers = Arc::new(Loggers::new(&config.loggers)?);
+    let result = run(&config, &loggers).await;
+    // The writer threads are not waited for at exit: write what they still have queued
+    tokio::task::block_in_place(|| loggers.flush_all());
+    result
+}
+
+/// Runs the service until it is told to stop or a listener fails, then shuts it down.
+async fn run(config: &Config, loggers: &Arc<Loggers>) -> Result<()> {
     let logger = loggers.default_logger();
     log!(logger, Level::Info, "starting service");
 

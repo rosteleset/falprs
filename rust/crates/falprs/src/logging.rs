@@ -89,6 +89,8 @@ impl fmt::Display for Level {
 enum Command {
     Line(String),
     Reopen(SyncSender<()>),
+    /// Answered once the lines queued before it are written.
+    Flush(SyncSender<()>),
 }
 
 enum Sink {
@@ -121,6 +123,15 @@ impl Sink {
         };
     }
 
+    fn flush(&mut self) {
+        let _ = match self {
+            Sink::File { file, .. } => file.flush(),
+            Sink::Stdout => io::stdout().flush(),
+            Sink::Stderr => io::stderr().flush(),
+            Sink::Null => Ok(()),
+        };
+    }
+
     fn reopen(&mut self) {
         if let Sink::File { path, file } = self
             && let Ok(reopened) = open_append(path)
@@ -143,6 +154,10 @@ fn run_writer(mut sink: Sink, commands: Receiver<Command>) {
             Command::Line(line) => sink.write_line(&line),
             Command::Reopen(done) => {
                 sink.reopen();
+                let _ = done.send(());
+            }
+            Command::Flush(done) => {
+                sink.flush();
                 let _ = done.send(());
             }
         }
@@ -219,8 +234,19 @@ impl Logger {
     }
 
     fn reopen(&self) {
+        self.wait_for(Command::Reopen);
+    }
+
+    /// Blocks until the lines queued so far are written.
+    fn flush(&self) {
+        self.wait_for(Command::Flush);
+    }
+
+    /// Queues a command after the lines logged so far, even if the queue is full, and waits for
+    /// the writer to answer it.
+    fn wait_for(&self, command: fn(SyncSender<()>) -> Command) {
         let (done, wait) = mpsc::sync_channel(1);
-        if self.commands.send(Command::Reopen(done)).is_ok() {
+        if self.commands.send(command(done)).is_ok() {
             let _ = wait.recv();
         }
     }
@@ -316,6 +342,14 @@ impl Loggers {
             logger.reopen();
         }
     }
+
+    /// Blocks until every logger has written the lines queued so far, so that none are lost when
+    /// the process exits.
+    pub fn flush_all(&self) {
+        for logger in self.loggers.values() {
+            logger.flush();
+        }
+    }
 }
 
 /// Logs if the logger's level allows it, like userver's `LOG_*_TO`.
@@ -402,6 +436,26 @@ mod tests {
         let location = futures::executor::block_on(async { in_closure() });
         assert_eq!(location.function(), "location_names_the_function_outside_closures_and_async_blocks");
         assert_eq!(location.file(), "logging.rs");
+    }
+
+    #[test]
+    fn flushing_writes_the_queued_lines() {
+        let path = std::env::temp_dir().join(format!("falprs-flush-log-{}.txt", std::process::id()));
+        let config = LoggerConfig {
+            file_path: path.to_string_lossy().into_owned(),
+            level: "info".to_string(),
+        };
+        let loggers = Loggers::new(&HashMap::from([("default".to_string(), config)])).unwrap();
+        let logger = loggers.default_logger();
+        for i in 0..1000 {
+            crate::log!(logger, Level::Info, "line {i}");
+        }
+        loggers.flush_all();
+
+        let text = std::fs::read_to_string(&path).unwrap();
+        let _ = std::fs::remove_file(&path);
+        assert_eq!(text.lines().count(), 1000);
+        assert!(text.ends_with("text=line 999\n"));
     }
 
     #[test]
