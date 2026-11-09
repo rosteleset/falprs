@@ -730,7 +730,8 @@ async fn pipeline_body(ctx: &mut Run<'_>, url: &str) -> Result<Flow> {
         if ctx.logs(Level::Trace) {
             log_to!(frs.logger, Level::Trace, "vstream_key = {key};  before recognition");
         }
-        let (max_similarity, id_descriptor) = recognize(ctx, &task, &normalized, &mut face_data[index], &mut has_sgroup_events);
+        // A scan of every descriptor of the stream and its special groups: milliseconds for large lists
+        let (max_similarity, id_descriptor) = tokio::task::block_in_place(|| recognize(ctx, &task, &normalized, &mut face_data[index], &mut has_sgroup_events));
         if ctx.logs(Level::Trace) {
             log_to!(frs.logger, Level::Trace, "vstream_key = {key};  after recognition");
         }

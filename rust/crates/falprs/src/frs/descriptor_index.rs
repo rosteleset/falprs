@@ -59,6 +59,13 @@ struct Snapshot {
     lists: HashMap<i32, Arc<DescriptorList>>,
 }
 
+impl Snapshot {
+    /// A held Weak keeps the allocation, so a new snapshot never reuses the old address.
+    fn is_of(&self, links: &Arc<Links>, faces: &Arc<FaceDescriptorData>) -> bool {
+        self.links.as_ptr() == Arc::as_ptr(links) && self.faces.as_ptr() == Arc::as_ptr(faces)
+    }
+}
+
 /// Descriptor lists of either the video streams or the special groups, built on first use.
 #[derive(Default)]
 pub struct DescriptorLists {
@@ -68,21 +75,34 @@ pub struct DescriptorLists {
 impl DescriptorLists {
     /// The list of `id` in `links`. All lists are dropped once `links` or `faces` is a newer
     /// snapshot than the one they were built from, so deleted descriptors and unused ids go away.
+    ///
+    /// A missing list is built without the lock held, so that one stream's rebuild does not hold up
+    /// the frames of the others; it is kept only while the lists are still of its snapshots.
     pub fn get(&self, id: i32, links: &Arc<Links>, faces: &Arc<FaceDescriptorData>) -> Arc<DescriptorList> {
-        let mut snapshot = self.snapshot.lock().unwrap_or_else(|e| e.into_inner());
-        // A held Weak keeps the allocation, so a new snapshot never reuses the old address
-        if snapshot.links.as_ptr() != Arc::as_ptr(links) || snapshot.faces.as_ptr() != Arc::as_ptr(faces) {
-            *snapshot = Snapshot {
-                links: Arc::downgrade(links),
-                faces: Arc::downgrade(faces),
-                lists: HashMap::new(),
-            };
+        {
+            let mut snapshot = self.lock();
+            if !snapshot.is_of(links, faces) {
+                *snapshot = Snapshot {
+                    links: Arc::downgrade(links),
+                    faces: Arc::downgrade(faces),
+                    lists: HashMap::new(),
+                };
+            }
+            if let Some(list) = snapshot.lists.get(&id) {
+                return list.clone();
+            }
         }
-        snapshot
-            .lists
-            .entry(id)
-            .or_insert_with(|| Arc::new(DescriptorList::new(links.get(&id), faces)))
-            .clone()
+        let list = Arc::new(DescriptorList::new(links.get(&id), faces));
+        let mut snapshot = self.lock();
+        if snapshot.is_of(links, faces) {
+            // A list another frame built meanwhile is the same; keep the first
+            return snapshot.lists.entry(id).or_insert(list).clone();
+        }
+        list
+    }
+
+    fn lock(&self) -> std::sync::MutexGuard<'_, Snapshot> {
+        self.snapshot.lock().unwrap_or_else(|e| e.into_inner())
     }
 }
 
