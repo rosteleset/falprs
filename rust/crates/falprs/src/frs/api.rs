@@ -1076,7 +1076,29 @@ async fn delete_special_group(frs: &Frs, id_group: i32, body: &Value) -> Result<
     let mut client = frs.cluster.client(HostType::Master).await.map_err(db_error(frs))?;
     async {
         let transaction = client.transaction().await?;
-        // Rows are only marked as deleted here and removed later by a maintenance task
+        // Rows are only marked as deleted here and removed later by a maintenance task.
+        // Unlike the C++ service, the special group is marked first, restricted to the caller's
+        // stream group: another one's or an unknown special group keeps its faces.
+        let owned = transaction
+            .query_opt(
+                r#"
+                update
+                  special_groups
+                set
+                  last_updated = now(),
+                  flag_deleted = true
+                where
+                  id_group = $1
+                  and id_special_group = $2
+                returning
+                  id_special_group
+                "#,
+                &[&id_group, &id_sgroup],
+            )
+            .await?;
+        if owned.is_none() {
+            return Ok(());
+        }
         transaction
             .execute(
                 "update link_descriptor_sgroup set last_updated = now(), flag_deleted = true where id_sgroup = $1",
@@ -1095,12 +1117,6 @@ async fn delete_special_group(frs: &Frs, id_group: i32, body: &Value) -> Result<
                   id_descriptor in (select ldsg.id_descriptor from link_descriptor_sgroup ldsg where ldsg.id_sgroup = $1)
                 "#,
                 &[&id_sgroup],
-            )
-            .await?;
-        transaction
-            .execute(
-                "update special_groups set last_updated = now(), flag_deleted = true where id_group = $1 and id_special_group = $2",
-                &[&id_group, &id_sgroup],
             )
             .await?;
         transaction.commit().await

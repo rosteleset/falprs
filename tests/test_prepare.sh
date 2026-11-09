@@ -40,6 +40,8 @@ echo "Testing $falprs_bin"
 sudo -u postgres psql < $BASEDIR/prepare_data.sql
 $BASEDIR/../scripts/sql_frs.sh $BASEDIR/.env.tests
 $BASEDIR/../scripts/sql_lprs.sh $BASEDIR/.env.tests
+# A second FRS stream group, for checks that a stream group cannot touch another one's objects
+sudo -u postgres psql -d test_frs -c "insert into vstream_groups(group_name, auth_token) values ('test-group-2', '8a5c1e3e-5f4b-4c4e-9a43-2d6f0c1b7e21') on conflict do nothing"
 mkdir -p /tmp/test_falprs/static
 # The tests read the implementation under test from here: some API methods exist in one implementation only
 echo "$FALPRS_IMPL" > /tmp/test_falprs/falprs.impl

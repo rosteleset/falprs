@@ -1,7 +1,9 @@
+import os
 import pytest
 import requests
 import time
 from datetime import datetime, timedelta
+from pathlib import Path
 
 FALPRS_URL = "http://localhost:9071"
 API_URL = FALPRS_URL + "/frs/api/"
@@ -41,6 +43,20 @@ BARCODES = "barcodes"
 TEXT = "text"
 FORMAT = "format"
 POSITION = "position"
+
+# The token of the second stream group, created by test_prepare.sh
+GROUP2_TOKEN = "8a5c1e3e-5f4b-4c4e-9a43-2d6f0c1b7e21"
+
+
+def falprs_impl():
+    """The implementation under test, as written by test_prepare.sh: rust or cpp."""
+    try:
+        return Path("/tmp/test_falprs/falprs.impl").read_text().strip()
+    except OSError:
+        return os.environ.get("FALPRS_IMPL", "rust")
+
+
+rust_only = pytest.mark.skipif(falprs_impl() != "rust", reason="Rust service only")
 
 order = 0
 face_id1 = 0
@@ -939,6 +955,18 @@ def test_sg_list_faces():
     assert len(data[DATA]) == 1
     assert data[DATA][0][FACE_ID] == face_id1
     assert len(data[DATA][0][FACE_IMAGE]) > 0
+
+# deleteSpecialGroup of another stream group's special group: nothing changes
+# (the C++ service marks the special group's faces deleted)
+@rust_only
+@pytest.mark.order(++order)
+def test_delete_foreign_special_group():
+    url = API_URL + "deleteSpecialGroup"
+    global sg_id
+    headers = {"Authorization": "Bearer " + GROUP2_TOKEN}
+    response = requests.post(url, headers=headers, json={GROUP_ID: sg_id})
+    assert response.status_code == 204
+    test_sg_list_faces()
 
 # sgSearchFaces
 @pytest.mark.order(++order)
