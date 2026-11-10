@@ -94,7 +94,7 @@ impl Lprs {
         Ok(lprs)
     }
 
-    /// Periodic ban list and events log cleanup; an interval of zero disables a task.
+    /// Periodic ban list, events log and removed video streams cleanup; an interval of zero disables a task.
     fn start_maintenance(self: &Arc<Self>) {
         let weak = Arc::downgrade(self);
         let interval = self.settings.ban_maintenance_interval;
@@ -110,11 +110,22 @@ impl Lprs {
         }
         let interval = self.settings.events_log_maintenance_interval;
         if !interval.is_zero() {
+            let weak = weak.clone();
             crate::tasks::spawn(async move {
                 loop {
                     tokio::time::sleep(interval).await;
                     let Some(lprs) = weak.upgrade() else { return };
                     workflow::events_log_maintenance(&lprs).await;
+                }
+            });
+        }
+        let interval = self.settings.flag_deleted_maintenance_interval;
+        if !interval.is_zero() {
+            crate::tasks::spawn(async move {
+                loop {
+                    tokio::time::sleep(interval).await;
+                    let Some(lprs) = weak.upgrade() else { return };
+                    workflow::flag_deleted_maintenance(&lprs).await;
                 }
             });
         }

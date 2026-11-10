@@ -34,6 +34,8 @@ pub struct WorkflowSettings {
     pub screenshots_url_prefix: String,
     pub failed_path: String,
     pub failed_ttl: Duration,
+    pub flag_deleted_maintenance_interval: Duration,
+    pub flag_deleted_ttl: Duration,
 }
 
 fn with_trailing_slash(mut path: String) -> String {
@@ -56,6 +58,8 @@ impl WorkflowSettings {
             screenshots_url_prefix: with_trailing_slash(string("screenshots-url-prefix", "http://localhost:9051/lprs/")),
             failed_path: with_trailing_slash(string("failed-path", "/opt/falprs/static/lprs/failed/")),
             failed_ttl: duration("failed-ttl", hours(60 * 24)),
+            flag_deleted_maintenance_interval: duration("flag-deleted-maintenance-interval", Duration::from_secs(10)),
+            flag_deleted_ttl: duration("flag-deleted-ttl", Duration::from_secs(300)),
         }
     }
 }
@@ -630,5 +634,34 @@ pub async fn events_log_maintenance(lprs: &Lprs) {
         for e in files::remove_old_files(Path::new(directory), &files::IMAGE_EXTENSIONS, before).await {
             log!(lprs.logger, Level::Error, "{e}");
         }
+    }
+}
+
+/// Deletes the video streams removed more than `flag-deleted-ttl` ago, their events with them.
+pub async fn flag_deleted_maintenance(lprs: &Lprs) {
+    log!(lprs.logger, Level::Debug, "Deleting marked records from the database");
+    let before = DateTime::<Utc>::from(SystemTime::now() - lprs.settings.flag_deleted_ttl);
+    if let Err(e) = lprs
+        .cluster
+        .execute(HostType::Master, "delete from vstreams where flag_deleted and last_updated < $1", &[&before])
+        .await
+    {
+        log!(lprs.logger, Level::Error, "{e}");
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn flag_deleted_settings() {
+        let defaults = WorkflowSettings::from_config(&Map::new());
+        assert_eq!(defaults.flag_deleted_maintenance_interval, Duration::from_secs(10));
+        assert_eq!(defaults.flag_deleted_ttl, Duration::from_secs(300));
+        let config = json!({"flag-deleted-maintenance-interval": "30s", "flag-deleted-ttl": "1h"});
+        let settings = WorkflowSettings::from_config(config.as_object().unwrap());
+        assert_eq!(settings.flag_deleted_maintenance_interval, Duration::from_secs(30));
+        assert_eq!(settings.flag_deleted_ttl, Duration::from_secs(3600));
     }
 }

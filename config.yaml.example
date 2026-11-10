@@ -162,7 +162,9 @@ components_manager:
                 screenshots-url-prefix: 'http://localhost:9051/lprs/'        # Web URL prefix for event screenshots. Replace localhost with IP address if you need access to screenshots from outside
                 failed-path: '/opt/falprs/static/lprs/failed/'               # Local path for saving unrecognized license plates screenshots
                 failed-ttl: 60d                                              # Time to live for the unrecognized license plates screenshots (default - 60 days)
-                # Rust implementation only, the C++ one rejects it:
+                # Rust implementation only, the C++ one rejects them:
+                # flag-deleted-maintenance-interval: 10s                     # Maintenance period for removed video streams (default - 10 seconds; 0 - disabled)
+                # flag-deleted-ttl: 5m                                       # TTL of removed video streams; their events are deleted with them (default - 5 minutes)
                 # pipelines-per-cpu: 16                                      # Recognition pipelines running at once per CPU (default - 16). Video streams beyond them wait their turn in the order they became ready
                                                                              # If under overload the TRACE log shows "waited for a pipeline slot" near zero, lower it so that streams wait their turn
 

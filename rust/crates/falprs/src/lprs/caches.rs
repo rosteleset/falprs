@@ -47,6 +47,8 @@ const SQL_VSTREAMS_CONFIG: &str = r#"
       vstreams vs
       left join default_vstream_config d
         on d.id_group = vs.id_group
+    where
+      not vs.flag_deleted
 
     union all
 
@@ -82,6 +84,8 @@ pub async fn load_vstreams_config(cluster: Cluster, host_type: HostType) -> Resu
 pub type VStreamGroupData = HashMap<i32, i32>;
 
 pub async fn load_vstream_group(cluster: Cluster, host_type: HostType) -> Result<VStreamGroupData> {
-    let rows = cluster.query(host_type, "select id_vstream, id_group from vstreams", &[]).await?;
+    let rows = cluster
+        .query(host_type, "select id_vstream, id_group from vstreams where not flag_deleted", &[])
+        .await?;
     Ok(rows.iter().filter_map(|row| Some((row.get(0), row.get::<_, Option<i32>>(1)?))).collect())
 }

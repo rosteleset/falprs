@@ -132,8 +132,12 @@ async fn add_stream(lprs: &Lprs, id_group: i32, body: &Value) -> ApiResult {
             }
             Some(row) => {
                 let id_vstream: i32 = row.get(0);
+                // A stream removed but not yet deleted is revived with its id, as in FRS
                 transaction
-                    .execute("update vstreams set config = $1 where id_vstream = $2", &[&config, &id_vstream])
+                    .execute(
+                        "update vstreams set config = $1, flag_deleted = false, last_updated = now() where id_vstream = $2",
+                        &[&config, &id_vstream],
+                    )
                     .await?
             }
         };
@@ -149,7 +153,9 @@ async fn remove_stream(lprs: &Lprs, id_group: i32, body: &Value) -> ApiResult {
     lprs.cluster
         .execute(
             HostType::Master,
-            "delete from vstreams where id_group = $1 and ext_id = $2",
+            // Only marked: a recognition pipeline still running for the stream can record its event, and the
+            // row is deleted with its events after flag-deleted-ttl
+            "update vstreams set flag_deleted = true, last_updated = now() where id_group = $1 and ext_id = $2 and not flag_deleted",
             &[&id_group, &ext_id],
         )
         .await
@@ -162,7 +168,7 @@ async fn list_streams(lprs: &Lprs, id_group: i32) -> ApiResult {
         .cluster
         .query(
             HostType::Master,
-            "select ext_id, config from vstreams where id_group = $1 order by ext_id",
+            "select ext_id, config from vstreams where id_group = $1 and not flag_deleted order by ext_id",
             &[&id_group],
         )
         .await
