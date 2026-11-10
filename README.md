@@ -33,6 +33,8 @@ This project is a replacement for the [old one](https://github.com/rosteleset/fr
    * [LPRS](#lprs_tests)
    * [FRS](#frs_tests)
    * [Service Endpoints](#service_tests)
+   * [Rust Unit Tests](#rust_unit_tests)
+   * [Stress Tests](#stress_tests)
 * [Data Synchronization with the Deprecated FRS Project](#frs_sync_data)
 * [Examples of CPU and GPU Load Charts](#cpu_gpu_load)
 
@@ -447,6 +449,27 @@ After finishing the tests, delete the directories and test databases:
 ```bash
 ./test_clean.sh
 ```
+
+<a id="rust_unit_tests"></a>
+### Rust Unit Tests
+The Rust implementation also has unit tests. They need neither the test databases nor Triton Inference Server:
+```bash
+cd ~/falprs/rust
+cargo test
+```
+
+<a id="stress_tests"></a>
+### Stress Tests
+The *tests/stress* directory holds the stress tests of FRS and LPRS: a throughput and load comparison over *pipelines-per-cpu* values (**sweep**) and a long run of both subsystems that fails on memory, file descriptor or thread leaks, screenshot directories that keep growing and errors in the logs (**soak**). The runner prepares the test databases and starts the service itself, so do not run it together with the tests above. It runs the implementation set by the **FALPRS_IMPL** and **FALPRS_BIN** variables, like the other tests. Install dependencies:
+```bash
+sudo apt-get install -y python3-aiohttp python3-yaml
+```
+Examples:
+```bash
+python3 ~/falprs/tests/stress/stress.py sweep
+python3 ~/falprs/tests/stress/stress.py soak
+```
+The modes, arguments, results and failure criteria are described in [tests/stress/README.md](./tests/stress/README.md).
 
 <a id="frs_sync_data"></a>
 ### Data Synchronization with the Deprecated FRS Project

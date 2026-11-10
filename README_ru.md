@@ -33,6 +33,8 @@
    * [LPRS](#lprs_tests)
    * [FRS](#frs_tests)
    * [Служебные эндпоинты](#service_tests)
+   * [Модульные тесты Rust](#rust_unit_tests)
+   * [Стресс-тесты](#stress_tests)
 * [Синхронизация данных со старым проектом FRS](#frs_sync_data)
 * [Примеры графиков нагрузки на CPU и GPU](#cpu_gpu_load)
 
@@ -447,6 +449,27 @@ pytest -v -s test_service_endpoints.py
 ```bash
 ./test_clean.sh
 ```
+
+<a id="rust_unit_tests"></a>
+### Модульные тесты Rust
+У реализации на Rust есть также модульные тесты. Им не нужны ни тестовые базы данных, ни Triton Inference Server:
+```bash
+cd ~/falprs/rust
+cargo test
+```
+
+<a id="stress_tests"></a>
+### Стресс-тесты
+В директории *tests/stress* находятся стресс-тесты FRS и LPRS: сравнение пропускной способности и нагрузки при разных значениях *pipelines-per-cpu* (**sweep**) и длительный прогон обеих подсистем, который завершается с ошибкой при утечках памяти, файловых дескрипторов или потоков, неограниченном росте директорий со скриншотами и ошибках в логах (**soak**). Запускающий скрипт сам готовит тестовые базы данных и запускает сервис, поэтому не запускайте его одновременно с тестами выше. Он запускает реализацию, заданную переменными **FALPRS_IMPL** и **FALPRS_BIN**, как и остальные тесты. Устанавливаем зависимости:
+```bash
+sudo apt-get install -y python3-aiohttp python3-yaml
+```
+Примеры:
+```bash
+python3 ~/falprs/tests/stress/stress.py sweep
+python3 ~/falprs/tests/stress/stress.py soak
+```
+Режимы, аргументы, результаты и критерии ошибки описаны в [tests/stress/README.md](./tests/stress/README.md) (на английском языке).
 
 <a id="frs_sync_data"></a>
 ### Синхронизация данных со старым проектом FRS

@@ -2,3 +2,5 @@ requests
 pytest
 pytest-order
 pillow
+aiohttp
+pyyaml
