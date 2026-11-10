@@ -165,6 +165,12 @@ In the sweep table each row is one point, with means over the measurement window
 `pipelines-per-cpu × CPUs` of the swept subsystem. Emulator CPU is a share of one CPU: the emulator runs on one
 thread, so near 100 % it is the bottleneck, not the service.
 
+`Stream limit` is the most frames/s the streams can ask for. A stream asks for its next frame
+`delay-between-frames` (1 s by default) after the end of the previous frame's pipeline, and the camera latency
+adds to that, so the limit is `--streams / (1 s + camera latency)`. The pipeline time lowers the real limit
+further. A point at 80 % of the limit or more is marked `stream-bound`: the streams set its frames/s, not the
+service, so rerun it with more `--streams`. For example, 400 streams at 250 ms ask for at most 320 frames/s.
+
 ## Exit codes and failure criteria
 
 | Code | Meaning |

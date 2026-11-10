@@ -52,4 +52,15 @@ def test_sweep_point_means():
     means = stress.sweep_point_means(rows, "frs")
     assert means["frames_per_s"] == 15 and means["events_per_s"] == 5 and means["gpu_util_pct"] is None
     table = stress.sweep_table([{"subsystem": "frs", "pipelines_per_cpu": 8, "status": "ok", "means": means}], 4)
-    assert table[-1].startswith("| FRS | 8 | 32 | 15.0 | 5.0 | 60.0 | 70.0 | - | 150 | 3.0 | ok |")
+    assert table[-1].startswith("| FRS | 8 | 32 | 15.0 | - | 5.0 | 60.0 | 70.0 | - | 150 | 3.0 | ok |")
+
+
+def test_stream_limit_marks_stream_bound_points():
+    # 400 streams at a 250 ms camera latency ask for at most 400 / 1.25 = 320 frames/s
+    limit = stress.stream_limit(400, 0.25)
+    assert limit == 320
+    points = [{"subsystem": "frs", "pipelines_per_cpu": ppc, "status": "ok", "means": {"frames_per_s": frames}}
+              for ppc, frames in ((8, 83.4), (32, 290.7))]
+    table = stress.sweep_table(points, 4, limit)
+    assert table[-2].startswith("| FRS | 8 | 32 | 83.4 | 320.0 |") and table[-2].endswith("| ok |")
+    assert table[-1].endswith("| ok (stream-bound: 91% of the limit) |")

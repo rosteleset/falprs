@@ -384,6 +384,12 @@ async def guarded(monitor, coroutine):
 
 # --- sweep ---
 
+# The services' default delay-between-frames, which the runner does not change: a stream asks for its next
+# frame this long after the end of the previous frame's pipeline
+DELAY_BETWEEN_FRAMES_S = 1.0
+# Frames/s at this share of the stream limit or more mean that the streams, not the service, set the rate
+STREAM_BOUND_SHARE = 0.8
+
 SWEEP_COLUMNS = ["frames_per_s", "events_per_s", "service_cpu_pct", "system_cpu_pct", "gpu_util_pct",
                  "service_rss_mb", "emulator_cpu_pct"]
 
@@ -402,24 +408,35 @@ def sweep_point_means(rows, subsystem):
     }
 
 
-def sweep_table(points, cpus):
+def stream_limit(streams, camera_latency):
+    """The most frames/s the streams can ask for: each stream asks for a frame once per delay-between-frames plus
+    the camera latency. The pipeline time and the slot wait lengthen the period further, so the real limit is
+    lower."""
+    return streams / (DELAY_BETWEEN_FRAMES_S + camera_latency)
+
+
+def sweep_table(points, cpus, limit=None):
     def f(value, digits=1):
         return "-" if value is None else f"{value:.{digits}f}"
 
     lines = [
-        "| Subsystem | pipelines-per-cpu | Slots | Frames/s | Events/s | Service CPU % | System CPU % | GPU % "
-        "| RSS MB | Emulator CPU % | Status |",
-        "|---|---|---|---|---|---|---|---|---|---|---|",
+        "| Subsystem | pipelines-per-cpu | Slots | Frames/s | Stream limit | Events/s | Service CPU % "
+        "| System CPU % | GPU % | RSS MB | Emulator CPU % | Status |",
+        "|---|---|---|---|---|---|---|---|---|---|---|---|",
     ]
     for p in points:
         m = p.get("means") or {}
         ppc = p["pipelines_per_cpu"]
         slots = "-" if ppc is None else str(ppc * cpus)
+        frames = m.get("frames_per_s")
+        status = p["status"]
+        if limit and frames is not None and frames >= STREAM_BOUND_SHARE * limit:
+            status += f" (stream-bound: {frames / limit:.0%} of the limit)"
         lines.append(
             f"| {p['subsystem'].upper()} | {ppc if ppc is not None else 'default'} | {slots} "
-            f"| {f(m.get('frames_per_s'))} | {f(m.get('events_per_s'))} | {f(m.get('service_cpu_pct'))} "
+            f"| {f(frames)} | {f(limit)} | {f(m.get('events_per_s'))} | {f(m.get('service_cpu_pct'))} "
             f"| {f(m.get('system_cpu_pct'))} | {f(m.get('gpu_util_pct'))} | {f(m.get('service_rss_mb'), 0)} "
-            f"| {f(m.get('emulator_cpu_pct'))} | {p['status']} |")
+            f"| {f(m.get('emulator_cpu_pct'))} | {status} |")
     return lines
 
 
@@ -471,6 +488,8 @@ async def sweep(run):
     finally:
         await run.close()
 
+    latency = (run.emulator_settings or {}).get("latency")
+    limit = None if latency is None else stream_limit(args.streams, latency)
     lines = run.header("Stress sweep")
     lines += [
         f"- Streams per subsystem: {args.streams}, added at {args.add_rate}/s",
@@ -480,13 +499,18 @@ async def sweep(run):
         "Window means over the measurement. FRS events are `log_faces` rows; LPRS events are callbacks. "
         "Service CPU is a share of all CPUs, emulator CPU a share of one CPU.",
         "",
-        *sweep_table(points, run.cpus),
+        f"Stream limit: the most frames/s the {args.streams} streams can ask for, streams / "
+        f"(delay-between-frames {DELAY_BETWEEN_FRAMES_S:g} s + camera latency); the pipeline time lowers it further. "
+        f"A point at {STREAM_BOUND_SHARE:.0%} of it or more is bound by the streams, not by the service: "
+        "rerun it with more `--streams`.",
+        "",
+        *sweep_table(points, run.cpus, limit),
         "",
         f"Result: **{'FAILED: ' + str(failure) if failure else 'completed'}**",
         "",
     ]
     (run.dir / "summary.md").write_text("\n".join(lines))
-    print("\n".join(sweep_table(points, run.cpus)))
+    print("\n".join(sweep_table(points, run.cpus, limit)))
     print(f"Results: {run.dir}")
     run.print_fairness_hint()
     return 1 if failure else 0
