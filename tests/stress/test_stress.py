@@ -17,7 +17,7 @@ def test_share_arg():
 def test_defaults():
     sweep = stress.parse_args(["sweep"])
     assert sweep.subsystems == ["frs", "lprs"] and sweep.streams == 400
-    assert sweep.warmup == 120 and sweep.measure == 300 and sweep.pipelines_per_cpu_values is None
+    assert sweep.warmup == 60 and sweep.measure == 120 and sweep.pipelines_per_cpu_values is None
     soak = stress.parse_args(["soak"])
     assert soak.duration == 4 * 3600 and soak.streams == 200 and soak.warmup == 900
     assert soak.churn_interval == 300 and soak.churn_share == 0.1 and soak.max_rss_growth == 20

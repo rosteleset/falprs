@@ -32,7 +32,7 @@ Do not run the stress tests together with the functional tests: both use the sam
 ## Examples
 
 ```bash
-# Sweep: FRS then LPRS, 400 streams each, pipelines-per-cpu 4,8,16,32,64, 2 min warm-up + 5 min measurement per point
+# Sweep: FRS then LPRS, 400 streams each, pipelines-per-cpu 4,8,16,32,64, 1 min warm-up + 2 min measurement per point
 python3 tests/stress/stress.py sweep
 
 # A shorter sweep of LPRS only
@@ -97,8 +97,8 @@ Common to `sweep` and `soak`:
 | `--subsystems` | `frs,lprs` | Subsystems swept, one after another |
 | `--streams` | `400` | Streams per subsystem; meant to overload the service |
 | `--pipelines-per-cpu-values` | `4,8,16,32,64` | Points; an error under `FALPRS_IMPL=cpp` |
-| `--warmup` | `2m` | Warm-up after the last stream is started |
-| `--measure` | `5m` | Measurement window |
+| `--warmup` | `1m` | Warm-up after the last stream is started |
+| `--measure` | `2m` | Measurement window; the default covers two runs of the template's 1 min cleanups |
 
 `soak`:
 

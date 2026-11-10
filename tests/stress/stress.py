@@ -120,10 +120,10 @@ def parse_args(argv):
     sweep.add_argument("--pipelines-per-cpu-values", type=int_list, default=None, metavar="LIST",
                        help="values swept (default 4,8,16,32,64; the C++ service has no such setting: "
                             "under FALPRS_IMPL=cpp one point per subsystem is run without it)")
-    sweep.add_argument("--warmup", type=duration_arg, default=120.0, metavar="DURATION",
-                       help="warm-up after the last stream is started (default 2m)")
-    sweep.add_argument("--measure", type=duration_arg, default=300.0, metavar="DURATION",
-                       help="measurement window (default 5m)")
+    sweep.add_argument("--warmup", type=duration_arg, default=60.0, metavar="DURATION",
+                       help="warm-up after the last stream is started (default 1m)")
+    sweep.add_argument("--measure", type=duration_arg, default=120.0, metavar="DURATION",
+                       help="measurement window (default 2m)")
     add_run_args(sweep)
 
     soak = modes.add_parser("soak", help="long run of both subsystems with churn, pass/fail on leaks and errors")
