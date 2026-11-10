@@ -59,21 +59,20 @@ pub async fn with_files_with_extensions<T: Send + 'static>(
 
 /// Removes the files under `dir` with one of `extensions` last modified before `before`, and
 /// returns the errors of the removals that failed. Runs on the blocking pool like
-/// [`with_files_with_extensions`].
+/// [`with_files_with_extensions`], but removes each file as the walk finds it: a list of all the
+/// files of a screenshots directory would take tens of MB at every cleanup, which the allocator of
+/// the blocking thread keeps afterwards.
 pub async fn remove_old_files(dir: &Path, extensions: &[&str], before: SystemTime) -> Vec<io::Error> {
     let (dir, extensions) = (dir.to_path_buf(), owned(extensions));
     run_blocking(move |cancelled| {
         let mut errors = Vec::new();
-        for (path, metadata) in walk(&dir, &extensions, cancelled) {
-            if cancelled.load(Ordering::Relaxed) {
-                break;
-            }
+        visit(&dir, &extensions, cancelled, |path, metadata| {
             if metadata.modified().is_ok_and(|modified| modified < before)
                 && let Err(e) = std::fs::remove_file(&path)
             {
                 errors.push(e);
             }
-        }
+        });
         errors
     })
     .await
@@ -86,6 +85,13 @@ fn owned(extensions: &[&str]) -> Vec<String> {
 /// The walk of [`with_files_with_extensions`], with `std::fs`; it ends early once `cancelled` is set.
 fn walk(dir: &Path, extensions: &[String], cancelled: &AtomicBool) -> Vec<(PathBuf, Metadata)> {
     let mut files = Vec::new();
+    visit(dir, extensions, cancelled, |path, metadata| files.push((path, metadata)));
+    files
+}
+
+/// Hands each file of [`walk`] to `on_file` as it is found, without collecting them; it ends early
+/// once `cancelled` is set.
+fn visit(dir: &Path, extensions: &[String], cancelled: &AtomicBool, mut on_file: impl FnMut(PathBuf, Metadata)) {
     let mut pending = vec![dir.to_path_buf()];
     while let Some(dir) = pending.pop() {
         if cancelled.load(Ordering::Relaxed) {
@@ -99,11 +105,10 @@ fn walk(dir: &Path, extensions: &[String], cancelled: &AtomicBool) -> Vec<(PathB
                 pending.push(path);
             } else if file_type.is_file() && path.extension().and_then(|e| e.to_str()).is_some_and(|e| extensions.iter().any(|x| x == e)) {
                 let Ok(metadata) = entry.metadata() else { continue };
-                files.push((path, metadata));
+                on_file(path, metadata);
             }
         }
     }
-    files
 }
 
 /// Sets its flag when dropped.
