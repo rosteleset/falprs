@@ -17,8 +17,9 @@ use serde_json::{Value, json};
 
 use super::Frs;
 use super::caches::{descriptor_to_bytes, normalize};
-use super::config::{CommonConfig, LocalConfig, VStreamConfig};
+use super::config::{CommonConfig, VStreamConfig};
 use super::pipeline::{self, Rect, cosine_similarity, crop, enlarge_face_rect};
+use crate::config::FrsSettings;
 use crate::converters::format_time;
 use crate::fetch::{FetchError, decode_base64, fetch_image};
 use crate::imaging;
@@ -1652,7 +1653,7 @@ const COPY_SOURCE_GRACE: chrono::TimeDelta = chrono::TimeDelta::minutes(5);
 /// Copies a face log's event JSON, with the external event uuid added, to the events directory and
 /// appends its descriptors to the stream group's file of the event's local date. An `Err` is a
 /// transient failure (reading or writing files) to retry.
-async fn copy_event_files(local: &LocalConfig, job: &CopyJob, now: DateTime<Utc>) -> Result<CopyOutcome> {
+async fn copy_event_files(local: &FrsSettings, job: &CopyJob, now: DateTime<Utc>) -> Result<CopyOutcome> {
     let Some(id_group) = job.id_group else {
         return Ok(CopyOutcome::Failed("video stream without a stream group".to_string()));
     };
@@ -1725,10 +1726,9 @@ mod tests {
     async fn event_copies_end_done_failed_or_later() {
         let root = std::env::temp_dir().join(format!("falprs_copy_events_{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&root);
-        let mut map = serde_json::Map::new();
-        map.insert("screenshots-path".into(), json!(root.join("screenshots").to_str().unwrap()));
-        map.insert("events-path".into(), json!(root.join("events").to_str().unwrap()));
-        let local = LocalConfig::from_config(&map);
+        let mut local = FrsSettings::default();
+        local.screenshots_path = format!("{}/", root.join("screenshots").display());
+        local.events_path = format!("{}/", root.join("events").display());
         let now = Utc::now();
         let job = |uuid: &str, age_minutes: i64| CopyJob {
             id_group: Some(1),

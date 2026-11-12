@@ -40,7 +40,7 @@ RECEIVER_HOST = "localhost"
 RECEIVER_PORT = 9074
 RECEIVER_URL = f"http://{RECEIVER_HOST}:{RECEIVER_PORT}"
 
-# Must cover update-interval of the FRS video stream, face and special group caches in test_config.yaml
+# Must cover update-interval of the FRS video stream, face and special group caches in test_config.toml (and .yaml)
 CACHE_UPDATE_INTERVAL = 5
 
 IMAGES_DIR = Path(__file__).parent / "images"

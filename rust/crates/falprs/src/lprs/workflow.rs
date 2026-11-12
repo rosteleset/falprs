@@ -24,46 +24,6 @@ use crate::stream_log;
 use crate::{callback, converters, files};
 use crate::{log, log_to};
 
-/// Workflow settings from the `config` section of the `lprs-workflow` component.
-#[derive(Debug, Clone)]
-pub struct WorkflowSettings {
-    pub ban_maintenance_interval: Duration,
-    pub events_log_maintenance_interval: Duration,
-    pub events_log_ttl: Duration,
-    pub screenshots_path: String,
-    pub screenshots_url_prefix: String,
-    pub failed_path: String,
-    pub failed_ttl: Duration,
-    pub flag_deleted_maintenance_interval: Duration,
-    pub flag_deleted_ttl: Duration,
-}
-
-fn with_trailing_slash(mut path: String) -> String {
-    if !path.is_empty() && !path.ends_with('/') {
-        path.push('/');
-    }
-    path
-}
-
-impl WorkflowSettings {
-    pub fn from_config(config: &Map<String, Value>) -> Self {
-        let duration = |key: &str, default: Duration| converters::to_duration(config.get(key), default);
-        let string = |key: &str, default: &str| converters::to_string(config.get(key), default);
-        let hours = |h: u64| Duration::from_secs(h * 3600);
-        Self {
-            ban_maintenance_interval: duration("ban-maintenance-interval", Duration::from_secs(5)),
-            events_log_maintenance_interval: duration("events-log-maintenance-interval", hours(2)),
-            events_log_ttl: duration("events-log-ttl", hours(4)),
-            screenshots_path: with_trailing_slash(string("screenshots-path", "/opt/falprs/static/lprs/")),
-            screenshots_url_prefix: with_trailing_slash(string("screenshots-url-prefix", "http://localhost:9051/lprs/")),
-            failed_path: with_trailing_slash(string("failed-path", "/opt/falprs/static/lprs/failed/")),
-            failed_ttl: duration("failed-ttl", hours(60 * 24)),
-            flag_deleted_maintenance_interval: duration("flag-deleted-maintenance-interval", Duration::from_secs(10)),
-            flag_deleted_ttl: duration("flag-deleted-ttl", Duration::from_secs(300)),
-        }
-    }
-}
-
 /// A plate ban: until `full_until` the plate is ignored anywhere; until `area_until` it is ignored
 /// while it stays at `bbox`.
 struct PlateBan {
@@ -647,21 +607,5 @@ pub async fn flag_deleted_maintenance(lprs: &Lprs) {
         .await
     {
         log!(lprs.logger, Level::Error, "{e}");
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn flag_deleted_settings() {
-        let defaults = WorkflowSettings::from_config(&Map::new());
-        assert_eq!(defaults.flag_deleted_maintenance_interval, Duration::from_secs(10));
-        assert_eq!(defaults.flag_deleted_ttl, Duration::from_secs(300));
-        let config = json!({"flag-deleted-maintenance-interval": "30s", "flag-deleted-ttl": "1h"});
-        let settings = WorkflowSettings::from_config(config.as_object().unwrap());
-        assert_eq!(settings.flag_deleted_maintenance_interval, Duration::from_secs(30));
-        assert_eq!(settings.flag_deleted_ttl, Duration::from_secs(3600));
     }
 }

@@ -22,9 +22,9 @@ use serde_json::{Map, Value, json};
 
 use super::Frs;
 use super::caches::{SGConfigData, descriptor_from_bytes, vstream_key};
-use super::config::LocalConfig;
 use super::events::{DESCRIPTOR_SIZE, EventRecord};
 use super::workflow::{self, TaskData, TaskType};
+use crate::config::FrsSettings;
 use crate::converters;
 use crate::files;
 use crate::http_api::{ApiError, ApiResult, clipped_json, data_response, no_content, require_member};
@@ -33,12 +33,8 @@ use crate::logging::Level;
 use falprs::similarity;
 
 pub fn router(frs: Arc<Frs>) -> Router {
-    let route = if frs.api_allows_get {
-        post(handle_post).get(handle_get)
-    } else {
-        post(handle_post)
-    };
-    Router::new().route("/frs/api/{method}", route).with_state(frs)
+    // Only motionDetection answers GET requests too
+    Router::new().route("/frs/api/{method}", post(handle_post).get(handle_get)).with_state(frs)
 }
 
 const UNKNOWN_METHOD: &str = "Unknown API method";
@@ -73,7 +69,7 @@ async fn handle_get(
     }
     let arg = |name: &str| args.get(name).cloned().unwrap_or_default();
     let token = arg("token");
-    let mut id_group = frs.local.allow_group_id_without_auth;
+    let mut id_group = frs.local.no_auth_group_id;
     if token.is_empty() && id_group <= 0 {
         return ApiError::unauthorized().into_response();
     }
@@ -166,7 +162,7 @@ async fn handle_sg_method(frs: &Arc<Frs>, method: &str, auth: &str, body: &Value
 }
 
 async fn handle_method(frs: &Arc<Frs>, method: &str, auth: &str, body: &Value) -> ApiResult {
-    let mut id_group = frs.local.allow_group_id_without_auth;
+    let mut id_group = frs.local.no_auth_group_id;
     if auth.is_empty() && id_group <= 0 {
         return Err(ApiError::unauthorized());
     }
@@ -1420,7 +1416,7 @@ async fn sg_search_faces(frs: &Arc<Frs>, id_sgroup: i32, body: &Value) -> Result
 
 /// Searches the copied events and then the face logs of a stream group for the descriptors.
 async fn search_files(
-    local: &LocalConfig,
+    local: &FrsSettings,
     id_group: i32,
     descriptors: &HashMap<i32, Vec<f32>>,
     threshold: f32,

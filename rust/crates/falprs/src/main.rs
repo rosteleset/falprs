@@ -21,6 +21,7 @@ use std::sync::Arc;
 
 use anyhow::{Context, Result};
 use axum::Router;
+use axum::extract::DefaultBodyLimit;
 use clap::Parser;
 use tokio::net::TcpListener;
 use tokio::signal::unix::{SignalKind, signal};
@@ -38,7 +39,7 @@ struct Args {
     /// update script compares it
     #[arg(short, long)]
     version: bool,
-    /// Path to the service config (the userver config.yaml)
+    /// Path to the service config (config.toml)
     #[arg(short, long, required_unless_present = "version")]
     config: Option<PathBuf>,
 }
@@ -98,26 +99,24 @@ async fn run(config: &Config, loggers: &Arc<Loggers>) -> Result<()> {
     let logger = loggers.default_logger();
     log!(logger, Level::Info, "starting service");
 
-    let mut main_router = service::main_router(config.static_dir.clone());
+    let mut main_router = service::main_router(Some(config.static_dir.clone()));
     let mut frs_subsystem = None;
     if let Some(lprs_config) = &config.lprs {
         let lprs_logger = loggers.get("lprs").unwrap_or_else(|| logger.clone());
         let lprs = lprs::Lprs::start(lprs_config, lprs_logger, logger.clone()).await?;
-        main_router = main_router.merge(lprs.router());
+        main_router = main_router.merge(lprs.router().layer(DefaultBodyLimit::max(config.max_request_size)));
     }
     if let Some(frs_config) = &config.frs {
         let frs_logger = loggers.get("frs").unwrap_or_else(|| logger.clone());
         let frs = frs::Frs::start(frs_config, frs_logger, logger.clone()).await?;
-        main_router = main_router.merge(frs.router());
+        main_router = main_router.merge(frs.router().layer(DefaultBodyLimit::max(config.max_request_size)));
         frs_subsystem = Some(frs);
     }
 
     let (stop, shutdown) = watch::channel(false);
     let mut servers = tokio::task::JoinSet::new();
     servers.spawn(serve(config.port, main_router, shutdown.clone()));
-    if let Some(port) = config.monitor_port {
-        servers.spawn(serve(port, service::monitor_router(loggers.clone()), shutdown));
-    }
+    servers.spawn(serve(config.monitor_port, service::monitor_router(loggers.clone()), shutdown));
 
     let stopped = tokio::select! {
         result = wait_for_termination() => result,

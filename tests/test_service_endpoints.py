@@ -8,7 +8,7 @@ MONITOR_URL = "http://localhost:9072"
 LOG_LEVEL_URL = MONITOR_URL + "/service/log-level/"
 LOG_ROTATE_URL = MONITOR_URL + "/service/on-log-rotate/"
 
-# Must match the loggers section of test_config.yaml
+# Must match the logging sections of test_config.toml (and .yaml)
 LOGS_DIR = Path("/tmp/test_falprs/logs")
 LOG_FILES = ["log.txt", "lprs-log.txt", "frs-log.txt"]
 INIT_LEVELS = {None: "error", "lprs": "debug", "frs": "debug"}

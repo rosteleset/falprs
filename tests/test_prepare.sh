@@ -54,6 +54,12 @@ cp --update=none $BASEDIR/images/* /tmp/test_falprs/static/
 
 # The service writes test images to its current directory
 cd "$(dirname "$falprs_bin")"
-cp --update=none $BASEDIR/test_config.yaml /tmp/test_falprs
-sed -i 's/:5432/:'"$pg_port"'/' /tmp/test_falprs/test_config.yaml
-"$falprs_bin" -c /tmp/test_falprs/test_config.yaml & echo $! > /tmp/test_falprs/falprs.pid
+# The C++ reference reads the userver-shaped YAML config, the Rust service its TOML one
+if [ "$FALPRS_IMPL" = cpp ]; then
+    test_config=test_config.yaml
+else
+    test_config=test_config.toml
+fi
+cp --update=none $BASEDIR/$test_config /tmp/test_falprs
+sed -i 's/:5432/:'"$pg_port"'/' /tmp/test_falprs/$test_config
+"$falprs_bin" -c /tmp/test_falprs/$test_config & echo $! > /tmp/test_falprs/falprs.pid

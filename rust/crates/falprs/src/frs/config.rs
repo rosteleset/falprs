@@ -1,65 +1,12 @@
-//! FRS configs: the service-wide local config from `config.yaml`, a stream group's common config
-//! and a video stream's config, read leniently from their JSON forms with the C++ service's defaults.
+//! FRS configs: a stream group's common config and a video stream's config, read leniently from
+//! their JSON forms with the C++ service's defaults.
 
 use std::time::Duration;
 
-use serde_json::{Map, Value};
+use serde_json::Value;
 
 use crate::converters::{to_bool, to_duration, to_f32, to_i64, to_string};
 use crate::logging::Level;
-
-/// Settings of the `frs-workflow` component.
-#[derive(Debug, Clone)]
-pub struct LocalConfig {
-    pub allow_group_id_without_auth: i32,
-    pub events_path: String,
-    pub screenshots_path: String,
-    pub screenshots_url_prefix: String,
-    pub clear_old_log_faces: Duration,
-    pub flag_deleted_maintenance_interval: Duration,
-    pub flag_deleted_ttl: Duration,
-    pub copy_events_maintenance_interval: Duration,
-    pub clear_old_events: Duration,
-    pub log_faces_ttl: Duration,
-    pub events_ttl: Duration,
-    pub barcodes_path: String,
-    pub barcodes_url_prefix: String,
-    pub clear_old_log_barcodes: Duration,
-    pub log_barcodes_ttl: Duration,
-}
-
-impl LocalConfig {
-    pub fn from_config(config: &Map<String, Value>) -> Self {
-        let secs = Duration::from_secs;
-        let duration_of = |key: &str, default: Duration| to_duration(config.get(key), default);
-        let string_of = |key: &str, default: &str| to_string(config.get(key), default);
-        // Directories and URL prefixes are used with a trailing slash
-        let dir_of = |key: &str, default: &str| {
-            let mut dir = string_of(key, default);
-            if !dir.is_empty() && !dir.ends_with('/') {
-                dir.push('/');
-            }
-            dir
-        };
-        Self {
-            allow_group_id_without_auth: to_i64(config.get("allow-group-id-without-auth"), 1) as i32,
-            events_path: dir_of("events-path", "/opt/falprs/static/frs/events/"),
-            screenshots_path: dir_of("screenshots-path", "/opt/falprs/static/frs/screenshots/"),
-            screenshots_url_prefix: dir_of("screenshots-url-prefix", "http://localhost:9051/frs/screenshots/"),
-            clear_old_log_faces: duration_of("clear-old-log-faces", secs(3600)),
-            flag_deleted_maintenance_interval: duration_of("flag-deleted-maintenance-interval", secs(10)),
-            flag_deleted_ttl: duration_of("flag-deleted-ttl", secs(300)),
-            copy_events_maintenance_interval: duration_of("copy-events-maintenance-interval", secs(30)),
-            clear_old_events: duration_of("clear-old-events", secs(86400)),
-            log_faces_ttl: duration_of("log-faces-ttl", secs(4 * 3600)),
-            events_ttl: duration_of("events-ttl", secs(30 * 86400)),
-            barcodes_path: dir_of("barcodes-path", "/opt/falprs/static/frs/barcodes/"),
-            barcodes_url_prefix: dir_of("barcodes-url-prefix", "http://localhost:9051/frs/barcodes/"),
-            clear_old_log_barcodes: duration_of("clear-old-log-barcodes", secs(3600)),
-            log_barcodes_ttl: duration_of("log-barcodes-ttl", secs(4 * 3600)),
-        }
-    }
-}
 
 /// A model served by Triton; the inference server comes from the video stream config.
 #[derive(Debug, Clone)]

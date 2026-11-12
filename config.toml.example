@@ -1,0 +1,116 @@
+# FALPRS service config.
+#
+# Every key below shows its default; only the two database DSNs are required, the rest may be
+# left out. Unknown keys are rejected at start-up. Durations are strings with a unit: "500ms",
+# "5s", "1m", "2h", "30d". An interval of "0s" disables its task.
+# A subsystem works when its section ([lprs], [frs]) is present.
+
+[server]
+port = 9051                                     # Port of the API, static files and /ping
+monitor-port = 9052                             # Port of the service endpoints (log level, log rotation)
+static-dir = "/opt/falprs/static/"              # Directory served as static files
+max-request-size = 5242880                      # The largest API request body accepted, in bytes
+
+# Log levels: trace, debug, info, warning, error, critical, none
+[logging.default]
+file = "/var/log/falprs/log.txt"
+level = "error"
+
+[logging.lprs]
+file = "/var/log/falprs/lprs-log.txt"
+level = "info"
+
+[logging.frs]
+file = "/var/log/falprs/frs-log.txt"
+level = "info"
+
+[lprs]
+no-auth-group-id = 1                            # Stream group used by requests without authorization; 0 - authorization is required
+pipelines-per-cpu = 16                          # Recognition pipelines running at once per CPU. Video streams beyond them wait their turn in the order they became ready.
+                                                # If under overload the TRACE log shows "waited for a pipeline slot" near zero, lower it so that streams wait their turn
+screenshots-path = "/opt/falprs/static/lprs/"   # Local path for saving events' screenshots
+screenshots-url-prefix = "http://localhost:9051/lprs/"  # Web URL prefix for events' screenshots. Replace localhost with IP address if you need access to them from outside
+failed-path = "/opt/falprs/static/lprs/failed/" # Local path for saving screenshots of unrecognized licence plates
+failed-ttl = "60d"                              # TTL of the screenshots of unrecognized licence plates
+ban-cleanup-interval = "5s"                     # Period of removing expired plate bans
+events-log-ttl = "4h"                           # TTL of the events log
+events-log-cleanup-interval = "2h"              # Period of cleaning the events log and the outdated screenshots of unrecognized licence plates
+flag-deleted-ttl = "5m"                         # TTL of video streams marked for deletion
+flag-deleted-cleanup-interval = "10s"           # Period of removing video streams marked for deletion
+
+[lprs.database]
+dsn = "postgresql://falprs:123@localhost:5432/lprs"
+max-pool-size = 16                              # Connections per database host
+network-timeout = "5s"                          # How long to wait for each response of the server
+statement-timeout = "5s"                        # How long the server may execute a statement; "0s" - no limit
+discovery-timeout = "2s"                        # Time limit for checking the role (master or replica) of one host
+
+# Caches of database tables. Every cache also takes:
+#   host-type = "master"             # master, replica or replica-or-master
+#   full-update-timeout = "1m"       # Network timeout of the requests of a full update
+# Incremental caches update in between full updates and take as well:
+#   full-update-interval             # "0s" - every update is a full one
+#   update-correction = "1s"         # How far back from the previous update an incremental update looks
+#   incremental-update-timeout = "1s"
+[lprs.caches.groups]
+update-interval = "1m"
+
+[lprs.caches.video-streams-config]
+update-interval = "1m"
+
+[lprs.caches.video-stream-groups]
+update-interval = "1m"
+
+[frs]
+no-auth-group-id = 1                            # Stream group used by requests without a token; 0 - the token is required
+pipelines-per-cpu = 16                          # Recognition pipelines running at once per CPU, as in [lprs]
+screenshots-path = "/opt/falprs/static/frs/screenshots/"            # Local path for saving face screenshots
+screenshots-url-prefix = "http://localhost:9051/frs/screenshots/"   # Web URL prefix for face screenshots. Replace localhost with IP address if you need access to them from outside
+events-path = "/opt/falprs/static/frs/events/"  # Local path for saving events' screenshots
+barcodes-path = "/opt/falprs/static/frs/barcodes/"                  # Local path for saving barcode screenshots
+barcodes-url-prefix = "http://localhost:9051/frs/barcodes/"         # Web URL prefix for barcode screenshots. Replace localhost with IP address if you need access to them from outside
+log-faces-ttl = "4h"                            # TTL of logs from the log_faces table
+log-faces-cleanup-interval = "1h"               # Period of cleaning outdated logs from the log_faces table
+log-barcodes-ttl = "4h"                         # TTL of logs from the log_barcodes table
+log-barcodes-cleanup-interval = "1h"            # Period of cleaning outdated logs from the log_barcodes table
+events-ttl = "30d"                              # TTL of the copied events
+events-cleanup-interval = "1d"                  # Period of cleaning outdated copied events
+flag-deleted-ttl = "5m"                         # TTL of records marked for deletion
+flag-deleted-cleanup-interval = "10s"           # Period of removing records marked for deletion
+copy-events-interval = "30s"                    # Period of copying event data
+
+[frs.database]
+dsn = "postgresql://falprs:123@localhost:5432/frs"
+max-pool-size = 16
+network-timeout = "5s"
+statement-timeout = "5s"
+discovery-timeout = "2s"
+
+[frs.caches.groups]
+update-interval = "1m"
+
+[frs.caches.config]
+update-interval = "1m"
+
+[frs.caches.video-streams-config]
+update-interval = "10s"
+full-update-interval = "5m"
+update-correction = "1s"
+
+[frs.caches.face-descriptors]
+update-interval = "10s"
+full-update-interval = "10m"
+update-correction = "1s"
+
+[frs.caches.video-stream-descriptors]
+update-interval = "10s"
+full-update-interval = "10m"
+update-correction = "1s"
+
+[frs.caches.sg-config]
+update-interval = "1m"
+
+[frs.caches.sg-descriptors]
+update-interval = "10s"
+full-update-interval = "10m"
+update-correction = "1s"

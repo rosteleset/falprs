@@ -10,10 +10,7 @@
 use std::num::NonZeroUsize;
 use std::time::{Duration, Instant};
 
-use serde_json::{Map, Value};
 use tokio::sync::{Semaphore, SemaphorePermit};
-
-use crate::converters;
 
 /// Slots per CPU by default. A pipeline spends most of its time waiting for the camera (about
 /// 250 ms) and for inference, and about 17-20 ms of CPU time, Triton's on the same server
@@ -34,10 +31,10 @@ pub struct PipelineSlots {
 }
 
 impl PipelineSlots {
-    /// `pipelines-per-cpu` slots for each CPU available to the process, its cgroup quota counted.
-    pub fn from_config(config: &Map<String, Value>) -> Self {
+    /// `pipelines_per_cpu` slots for each CPU available to the process, its cgroup quota counted.
+    pub fn per_cpu(pipelines_per_cpu: usize) -> Self {
         let cpus = std::thread::available_parallelism().map_or(1, NonZeroUsize::get);
-        Self::new(pipelines_per_cpu(config) * cpus)
+        Self::new(pipelines_per_cpu.saturating_mul(cpus))
     }
 
     pub fn new(count: usize) -> Self {
@@ -63,34 +60,14 @@ impl PipelineSlots {
     }
 }
 
-/// `pipelines-per-cpu` from the workflow config; values below 1 give the default.
-fn pipelines_per_cpu(config: &Map<String, Value>) -> usize {
-    let value = converters::to_i64(config.get("pipelines-per-cpu"), DEFAULT_PIPELINES_PER_CPU as i64);
-    usize::try_from(value).ok().filter(|&n| n >= 1).unwrap_or(DEFAULT_PIPELINES_PER_CPU)
-}
-
 #[cfg(test)]
 mod tests {
     use std::sync::Arc;
     use std::time::Duration;
 
-    use serde_json::json;
     use tokio::sync::Mutex;
 
     use super::*;
-
-    fn config(value: Value) -> Map<String, Value> {
-        json!({ "pipelines-per-cpu": value }).as_object().unwrap().clone()
-    }
-
-    #[test]
-    fn pipelines_per_cpu_from_config() {
-        assert_eq!(pipelines_per_cpu(&Map::new()), DEFAULT_PIPELINES_PER_CPU);
-        assert_eq!(pipelines_per_cpu(&config(json!(4))), 4);
-        assert_eq!(pipelines_per_cpu(&config(json!("8"))), 8);
-        assert_eq!(pipelines_per_cpu(&config(json!(0))), DEFAULT_PIPELINES_PER_CPU);
-        assert_eq!(pipelines_per_cpu(&config(json!(-3))), DEFAULT_PIPELINES_PER_CPU);
-    }
 
     #[test]
     fn there_is_always_a_slot() {

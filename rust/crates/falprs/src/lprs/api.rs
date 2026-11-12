@@ -90,7 +90,7 @@ fn authorize(lprs: &Lprs, headers: &HeaderMap) -> Result<i32, ApiError> {
         .map(|value| value.to_str().unwrap_or_default())
         .unwrap_or_default();
     let id_group = if auth.is_empty() {
-        lprs.allow_group_id_without_auth
+        lprs.settings.no_auth_group_id
     } else {
         let token = auth.strip_prefix("Bearer ").ok_or_else(ApiError::unauthorized)?;
         lprs.groups.get().get(token).copied().unwrap_or(-1)

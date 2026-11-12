@@ -1,4 +1,6 @@
 # yaml
+# Config of the C++ reference under test (FALPRS_IMPL=cpp). tests/test_config.toml is the same
+# config for the Rust service; keep the two in step.
 components_manager:
     coro_pool:
         initial_size: 500             # Preallocate 500 coroutines at startup.

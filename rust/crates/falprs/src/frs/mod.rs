@@ -15,26 +15,21 @@ use std::time::Duration;
 
 use anyhow::{Context, Result};
 use axum::Router;
-use axum::extract::DefaultBodyLimit;
 use pg_cluster::Cluster;
 
 use crate::cache::PgCache;
-use crate::config::FrsConfig;
+use crate::config::{FrsConfig, FrsSettings};
 use crate::logging::{Level, Logger};
 use crate::pipeline_slots::PipelineSlots;
 use crate::triton::Triton;
 use caches::{ConfigData, FaceDescriptorData, GroupsData, SGConfigData, SGDescriptorsData, VStreamDescriptorsData, VStreamsConfigData};
-use config::LocalConfig;
 use descriptor_index::DescriptorLists;
 use workflow::Workflows;
 
 pub struct Frs {
     cluster: Cluster,
     logger: Arc<Logger>,
-    local: LocalConfig,
-    api_allows_get: bool,
-    /// The largest API request body accepted.
-    api_max_request_size: usize,
+    local: FrsSettings,
     groups: Arc<PgCache<GroupsData>>,
     config: Arc<PgCache<ConfigData>>,
     vstreams_config: Arc<PgCache<VStreamsConfigData>>,
@@ -60,29 +55,27 @@ impl Frs {
             .context("can't connect to the FRS database")?;
 
         let start = |name, cache_config| (name, cluster.clone(), cache_config, logger.clone());
-        let (name, c, cfg, l) = start("frs-groups-pg-cache", &config.groups_cache);
+        let (name, c, cfg, l) = start("frs.caches.groups", &config.groups_cache);
         let groups = PgCache::start(name, c, cfg, l, caches::load_groups).await?;
-        let (name, c, cfg, l) = start("frs-config-pg-cache", &config.config_cache);
+        let (name, c, cfg, l) = start("frs.caches.config", &config.config_cache);
         let common_config = PgCache::start(name, c, cfg, l, caches::load_config).await?;
-        let (name, c, cfg, l) = start("frs-vstreams-config-pg-cache", &config.vstreams_config_cache);
+        let (name, c, cfg, l) = start("frs.caches.video-streams-config", &config.video_streams_config_cache);
         let vstreams_config = PgCache::start_incremental(name, c, cfg, l, caches::load_vstreams_config, caches::apply_vstreams_config).await?;
-        let (name, c, cfg, l) = start("frs-face-descriptor-pg-cache", &config.face_descriptor_cache);
+        let (name, c, cfg, l) = start("frs.caches.face-descriptors", &config.face_descriptors_cache);
         let face_descriptors = PgCache::start_incremental(name, c, cfg, l, caches::load_face_descriptors, caches::apply_face_descriptors).await?;
-        let (name, c, cfg, l) = start("frs-vstream-descriptors-pg-cache", &config.vstream_descriptors_cache);
+        let (name, c, cfg, l) = start("frs.caches.video-stream-descriptors", &config.video_stream_descriptors_cache);
         let vstream_descriptors = PgCache::start_incremental(name, c, cfg, l, caches::load_vstream_descriptors, caches::apply_vstream_descriptors).await?;
-        let (name, c, cfg, l) = start("frs-sg-config-pg-cache", &config.sg_config_cache);
+        let (name, c, cfg, l) = start("frs.caches.sg-config", &config.sg_config_cache);
         let sg_config = PgCache::start(name, c, cfg, l, caches::load_sg_config).await?;
-        let (name, c, cfg, l) = start("frs-sg-descriptors-pg-cache", &config.sg_descriptors_cache);
+        let (name, c, cfg, l) = start("frs.caches.sg-descriptors", &config.sg_descriptors_cache);
         let sg_descriptors = PgCache::start_incremental(name, c, cfg, l, caches::load_sg_descriptors, caches::apply_sg_descriptors).await?;
 
-        let pipeline_slots = PipelineSlots::from_config(&config.workflow);
+        let pipeline_slots = PipelineSlots::per_cpu(config.settings.pipelines_per_cpu);
         crate::log!(logger, Level::Info, "recognition pipeline slots: {}", pipeline_slots.count());
         let frs = Arc::new(Self {
             cluster,
             logger,
-            local: LocalConfig::from_config(&config.workflow),
-            api_allows_get: config.api_allows_get,
-            api_max_request_size: config.api_max_request_size,
+            local: config.settings.clone(),
             groups,
             config: common_config,
             vstreams_config,
@@ -123,18 +116,17 @@ impl Frs {
 
     fn start_maintenance(self: &Arc<Self>) {
         let local = &self.local;
-        self.every(local.clear_old_log_faces, |frs| async move { workflow::old_log_faces_maintenance(&frs).await });
-        self.every(local.flag_deleted_maintenance_interval, |frs| async move {
+        self.every(local.log_faces_cleanup_interval, |frs| async move {
+            workflow::old_log_faces_maintenance(&frs).await
+        });
+        self.every(local.flag_deleted_cleanup_interval, |frs| async move {
             workflow::flag_deleted_maintenance(&frs).await
         });
-        self.every(local.copy_events_maintenance_interval, |frs| async move {
-            workflow::copy_events_maintenance(&frs).await
+        self.every(local.copy_events_interval, |frs| async move { workflow::copy_events_maintenance(&frs).await });
+        self.every(local.events_cleanup_interval, |frs| async move { workflow::old_events_maintenance(&frs).await });
+        self.every(local.log_barcodes_cleanup_interval, |frs| async move {
+            barcodes::old_log_barcodes_maintenance(&frs).await
         });
-        self.every(local.clear_old_events, |frs| async move { workflow::old_events_maintenance(&frs).await });
-        self.every(
-            local.clear_old_log_barcodes,
-            |frs| async move { barcodes::old_log_barcodes_maintenance(&frs).await },
-        );
     }
 
     /// Saves the inference statistics, as the C++ service does when it stops.
@@ -143,6 +135,6 @@ impl Frs {
     }
 
     pub fn router(self: &Arc<Self>) -> Router {
-        api::router(self.clone()).layer(DefaultBodyLimit::max(self.api_max_request_size))
+        api::router(self.clone())
     }
 }

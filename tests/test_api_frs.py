@@ -652,6 +652,20 @@ def test_start_stop_motion():
     response = requests.post(url, json=data)
     assert response.status_code == 204
 
+# start / stop motion by GET: motionDetection also answers GET, other methods do not
+@rust_only
+@pytest.mark.order(++order)
+def test_start_stop_motion_get():
+    url = API_URL + "motionDetection"
+    response = requests.get(url, params={STREAM_ID: "1", START: "t"})
+    assert response.status_code == 200
+    time.sleep(0.3)
+    response = requests.get(url, params={STREAM_ID: "1", START: "f"})
+    assert response.status_code == 200
+
+    response = requests.get(API_URL + "bestQuality", params={STREAM_ID: "1"})
+    assert response.status_code == 400
+
 # bestQuality ISO
 @pytest.mark.order(++order)
 def test_best_quality_iso():

@@ -35,9 +35,9 @@ rustls = { version = "0.23", default-features = false, features = ["ring", "std"
 serde = { version = "1", features = ["derive"] }
 serde_json = { version = "1", features = ["preserve_order"] }
 swash = "0.2"
-serde-saphyr = { version = "=0.0.17", default-features = false }
 sha2 = "0.10"
 thiserror = "2"
+toml = { version = "0.9", default-features = false, features = ["parse", "serde", "std"] }
 tokio = { version = "1", features = ["fs", "macros", "net", "rt-multi-thread", "signal", "sync", "time"] }
 tokio-postgres = { version = "0.7", default-features = false, features = ["runtime", "with-chrono-0_4", "with-serde_json-1"] }
 tokio-util = { version = "0.7", features = ["rt"] }

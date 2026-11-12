@@ -35,9 +35,9 @@ RECEIVER_HOST = "localhost"
 RECEIVER_PORT = 9073
 RECEIVER_URL = f"http://{RECEIVER_HOST}:{RECEIVER_PORT}"
 
-# Must match ban-maintenance-interval in test_config.yaml
+# Must match ban-cleanup-interval in test_config.toml (ban-maintenance-interval in test_config.yaml)
 BAN_MAINTENANCE_INTERVAL = 5
-# Must match update-interval of lprs-vstreams-config-pg-cache in test_config.yaml
+# Must match update-interval of lprs.caches.video-streams-config in test_config.toml (and .yaml)
 CONFIG_CACHE_UPDATE_INTERVAL = 5
 
 IMAGES_DIR = Path(__file__).parent / "images"
