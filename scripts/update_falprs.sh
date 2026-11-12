@@ -180,6 +180,12 @@ echo "Updating database schema..."
 $BASEDIR/sql_frs.sh
 $BASEDIR/sql_lprs.sh
 
+# Clean the video stream, default video stream and common configs stored in the databases:
+# normalize the values the service took, remove invalid and unknown ones; the changed rows are
+# saved to config-cleanup-<date>.json in the working directory first
+echo "Checking the configs stored in the databases..."
+(cd "$FALPRS_WORKDIR" && "$FALPRS_WORKDIR/falprs" -c config.toml check-configs --fix)
+
 # Restore FALPRS to its initial state
 if [ "$FALPRS_WAS_ACTIVE" = true ]; then
     echo "Starting falprs service..."

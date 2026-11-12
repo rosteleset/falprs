@@ -45,7 +45,6 @@ string_params_common = [
     'comments-non-frontal-face',
     'comments-non-normal-face-class',
     'comments-partial-face',
-    'comments-url-image-error',
     'dnn-fc-input-tensor-name',
     'dnn-fc-model-name',
     'dnn-fc-output-tensor-name',
@@ -72,7 +71,6 @@ duration_params_vstream = [
     'best-quality-interval-before',
     'capture-timeout',
     'delay-between-frames',
-    'open-door-duration',
     'retry-pause',
 ]
 
