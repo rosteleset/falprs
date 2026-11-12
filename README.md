@@ -113,6 +113,9 @@ Upon successful registration, the internal unique identifier of the registered f
 The **motionDetection** method is used to start and end frame processing. The main idea is for FRS to process frames only when motion is detected in front of the video camera. Parameters of the method:
 - **streamId** — video stream identifier;
 - **start** — indicator of motion start or end. If **start=true**, FRS starts processing a frame from the video stream every second (set by the *delay-between-frames* parameter). If **start=false**, FRS stops processing.
+- **duration** — optional, with **start=true** only: the period after which FRS stops processing by itself: a duration such as *30s* or *2m*, or a number of seconds. An invalid value is rejected with code 400. It replaces the *workflow-timeout* parameter of the video stream for this start; if it is left out or equals *0s*, *workflow-timeout* is used.
+
+Besides POST, the method also accepts GET requests, for devices that can only send them. The parameters are then passed in the query string, with *start=t* or *start=f* and an optional *duration*, and the authorization token in the *token* parameter, for example: `http://localhost:9051/frs/api/motionDetection?streamId=1&start=t&token=<token>`. The other API methods accept POST requests only.
 
 Frame processing implies the following chain of actions:
 1. Face search using the *scrfd* neural network.
@@ -188,7 +191,7 @@ psql --version
 psql (PostgreSQL) 16.14 (Ubuntu 16.14-0ubuntu0.24.04.1)
 ```
 This means *PG_VERSION=16*
-Other variables with the **PG_** prefix define the connection to PostgreSQL. Don't forget to specify your password.
+Other variables with the **PG_** prefix define the connection to PostgreSQL. Don't forget to specify your password. The build script writes the connections into the *config.toml* configuration only when it creates the file; later changes of these variables do not get into an existing configuration, so change the *dsn* settings in it as well.
 The version of the Triton Inference Server container is set by the **TRITON_VERSION** variable. It is determined by the **Compute Capability** — the NVIDIA GPU hardware architecture version that determines the available instruction set, supported technologies (e.g., **Tensor cores**), and physical limitations of the GPU. It is needed for the **CUDA compiler** and software to understand how to efficiently execute code on the graphics card. You can find out the Compute Capability with the command:
 ```bash
 nvidia-smi --query-gpu=compute_cap --format=csv
@@ -242,7 +245,7 @@ To initially populate the databases, execute the commands:
 ~/falprs/scripts/sql_frs.sh
 ~/falprs/scripts/sql_lprs.sh
 ```
-The project configuration is in the *config.toml* file in the working directory (by default **/opt/falprs**). The build script creates it from *config.toml.example*, which lists every setting with its default value and a description, and sets the database connections from the *.env* file. Only the two database connections (*dsn* in the *[lprs.database]* and *[frs.database]* sections) are required; the other settings may be left out, and then their default values are used. Unknown settings are rejected: the service does not start and names the setting. To perform API methods with mandatory authorization, set *no-auth-group-id* to zero in the *[lprs]* and *[frs]* sections. Operation with a separate HTTP server is also possible. In this case, replace the values of the local paths and URL prefixes (*screenshots-path*, *screenshots-url-prefix* and the like) in the *[lprs]* and *[frs]* sections.
+The project configuration is in the *config.toml* file in the working directory (by default **/opt/falprs**). The build script creates it from *config.toml.example*, which lists every setting with its default value and a description, and sets the database connections from the *.env* file. Later the file is not overwritten: neither the build nor the update script changes it, and new settings get their default values. Only the two database connections (*dsn* in the *[lprs.database]* and *[frs.database]* sections) are required; the other settings may be left out, and then their default values are used. Unknown settings are rejected: the service does not start and names the setting. To perform API methods with mandatory authorization, set *no-auth-group-id* to zero in the *[lprs]* and *[frs]* sections. Operation with a separate HTTP server is also possible. In this case, replace the values of the local paths and URL prefixes (*screenshots-path*, *screenshots-url-prefix* and the like) in the *[lprs]* and *[frs]* sections.
 
 To start the container with **Triton Inference Server**, execute the command:
 ```bash
@@ -466,8 +469,9 @@ The Rust implementation also has unit tests. They need neither the test database
 cd ~/falprs/rust
 cargo test
 ```
-The tests of the *config.yaml* converter:
+The tests of the *config.yaml* converter, which also need the *python3-yaml* package:
 ```bash
+sudo apt-get install -y python3-yaml
 python3 -m pytest ~/falprs/scripts/tests
 ```
 

@@ -547,6 +547,18 @@ paths:
                 start:
                   description: Sign of the beginning or end of movement
                   type: boolean
+                duration:
+                  description: >-
+                    With `start: true`, the period after which processing stops by itself, instead of
+                    the video stream's `workflow-timeout`; left out or 0s keeps `workflow-timeout`.
+                    A duration string or a number of seconds; any other value is rejected with 400.
+                    Ignored with `start: false`
+                  oneOf:
+                    - type: string
+                      pattern: ^\d+(ms|[smhd])?$
+                    - type: number
+                      minimum: 0
+                  example: 30s
             example:
               streamId: '1234'
               start: true
@@ -555,6 +567,57 @@ paths:
           description: Successful operation
         '400':
           description: Bad request
+    get:
+      tags:
+        - Host --> FRS
+      summary: Motion detection notification by GET
+      description: |
+        The same as the POST form, for devices that can only send GET requests: the parameters are passed in the query string.
+        The authorization token, if any, is passed in the `token` parameter instead of the `Authorization` header.
+        Of the API methods only `motionDetection` answers GET requests.
+      operationId: frs_motionDetection_get
+      security: []
+      parameters:
+        - name: streamId
+          in: query
+          required: true
+          schema:
+            $ref: '#/components/schemas/streamId'
+        - name: start
+          in: query
+          required: true
+          description: Sign of the beginning (`t`) or end (any other value, e.g. `f`) of movement
+          schema:
+            type: string
+            example: t
+        - name: duration
+          in: query
+          required: false
+          description: >-
+            With `start=t`, the period after which processing stops by itself, instead of the video
+            stream's `workflow-timeout`; left out or 0s keeps `workflow-timeout`. An invalid value is rejected with 400.
+            Ignored with other `start` values
+          schema:
+            type: string
+            pattern: ^\d+(ms|[smhd])?$
+            example: 30s
+        - name: token
+          in: query
+          required: false
+          description: Authorization token of the stream group; it may be left out for the group set by `no-auth-group-id` in the service config
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Successful operation
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ResponseBase'
+        '400':
+          description: Bad request
+        '401':
+          description: Unauthorized
 
 
   /frs/api/doorIsOpen:
