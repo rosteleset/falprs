@@ -1,7 +1,7 @@
 ## [![Generic badge](https://img.shields.io/badge/LANG-EN-blue.svg)](https://github.com/rosteleset/falprs/blob/main/README.md) Описание проекта FALPRS
 Этот проект является заменой [старого](https://github.com/rosteleset/frs). Основные отличия:
 * В качестве СУБД используется PostgreSQL.
-* Проект использует [userver](https://github.com/userver-framework/userver) — асинхронный фреймворк с открытым исходным кодом.
+* Проект написан на Rust без небезопасного (unsafe) кода и использует [Tokio](https://tokio.rs) — асинхронную среду выполнения с открытым исходным кодом.
 * Строгое соблюдение типов данных в [API](https://rosteleset.github.io/falprs/) запросах. Например, если ожидается числовое поле, то его нельзя заключать в кавычки.
 * Добавлена система распознавания автомобильных номеров (license plate recognition system — LPRS).
 
@@ -128,7 +128,7 @@
 ## Сборка и настройка проекта
 <a id="system_requirements"></a>
 ### Системные требования
-* CPU с AVX-инструкциями.
+* CPU x86-64. Расширенные наборы инструкций (например, AVX2 и FMA) не обязательны: сервис определяет их наличие во время работы и использует, если они есть.
 * NVIDIA GPU с параметром Compute Capability большим или равным 6.0 и памятью 4 Гб или больше. Подробности можно посмотреть, например, [здесь](https://developer.nvidia.com/cuda-gpus).
 * Ubuntu 24.04 LTS или Ubuntu 26.04 LTS.
 * PostgreSQL 16 или выше.

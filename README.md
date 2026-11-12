@@ -1,7 +1,7 @@
 ## [![Generic badge](https://img.shields.io/badge/LANG-RU-blue.svg)](https://github.com/rosteleset/falprs/blob/main/README_ru.md) FALPRS Project Description
 This project is a replacement for the [old one](https://github.com/rosteleset/frs). Key differences:
 * PostgreSQL is used as the DBMS.
-* The project uses [userver](https://github.com/userver-framework/userver) — an open-source asynchronous framework.
+* The project is written in Rust without unsafe code and uses [Tokio](https://tokio.rs) — an open-source asynchronous runtime.
 * Strict data type compliance in [API](https://rosteleset.github.io/falprs/) requests. For example, if a numeric field is expected, it must not be enclosed in quotes.
 * Added license plate recognition system (LPRS).
 
@@ -128,7 +128,7 @@ Using the **bestQuality** method, you can request the "best" frame from the FRS 
 ## Project Build and Configuration
 <a id="system_requirements"></a>
 ### System Requirements
-* CPU with AVX instructions.
+* x86-64 CPU. Extended instruction sets (e.g. AVX2 and FMA) are not required: the service detects them at runtime and uses them where available.
 * NVIDIA GPU with Compute Capability greater than or equal to 6.0 and 4 GB memory or more. Details can be found, for example, [here](https://developer.nvidia.com/cuda-gpus).
 * Ubuntu 24.04 LTS or Ubuntu 26.04 LTS.
 * PostgreSQL 16 or higher.
