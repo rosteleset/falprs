@@ -95,6 +95,17 @@ if [ "$NEED_BUILD" = true ]; then
     $BASEDIR/build_falprs.sh
 fi
 
+# Convert an old config.yaml if the build did not do it already
+"$BASEDIR/prepare_config.sh"
+
+# A service unit installed for config.yaml starts the service with config.toml from now on
+SERVICE_UNIT=/etc/systemd/system/falprs.service
+if [ -f "$SERVICE_UNIT" ] && grep -q -- "-c config.yaml" "$SERVICE_UNIT"; then
+    echo "Switching $SERVICE_UNIT to config.toml"
+    sudo sed -i 's/-c config\.yaml/-c config.toml/' "$SERVICE_UNIT"
+    sudo systemctl daemon-reload
+fi
+
 # TensorRT Planning phase (before stopping services)
 echo "Planning TensorRT plans..."
 cd $BASEDIR/..
