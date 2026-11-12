@@ -666,6 +666,28 @@ def test_start_stop_motion_get():
     response = requests.get(API_URL + "bestQuality", params={STREAM_ID: "1"})
     assert response.status_code == 400
 
+# start / stop motion with duration: a duration string or a number of seconds, anything else is rejected.
+# The stream is not registered, so nothing is processed and the face logs of the other tests stay as they are
+@rust_only
+@pytest.mark.order(++order)
+def test_start_stop_motion_duration():
+    url = API_URL + "motionDetection"
+    stream = "not-registered"
+    for duration in ["30s", 30, 1.5]:
+        response = requests.post(url, json={STREAM_ID: stream, START: True, "duration": duration})
+        assert response.status_code == 204
+    response = requests.post(url, json={STREAM_ID: stream, START: False})
+    assert response.status_code == 204
+    for duration in ["30 sec", -5, True]:
+        response = requests.post(url, json={STREAM_ID: stream, START: True, "duration": duration})
+        assert response.status_code == 400
+    response = requests.post(url, json={STREAM_ID: stream, START: 1})
+    assert response.status_code == 400
+    response = requests.get(url, params={STREAM_ID: stream, START: "t", "duration": "30"})
+    assert response.status_code == 200
+    response = requests.get(url, params={STREAM_ID: stream, START: "t", "duration": "30 sec"})
+    assert response.status_code == 400
+
 # bestQuality ISO
 @pytest.mark.order(++order)
 def test_best_quality_iso():

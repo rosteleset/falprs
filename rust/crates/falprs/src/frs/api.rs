@@ -509,16 +509,35 @@ async fn list_streams(frs: &Frs, id_group: i32) -> Result<Value, ApiError> {
     Ok(Value::Array(streams))
 }
 
+/// `start` of motionDetection: a boolean, or a string where only `t` starts (the GET form).
+fn motion_start(body: &Value) -> Result<bool, ApiError> {
+    match require_member(body, "start")? {
+        Value::Bool(start) => Ok(*start),
+        Value::String(text) => Ok(text == "t"),
+        _ => Err(ApiError::bad_request("Member `start` must be a boolean.")),
+    }
+}
+
+/// `duration` of motionDetection: a duration string such as `30s`, or a number of seconds, as
+/// time parameters of `params` are given; zero or none keeps the video stream's `workflow-timeout`.
+fn motion_duration(body: &Value) -> Result<Duration, ApiError> {
+    let invalid = || ApiError::bad_request("Member `duration` must be a duration such as \"30s\" or a number of seconds.");
+    match body.get("duration") {
+        None | Some(Value::Null) => Ok(Duration::ZERO),
+        Some(Value::String(text)) => converters::parse_duration(text).ok_or_else(invalid),
+        Some(Value::Number(number)) => number
+            .as_f64()
+            .and_then(|seconds| Duration::try_from_secs_f64(seconds).ok())
+            .ok_or_else(invalid),
+        Some(_) => Err(invalid()),
+    }
+}
+
 fn motion_detection(frs: &Arc<Frs>, id_group: i32, body: &Value) -> Result<(), ApiError> {
     let ext = stream_id(body)?;
-    let start = require_member(body, "start")?;
+    let start = motion_start(body)?;
+    let duration = motion_duration(body)?;
     let key = vstream_key(id_group, &ext);
-    let duration = converters::to_duration(body.get("duration"), Duration::ZERO);
-    let start = match start {
-        Value::Bool(start) => *start,
-        Value::String(text) => text == "t",
-        _ => return Err(ApiError::server_error()),
-    };
     if start {
         workflow::start_workflow(frs, key, duration);
     } else {
@@ -1636,6 +1655,34 @@ async fn get_barcode_event(frs: &Frs, id_group: i32, body: &Value) -> Result<Val
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn motion_detection_members() {
+        use axum::http::StatusCode;
+        fn status<T>(result: Result<T, ApiError>) -> Result<T, StatusCode> {
+            result.map_err(|e| e.into_response().status())
+        }
+        assert_eq!(status(motion_start(&json!({"start": true}))), Ok(true));
+        assert_eq!(status(motion_start(&json!({"start": "t"}))), Ok(true));
+        assert_eq!(status(motion_start(&json!({"start": "f"}))), Ok(false));
+        assert_eq!(status(motion_start(&json!({"start": 1}))), Err(StatusCode::BAD_REQUEST));
+
+        let seconds = Duration::from_secs;
+        assert_eq!(status(motion_duration(&json!({}))), Ok(Duration::ZERO));
+        assert_eq!(status(motion_duration(&json!({"duration": null}))), Ok(Duration::ZERO));
+        assert_eq!(status(motion_duration(&json!({"duration": "30s"}))), Ok(seconds(30)));
+        assert_eq!(status(motion_duration(&json!({"duration": "2m"}))), Ok(seconds(120)));
+        assert_eq!(status(motion_duration(&json!({"duration": "30"}))), Ok(seconds(30)));
+        assert_eq!(status(motion_duration(&json!({"duration": 30}))), Ok(seconds(30)));
+        assert_eq!(status(motion_duration(&json!({"duration": 1.5}))), Ok(Duration::from_millis(1500)));
+        for invalid in [json!("30 sec"), json!("-5s"), json!(-5), json!(true), json!(["30s"])] {
+            assert_eq!(
+                status(motion_duration(&json!({"duration": invalid}))),
+                Err(StatusCode::BAD_REQUEST),
+                "{invalid}"
+            );
+        }
+    }
 
     #[test]
     fn integers_are_numbers_or_numeric_strings() {
