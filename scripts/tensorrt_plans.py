@@ -79,15 +79,6 @@ REGULAR_MODELS = [
         'output_pattern': 'vdnet_yolo{suffix}.engine',
     },
     {
-        'key': 'ovdnet',
-        'onnx': 'ovdnet.onnx',
-        'sha1': 'c8d1c7ecb49cc87a869cd73b3823a05c41e1a65b',
-        'id': '14DM9X8WplPoQ_dngwkGPQvgZfuSWiJQC',
-        'template': 'ovdnet_{suffix}.engine',
-        'shape_args': '--minShapes=images:1x3x96x96 --optShapes=images:8x3x320x320 --maxShapes=images:8x3x1024x1024',
-        'output_pattern': 'ovdnet{suffix}.engine',
-    },
-    {
         'key': 'uodnet',
         'onnx': 'urbanomnidetect_v2_l_640_o2m.onnx',
         'sha1': '780006f739019d7f4f58c887f71f208712d7bf54',
@@ -108,9 +99,14 @@ MODEL_TEMPLATES = {
     'scrfd': "model_{suffix}.plan",
     'vcnet_vit': "vcnet_vit_{suffix}.engine",
     'vdnet_yolo': "vdnet_yolo_{suffix}.engine",
-    'ovdnet': "ovdnet_{suffix}.engine",
     'uodnet': "uodnet_{suffix}.engine",
 }
+
+# Models that the service no longer uses: their directories are removed from the model repository,
+# since Triton loads every model it finds there. Directories of unknown models are left as they are.
+OBSOLETE_MODELS = [
+    'ovdnet',
+]
 
 
 def get_arcface_info(arcface_sha1):
@@ -209,6 +205,25 @@ def ensure_model_onnx(model, tmp_dir):
         sys.exit(1)
 
     return True
+
+
+def obsolete_model_dirs(falprs_workdir):
+    rep_dir = os.path.join(falprs_workdir, 'model_repository')
+    return [os.path.join(rep_dir, key) for key in OBSOLETE_MODELS
+            if os.path.lexists(os.path.join(rep_dir, key))]
+
+
+def remove_obsolete_models(falprs_workdir):
+    for path in obsolete_model_dirs(falprs_workdir):
+        print(f"Removing obsolete model {os.path.basename(path)}")
+        try:
+            if os.path.isdir(path) and not os.path.islink(path):
+                shutil.rmtree(path)
+            else:
+                os.remove(path)
+        except Exception:
+            print(f"Error removing {path}")
+            sys.exit(1)
 
 
 def prepare_and_check(triton_version, falprs_workdir, arcface_sha1, forced_models=None):
@@ -322,15 +337,21 @@ def plan():
     if not gpu_info:
         sys.exit(0)
 
-    if not needs_generation:
+    obsolete = obsolete_model_dirs(falprs_workdir)
+    if not needs_generation and not obsolete:
         print("All TensorRT plans are up to date.")
         print("Triton Inference Server does not need to be restarted.")
         sys.exit(0)
     else:
-        print("TensorRT plans need to be regenerated for:")
         model_list = sorted(list(models_to_regenerate))
-        for key in model_list:
-            print(f"  {key}")
+        if model_list:
+            print("TensorRT plans need to be regenerated for:")
+            for key in model_list:
+                print(f"  {key}")
+        if obsolete:
+            print("Obsolete models need to be removed from the model repository:")
+            for path in obsolete:
+                print(f"  {os.path.basename(path)}")
         model_str = ' '.join(model_list)
         print(f"MODELS_LIST: {model_str}")
         try:
@@ -349,7 +370,12 @@ def generate():
     forced_models = sys.argv[2:] if len(sys.argv) > 2 else None
 
     needs_generation, commands, _, gpu_info, tmp_dir = prepare_and_check(triton_version, falprs_workdir, arcface_sha1, forced_models=forced_models)
-    if not gpu_info or not needs_generation:
+    if not gpu_info:
+        print("No TensorRT plans generation required.")
+        return
+
+    remove_obsolete_models(falprs_workdir)
+    if not needs_generation:
         print("No TensorRT plans generation required.")
         return
 
@@ -380,6 +406,7 @@ def run_all():
     if not gpu_info:
         return
 
+    remove_obsolete_models(falprs_workdir)
     if not needs_generation:
         print("All TensorRT plans are up to date.")
         return

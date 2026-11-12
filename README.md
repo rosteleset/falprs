@@ -274,7 +274,8 @@ The script:
 * performs TensorRT planning before stopping any services and determines whether any TensorRT plans need to be regenerated
 * downloads and checks the required neural network models and calculates their SHA1 hashes
 * regenerates TensorRT plans only for changed models or missing plans
-* stops the `falprs` service and the Triton Inference Server container only when TensorRT plans need to be regenerated
+* removes the models that are no longer used from the Triton Inference Server model repository
+* stops the `falprs` service and the Triton Inference Server container only when TensorRT plans need to be regenerated or unused models need to be removed
 * starts the Triton Inference Server container again after successful TensorRT plan generation when it was running before the update
 * updates schemas and data in the DB (old data is not overwritten)
 * restores the `falprs` service to its previous state after the update
