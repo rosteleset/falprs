@@ -18,8 +18,8 @@ samples the service, the system, the GPU and the emulator, prints a live line an
   as in the functional tests.
 - Triton with the models, configured in the databases as for the functional tests. It may run on another host;
   the GPU and Triton columns are then left empty.
-- The service binary: `rust/target/release/falprs` (`FALPRS_IMPL=rust`, the default) or `build/falprs`
-  (`FALPRS_IMPL=cpp`). `FALPRS_BIN` points to another binary.
+- The service binary: `rust/target/release/falprs` (`FALPRS_IMPL=rust`, the default). `FALPRS_BIN` points to
+  another binary; `FALPRS_IMPL=cpp` needs it, set to the C++ binary built from the `main` branch.
 - Python packages: `pip install -r tests/requirements.txt`, or with apt:
   `sudo apt-get install python3-aiohttp python3-yaml`.
 - Nothing else may listen on port 9071. The runner also uses 9080 for the emulator (`--emulator-port`). It

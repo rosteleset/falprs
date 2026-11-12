@@ -13,7 +13,8 @@ fi
 
 # PG_PORT - PostgreSQL port
 # FALPRS_IMPL - implementation under test: rust (default) or cpp
-# FALPRS_BIN - path to the service binary under test (overrides FALPRS_IMPL, which must still name its implementation)
+# FALPRS_BIN - path to the service binary under test; required for cpp, whose sources are not in this branch
+#              (FALPRS_IMPL must still name the implementation of the binary)
 
 pg_port="${pg_port:=5432}"
 
@@ -23,7 +24,11 @@ case "$FALPRS_IMPL" in
         default_bin="$BASEDIR/../rust/target/release/falprs"
         ;;
     cpp)
-        default_bin="$BASEDIR/../build/falprs"
+        if [ -z "$FALPRS_BIN" ]; then
+            echo "Error: FALPRS_IMPL=cpp needs FALPRS_BIN, the C++ binary built from the main branch"
+            exit 1
+        fi
+        default_bin=""
         ;;
     *)
         echo "Error: FALPRS_IMPL must be rust or cpp, not '$FALPRS_IMPL'"

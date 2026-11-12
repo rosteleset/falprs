@@ -423,7 +423,7 @@ Create directories and test databases:
 cd ~/falprs/tests
 ./test_prepare.sh
 ```
-The tests run the implementation set by the **FALPRS_IMPL** variable (*rust* by default, or *cpp*), taken from the environment or from the *.env* file like in the build scripts; the **FALPRS_BIN** variable sets the path to the service binary explicitly.
+The tests run the implementation set by the **FALPRS_IMPL** variable (*rust* by default, or *cpp*), taken from the environment or from the *.env* file like in the build scripts; the **FALPRS_BIN** variable sets the path to the service binary explicitly. The C++ sources are not in this branch, so *cpp* needs **FALPRS_BIN** set to the C++ binary built from the `main` branch.
 
 <a id="lprs_tests"></a>
 ### LPRS

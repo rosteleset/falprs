@@ -97,8 +97,10 @@ def test_written_config_reloads(template, tmp_path):
 def test_implementation_defaults():
     impl, binary = service.implementation({})
     assert impl == "rust" and binary == (service.REPO_DIR / "rust/target/release/falprs").resolve()
-    impl, binary = service.implementation({"FALPRS_IMPL": "cpp"})
-    assert impl == "cpp" and binary.name == "falprs" and binary.parent.name == "build"
+    with pytest.raises(EnvironmentFailure):
+        service.implementation({"FALPRS_IMPL": "cpp"})
+    impl, binary = service.implementation({"FALPRS_IMPL": "cpp", "FALPRS_BIN": "/opt/cpp/falprs"})
+    assert impl == "cpp" and binary == Path("/opt/cpp/falprs")
     _, binary = service.implementation({"FALPRS_BIN": "/opt/x/falprs"})
     assert binary == Path("/opt/x/falprs")
     with pytest.raises(EnvironmentFailure):

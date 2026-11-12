@@ -53,8 +53,11 @@ def implementation(environ=os.environ):
     impl = environ.get("FALPRS_IMPL") or "rust"
     if impl not in IMPLEMENTATIONS:
         raise EnvironmentFailure(f"FALPRS_IMPL must be rust or cpp, not '{impl}'")
-    default_bin = REPO_DIR / ("rust/target/release/falprs" if impl == "rust" else "build/falprs")
-    binary = Path(os.path.realpath(environ.get("FALPRS_BIN") or default_bin))
+    explicit_bin = environ.get("FALPRS_BIN")
+    if impl == "cpp" and not explicit_bin:
+        # The C++ sources are not in this branch
+        raise EnvironmentFailure("FALPRS_IMPL=cpp needs FALPRS_BIN, the C++ binary built from the main branch")
+    binary = Path(os.path.realpath(explicit_bin or REPO_DIR / "rust/target/release/falprs"))
     return impl, binary
 
 
