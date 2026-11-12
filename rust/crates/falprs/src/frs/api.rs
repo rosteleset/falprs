@@ -22,12 +22,13 @@ use serde_json::{Map, Value, json};
 
 use super::Frs;
 use super::caches::{SGConfigData, descriptor_from_bytes, vstream_key};
+use super::config::{COMMON_SCHEMA, VSTREAM_SCHEMA};
 use super::events::{DESCRIPTOR_SIZE, EventRecord};
 use super::workflow::{self, TaskData, TaskType};
 use crate::config::FrsSettings;
 use crate::converters;
 use crate::files;
-use crate::http_api::{ApiError, ApiResult, clipped_json, data_response, no_content, require_member};
+use crate::http_api::{ApiError, ApiResult, clipped_json, data_response, no_content, require_member, validate_config};
 use crate::log;
 use crate::logging::Level;
 use falprs::similarity;
@@ -322,13 +323,12 @@ fn config_from_params(params: &[Value]) -> Result<Option<Value>, ApiError> {
         "dnn-bd-inference-server",
         "title",
     ];
-    const TIME_PARAMS: [&str; 8] = [
+    const TIME_PARAMS: [&str; 7] = [
         "best-quality-interval-after",
         "best-quality-interval-before",
         "capture-timeout",
         "delay-after-error",
         "delay-between-frames",
-        "open-door-duration",
         "workflow-timeout",
         "unknown-descriptor-ttl",
     ];
@@ -361,7 +361,8 @@ fn config_from_params(params: &[Value]) -> Result<Option<Value>, ApiError> {
                 _ => "info",
             })
         } else {
-            continue;
+            // Validated, or dropped as unknown, with the config
+            value.clone()
         };
         config.insert(name.to_string(), converted);
     }
@@ -381,12 +382,17 @@ async fn add_stream(frs: &Frs, id_group: i32, body: &Value) -> Result<(), ApiErr
     let mut callback_url_barcodes = optional_string(body, "callbackBarcodes")?;
     let faces = optional_face_ids(body)?;
     let mut config = match body.get("params") {
-        Some(Value::Array(params)) => config_from_params(params)?,
+        Some(Value::Array(params)) => config_from_params(params)?.map(|config| ("params.", config)),
         _ => None,
     };
     if let Some(value @ Value::Object(_)) = body.get("config") {
-        config = Some(value.clone());
+        config = Some(("config.", value.clone()));
     }
+    // Keys given with null are not stored: the stream group's default applies to them
+    let config = match config {
+        Some((prefix, Value::Object(config))) => Some(Value::Object(validate_config(&VSTREAM_SCHEMA, &config, prefix, &frs.logger)?.values)),
+        _ => None,
+    };
 
     let mut client = frs.cluster.client(HostType::Master).await.map_err(db_error(frs))?;
     let result: Result<(), pg_cluster::Error> = async {
@@ -1171,11 +1177,18 @@ async fn list_special_groups(frs: &Frs, id_group: i32) -> Result<Value, ApiError
 
 /// Merges the body into a stream group's config in `table` (`common_config` or `default_vstream_config`).
 async fn set_config(frs: &Frs, id_group: i32, body: &Value, table: &str) -> Result<(), ApiError> {
-    if !body.is_object() {
+    let Some(config) = body.as_object() else {
         return Err(ApiError::bad_request("Body is not a valid JSON object."));
-    }
-    let query = format!("update {table} set config = coalesce(config, $2) || $2 where id_group = $1");
-    frs.cluster.execute(HostType::Master, &query, &[&id_group, body]).await.map_err(db_error(frs))?;
+    };
+    let schema = if table == "common_config" { &*COMMON_SCHEMA } else { &*VSTREAM_SCHEMA };
+    let validated = validate_config(schema, config, "", &frs.logger)?;
+    // Keys given with null are removed: their built-in defaults apply again
+    let query = format!("update {table} set config = (coalesce(config, '{{}}') || $2) - $3::text[] where id_group = $1");
+    let values = Value::Object(validated.values);
+    frs.cluster
+        .execute(HostType::Master, &query, &[&id_group, &values, &validated.nulls])
+        .await
+        .map_err(db_error(frs))?;
     Ok(())
 }
 
@@ -1776,6 +1789,8 @@ mod tests {
                 "logs-level": "trace",
                 "title": "Door",
                 "flag-process-faces": false,
+                // Passed on to the validation, which drops unknown keys
+                "unknown": 1,
             })
         );
         assert!(config_from_params(&[]).unwrap().is_none());

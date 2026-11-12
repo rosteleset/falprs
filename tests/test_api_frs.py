@@ -100,7 +100,7 @@ def test_set_common_config_invalid():
 @pytest.mark.order(++order)
 def test_set_common_config():
     url = API_URL + "setCommonConfig"
-    config = {LOGS_LEVEL: "trace"}
+    config = {"sg-max-descriptor-count": 1000}
     response = requests.post(url, json=config)
     assert response.status_code == 204
 
@@ -114,7 +114,7 @@ def test_get_common_config():
     data = response.json()
     assert DATA in data
     assert isinstance(data[DATA], dict)
-    assert data[DATA].get(LOGS_LEVEL) == "trace"
+    assert data[DATA].get("sg-max-descriptor-count") == 1000
 
 # setStreamDefaultConfig: invalid body (not a JSON object) -> 400
 @pytest.mark.order(++order)
@@ -1355,3 +1355,73 @@ def test_save_dnn_stats_data():
     url = API_URL + "saveDnnStatsData"
     response = requests.post(url, json={})
     assert response.status_code == 204
+
+
+def stored_stream_config(stream_id):
+    response = requests.post(API_URL + "listStreams")
+    assert response.status_code == 200
+    return next(item[CONFIG] for item in response.json()[DATA] if item[STREAM_ID] == stream_id)
+
+
+def stored_config(method):
+    response = requests.post(API_URL + method, json={})
+    assert response.status_code == 200
+    return response.json()[DATA]
+
+
+# Configs are validated: an invalid value -> 400 naming the key, unknown keys dropped, null removes a key,
+# accepted values stored normalized
+@rust_only
+@pytest.mark.order(++order)
+def test_strict_stream_config():
+    url = API_URL + "addStream"
+    for config in [{"blur": "sharp"}, {"face-confidence": 1.5}, {"flag-process-faces": "true"},
+                   {"delay-between-frames": "1 sec"}, {"work-area": [10, 20, 30]}]:
+        response = requests.post(url, json={STREAM_ID: "strict", URL: FALPRS_URL + "/einstein_001.jpg", CONFIG: config})
+        assert response.status_code == 400, config
+        assert f"`config.{next(iter(config))}`" in response.json()["message"]
+    params = [{"paramName": "blur", "paramValue": "sharp"}]
+    response = requests.post(url, json={STREAM_ID: "strict", "params": params})
+    assert response.status_code == 400
+
+    config = {"tolerance": "0.6", "max-capture-error-count": 5.0, "workflow-timeout": 30, "title": None,
+              "min-face-size": 30, "comments-no-faces": "none"}
+    response = requests.post(url, json={STREAM_ID: "strict", URL: FALPRS_URL + "/einstein_001.jpg", CONFIG: config})
+    assert response.status_code == 204
+    assert stored_stream_config("strict") == {"tolerance": 0.6, "max-capture-error-count": 5, "workflow-timeout": "30s"}
+
+    params = [{"paramName": "blur", "paramValue": 250}, {"paramName": "open-door-duration", "paramValue": 10}]
+    response = requests.post(url, json={STREAM_ID: "strict", "params": params})
+    assert response.status_code == 204
+    assert stored_stream_config("strict") == {"blur": 250.0}
+
+    response = requests.post(API_URL + "removeStream", json={STREAM_ID: "strict"})
+    assert response.status_code == 204
+
+
+@rust_only
+@pytest.mark.order(++order)
+def test_strict_default_and_common_configs():
+    url = API_URL + "setStreamDefaultConfig"
+    response = requests.post(url, json={"margin": -1})
+    assert response.status_code == 400
+    assert "`margin`" in response.json()["message"]
+    response = requests.post(url, json={"title-height-ratio": "0.05", "unknown-descriptor-ttl": 7, "sg-max-descriptor-count": 5})
+    assert response.status_code == 204
+    config = stored_config("getStreamDefaultConfig")
+    assert config["title-height-ratio"] == 0.05 and config["unknown-descriptor-ttl"] == "7s"
+    # A common config key is not a video stream config key
+    assert "sg-max-descriptor-count" not in config
+    response = requests.post(url, json={"title-height-ratio": None, "unknown-descriptor-ttl": "5s"})
+    assert response.status_code == 204
+    config = stored_config("getStreamDefaultConfig")
+    assert "title-height-ratio" not in config and config["unknown-descriptor-ttl"] == "5s"
+
+    url = API_URL + "setCommonConfig"
+    for config in [{"sg-max-descriptor-count": -1}, {"comments-no-faces": 5}, {"flag-copy-event-data": 1}]:
+        response = requests.post(url, json=config)
+        assert response.status_code == 400, config
+    response = requests.post(url, json={"sg-max-descriptor-count": "1000", "callback-timeout": 2, "logs-level": "trace"})
+    assert response.status_code == 204
+    config = stored_config("getCommonConfig")
+    assert config["sg-max-descriptor-count"] == 1000 and config["callback-timeout"] == "2s"

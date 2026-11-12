@@ -3,7 +3,11 @@
 
 use axum::http::{HeaderValue, StatusCode, header};
 use axum::response::{IntoResponse, Response};
-use serde_json::{Value, json};
+use serde_json::{Map, Value, json};
+
+use crate::config_schema::{Invalid, Schema, Validated};
+use crate::log;
+use crate::logging::{Level, Logger};
 
 /// An error answered as `{"code": "<status>", "message": "<message>"}`.
 #[derive(Debug)]
@@ -115,6 +119,24 @@ pub fn clipped_json(value: &Value, max_chars: usize) -> String {
     let _ = serde_json::to_writer(&mut clipped, value);
     // A character cut at the end lies beyond the first `max_chars`
     String::from_utf8_lossy(&clipped.bytes).chars().take(max_chars).collect()
+}
+
+/// Validates a config given through the API: an invalid value is answered with 400 naming the
+/// member (`prefix` and the key, e.g. `config.blur`); unknown keys are dropped with a warning.
+pub fn validate_config(schema: &Schema, config: &Map<String, Value>, prefix: &str, logger: &Logger) -> Result<Validated, ApiError> {
+    let validated = schema
+        .validate(config)
+        .map_err(|(key, Invalid(expected))| ApiError::bad_request(format!("Member `{prefix}{key}` must be {expected}.")))?;
+    if !validated.unknown.is_empty() {
+        log!(
+            logger,
+            Level::Warning,
+            "unknown keys of the {} are dropped: {}",
+            schema.name,
+            validated.unknown.join(", ")
+        );
+    }
+    Ok(validated)
 }
 
 #[cfg(test)]

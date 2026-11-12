@@ -1425,3 +1425,49 @@ def test_detect_vehicle_footprints(case_file):
         assert response.status_code == expected_status, (
             f"Expected HTTP {expected_status}, got HTTP {response.status_code}: {response.text}"
         )
+
+
+
+def stored_stream_config(stream_id):
+    response = requests.post(API_URL + "listStreams")
+    assert response.status_code == 200
+    return next(item[CONFIG] for item in response.json()[DATA] if item[STREAM_ID] == stream_id)
+
+
+# Configs are validated: an invalid value -> 400 naming the key, unknown keys dropped, null removes a key,
+# accepted values stored normalized
+@rust_only
+@pytest.mark.order(++order)
+def test_strict_stream_config():
+    url = API_URL + "addStream"
+    for config in [{"plate-confidence": "high"}, {"char-score": -0.1}, {"flag-save-failed": "yes"},
+                   {"ban-duration": "30 sec"}, {"work-area": [[[0, 0], [100, 0]]]}, {"lpr-net-input-width": 0}]:
+        response = requests.post(url, json={STREAM_ID: "strict", CONFIG: config})
+        assert response.status_code == 400, config
+        assert f"`config.{next(iter(config))}`" in response.json()["message"]
+
+    config = {"plate-confidence": "0.55", "min-plate-height": "20", "ban-duration": 0, "callback-url": None,
+              "ovd-net-inference-server": "127.0.0.1:8001", "blur": 300}
+    response = requests.post(url, json={STREAM_ID: "strict", CONFIG: config})
+    assert response.status_code == 204
+    assert stored_stream_config("strict") == {"plate-confidence": 0.55, "min-plate-height": 20, "ban-duration": "0s"}
+
+    response = requests.post(API_URL + "removeStream", json={STREAM_ID: "strict"})
+    assert response.status_code == 204
+
+
+@rust_only
+@pytest.mark.order(++order)
+def test_strict_default_config():
+    url = API_URL + "setStreamDefaultConfig"
+    response = requests.post(url, json={"vehicle-confidence": 2})
+    assert response.status_code == 400
+    assert "`vehicle-confidence`" in response.json()["message"]
+    response = requests.post(url, json={"event-log-after": 6, "typo": 1})
+    assert response.status_code == 204
+    config = requests.post(API_URL + "getStreamDefaultConfig", json={}).json()[DATA]
+    assert config["event-log-after"] == "6s" and "typo" not in config
+    response = requests.post(url, json={"event-log-after": None})
+    assert response.status_code == 204
+    config = requests.post(API_URL + "getStreamDefaultConfig", json={}).json()[DATA]
+    assert "event-log-after" not in config

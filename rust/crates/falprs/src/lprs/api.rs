@@ -16,10 +16,11 @@ use serde_json::{Map, Value, json};
 use super::Lprs;
 use super::caches::vstream_key;
 use super::footprints;
+use super::vstream_config::SCHEMA;
 use super::workflow;
 use crate::converters;
 use crate::fetch::{FetchError, fetch_image};
-use crate::http_api::{ApiError, ApiResult, clipped_json, data_response, no_content, require_member};
+use crate::http_api::{ApiError, ApiResult, clipped_json, data_response, no_content, require_member, validate_config};
 use crate::imaging;
 use crate::logging::{Level, StreamLog};
 use crate::stream_log;
@@ -109,9 +110,10 @@ async fn add_stream(lprs: &Lprs, id_group: i32, body: &Value) -> ApiResult {
     let ext_id = stream_id(body)?;
     // An absent config is stored as SQL NULL, not as a JSON null, which would turn the merge with
     // the stream group's default config into an array
+    // Keys given with null are not stored: the stream group's default applies to them
     let config = match body.get("config") {
         None => None,
-        Some(config @ Value::Object(_)) => Some(config.clone()),
+        Some(Value::Object(config)) => Some(Value::Object(validate_config(&SCHEMA, config, "config.", &lprs.logger)?.values)),
         Some(_) => return Err(ApiError::bad_request("Invalid member `config`.")),
     };
 
@@ -262,15 +264,18 @@ async fn get_event_data(lprs: &Lprs, id_group: i32, body: &Value) -> ApiResult {
 }
 
 async fn set_stream_default_config(lprs: &Lprs, id_group: i32, body: &Value) -> ApiResult {
-    if !body.is_object() {
+    let Some(config) = body.as_object() else {
         return Err(ApiError::bad_request("Body is not a valid JSON object."));
-    }
+    };
+    let validated = validate_config(&SCHEMA, config, "", &lprs.logger)?;
+    let values = Value::Object(validated.values);
+    // Keys given with null are removed: their built-in defaults apply again
     let result = lprs
         .cluster
         .execute(
             HostType::Master,
-            "update default_vstream_config set config = coalesce(config, $2) || $2 where id_group = $1",
-            &[&id_group, body],
+            "update default_vstream_config set config = (coalesce(config, '{}') || $2) - $3::text[] where id_group = $1",
+            &[&id_group, &values, &validated.nulls],
         )
         .await;
     result.map_err(db_error(lprs))?;
