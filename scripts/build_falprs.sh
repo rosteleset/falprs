@@ -25,60 +25,14 @@ elif [ -f "$BASEDIR/../.env" ]; then
 fi
 
 # External variables used in the script
-# FALPRS_IMPL - implementation to build: rust (default) or cpp
-# PG_VERSION - PostgreSQL database system version
 # FALPRS_WORKDIR - FALPRS working directory
 
-# Set default values if not provided
-# Auto-detect Ubuntu version if not set
-if [ -f /etc/os-release ]; then
-    . /etc/os-release
-    UBUNTU_VERSION=$VERSION_ID
-fi
-
-if [ -z "$PG_VERSION" ]; then
-    case $UBUNTU_VERSION in
-        "24.04")
-            PG_VERSION=16
-            ;;
-        "26.04")
-            PG_VERSION=18
-            ;;
-        *)
-            PG_VERSION=16
-            ;;
-    esac
-fi
-
 export FALPRS_WORKDIR="${FALPRS_WORKDIR:-/opt/falprs}"
-export FALPRS_IMPL="${FALPRS_IMPL:-rust}"
-case "$FALPRS_IMPL" in
-    rust)
-        FALPRS_BINARY="$BASEDIR/../rust/target/release/falprs"
-        ;;
-    cpp)
-        FALPRS_BINARY="$BASEDIR/../build/falprs"
-        ;;
-    *)
-        echo "Error: FALPRS_IMPL must be rust or cpp, not '$FALPRS_IMPL'"
-        exit 1
-        ;;
-esac
-echo "Building the $FALPRS_IMPL implementation of FALPRS"
-
-CPP_APT_PACKAGES="build-essential ccache cmake git libboost-dev libboost-context-dev libboost-coroutine-dev libboost-filesystem-dev libboost-iostreams-dev libboost-locale-dev libboost-program-options-dev libboost-regex-dev libboost-stacktrace-dev zlib1g-dev nasm clang-format libssl-dev libyaml-cpp-dev libjemalloc-dev libpq-dev postgresql-server-dev-$PG_VERSION rapidjson-dev python3-dev python3-jinja2 python3-venv python3-voluptuous python3-yaml libgtest-dev libnghttp2-dev libev-dev libldap2-dev libkrb5-dev libzstd-dev libopencv-dev libbz2-dev libre2-dev libcrypto++-dev libc-ares-dev libcurl4-openssl-dev libcctz-dev liburing-dev libicu-dev"
-if [ "$UBUNTU_VERSION" = "26.04" ]; then
-    CPP_APT_PACKAGES="$CPP_APT_PACKAGES libjitterentropy3-dev clang libstdc++-16-dev"
-fi
+FALPRS_BINARY="$BASEDIR/../rust/target/release/falprs"
+echo "Building FALPRS"
 
 # The Rust build needs a C compiler only for the TLS crypto library; Rust itself is installed with rustup
-RUST_APT_PACKAGES="build-essential ca-certificates curl python3-yaml"
-
-if [ "$FALPRS_IMPL" = "rust" ]; then
-    APT_PACKAGES="$RUST_APT_PACKAGES"
-else
-    APT_PACKAGES="$CPP_APT_PACKAGES"
-fi
+APT_PACKAGES="build-essential ca-certificates curl python3-yaml"
 
 # These operations require root privileges.
 apt-get update
@@ -86,7 +40,6 @@ apt-get install -y $APT_PACKAGES
 
 # Build FALPRS as the regular user.
 # runuser does not request another password when the script is already running as root.
-if [ "$FALPRS_IMPL" = "rust" ]; then
 runuser -u "$BUILD_USER" -- env \
     HOME="$BUILD_HOME" \
     USER="$BUILD_USER" \
@@ -110,38 +63,6 @@ rustup toolchain install "$TOOLCHAIN" --profile minimal
 
 cargo build --release --locked -p falprs
 '
-else
-runuser -u "$BUILD_USER" -- env \
-    HOME="$BUILD_HOME" \
-    USER="$BUILD_USER" \
-    LOGNAME="$BUILD_USER" \
-    BASEDIR="$BASEDIR" \
-    PG_VERSION="$PG_VERSION" \
-    UBUNTU_VERSION="$UBUNTU_VERSION" \
-    bash -c '
-set -e
-
-if [[ "$UBUNTU_VERSION" = "26.04" ]]; then
-    export CC=clang
-    export CXX=clang++
-fi
-
-cd "$BASEDIR/.."
-
-rm -rf build
-mkdir -p build
-cd build
-
-cmake \
-    -DCMAKE_BUILD_TYPE=Release \
-    -DUSERVER_PG_SERVER_INCLUDE_DIR="/usr/include/postgresql/$PG_VERSION/server" \
-    -DUSERVER_PG_SERVER_LIBRARY_DIR="/usr/lib/postgresql/$PG_VERSION/lib" \
-    -DUSERVER_PG_LIBRARY_DIR="/usr/lib/postgresql/$PG_VERSION/lib" \
-    ..
-
-make falprs -j"$(nproc)"
-'
-fi
 
 # Everything below this point is deployment/configuration and requires root.
 # The executable was built by BUILD_USER and is copied to the root-owned
@@ -151,8 +72,8 @@ mkdir -p "$FALPRS_WORKDIR"
 mkdir -p "$FALPRS_WORKDIR/static"
 
 if cp "$FALPRS_BINARY" "$FALPRS_WORKDIR/falprs"; then
-    # The update script compares it with the implementation to install
-    echo "$FALPRS_IMPL" > "$FALPRS_WORKDIR/falprs.impl"
+    # The update script rebuilds a working directory that holds another implementation
+    echo rust > "$FALPRS_WORKDIR/falprs.impl"
 else
     echo "Warning: failed to copy falprs, continuing..."
 fi

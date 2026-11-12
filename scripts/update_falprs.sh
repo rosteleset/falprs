@@ -15,7 +15,6 @@ elif [ -f "$BASEDIR/../.env" ]; then
 fi
 
 # External variables used in the script
-# FALPRS_IMPL - implementation to install: rust (default) or cpp
 # PG_VERSION - PostgreSQL database system version
 # TRITON_VERSION - NVIDIA Triton Inference Server container image version
 # FALPRS_WORKDIR - FALPRS working directory
@@ -43,36 +42,18 @@ fi
 export TRITON_VERSION=${TRITON_VERSION:-24.09}
 export FALPRS_WORKDIR=${FALPRS_WORKDIR:-/opt/falprs}
 export FALPRS_REPOSITORY_URL=${FALPRS_REPOSITORY_URL:-https://github.com/rosteleset/falprs}
-export FALPRS_IMPL=${FALPRS_IMPL:-rust}
-case "$FALPRS_IMPL" in
-    rust)
-        FALPRS_BINARY="$BASEDIR/../rust/target/release/falprs"
-        ;;
-    cpp)
-        FALPRS_BINARY="$BASEDIR/../build/falprs"
-        ;;
-    *)
-        echo "Error: FALPRS_IMPL must be rust or cpp, not '$FALPRS_IMPL'"
-        exit 1
-        ;;
-esac
+FALPRS_BINARY="$BASEDIR/../rust/target/release/falprs"
 
-# Extract the project version of the implementation to install
+# Extract the project version
 REQUIRED_VERSION=""
-if [ "$FALPRS_IMPL" = "rust" ]; then
-    CARGO_FILE="$BASEDIR/../rust/Cargo.toml"
-    if [ -f "$CARGO_FILE" ]; then
-        REQUIRED_VERSION=$(awk '/^\[workspace\.package\]/ { in_package = 1; next } /^\[/ { in_package = 0 }
-            in_package && /^version[[:space:]]*=/ { gsub(/[^0-9.]/, "", $0); print; exit }' "$CARGO_FILE")
-    fi
-else
-    CMAKELISTS_FILE="$BASEDIR/../CMakeLists.txt"
-    if [ -f "$CMAKELISTS_FILE" ]; then
-        REQUIRED_VERSION=$(grep -oiP 'project\s*\(\s*falprs\s+VERSION\s+\K[0-9]+(\.[0-9]+)+' "$CMAKELISTS_FILE" | head -n 1 | tr -d '[:space:]')
-    fi
+CARGO_FILE="$BASEDIR/../rust/Cargo.toml"
+if [ -f "$CARGO_FILE" ]; then
+    REQUIRED_VERSION=$(awk '/^\[workspace\.package\]/ { in_package = 1; next } /^\[/ { in_package = 0 }
+        in_package && /^version[[:space:]]*=/ { gsub(/[^0-9.]/, "", $0); print; exit }' "$CARGO_FILE")
 fi
 
-# Determine the installed implementation; installations made before the choice existed are C++
+# Determine the installed implementation; installations without the file are C++ ones.
+# A C++ installation is replaced with the Rust one even when the version numbers match.
 INSTALLED_IMPL=cpp
 if [ -f "$FALPRS_WORKDIR/falprs.impl" ]; then
     INSTALLED_IMPL=$(tr -d '[:space:]' < "$FALPRS_WORKDIR/falprs.impl")
@@ -92,9 +73,9 @@ fi
 # Check if rebuild is needed
 NEED_BUILD=true
 if [ -n "$INSTALLED_VERSION" ] && [ -n "$REQUIRED_VERSION" ] && [ "$INSTALLED_VERSION" = "$REQUIRED_VERSION" ] \
-    && [ "$INSTALLED_IMPL" = "$FALPRS_IMPL" ]; then
+    && [ "$INSTALLED_IMPL" = "rust" ]; then
     echo "Current FALPRS version: $INSTALLED_VERSION ($INSTALLED_IMPL)"
-    echo "Required FALPRS version: $REQUIRED_VERSION ($FALPRS_IMPL)"
+    echo "Required FALPRS version: $REQUIRED_VERSION (rust)"
     echo "FALPRS executable is up to date."
     NEED_BUILD=false
 else
@@ -103,7 +84,7 @@ else
     else
         echo "Current FALPRS version: unknown"
     fi
-    echo "Required FALPRS version: $REQUIRED_VERSION ($FALPRS_IMPL)"
+    echo "Required FALPRS version: $REQUIRED_VERSION (rust)"
     echo "FALPRS executable needs to be rebuilt."
     NEED_BUILD=true
 fi
@@ -152,7 +133,7 @@ if [[ "$NEED_BUILD" == true || "$NEEDS_GEN" == true ]]; then
     if [ "$NEED_BUILD" = true ]; then
         echo "Copying new executable..."
         cp "$FALPRS_BINARY" "$FALPRS_WORKDIR/falprs"
-        echo "$FALPRS_IMPL" > "$FALPRS_WORKDIR/falprs.impl"
+        echo rust > "$FALPRS_WORKDIR/falprs.impl"
     fi
 fi
 
