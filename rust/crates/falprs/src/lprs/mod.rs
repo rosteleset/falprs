@@ -15,6 +15,7 @@ use pg_cluster::Cluster;
 
 use crate::cache::PgCache;
 use crate::config::{LprsConfig, LprsSettings};
+use crate::config_schema::StoredConfigWarnings;
 use crate::logging::{Level, Logger};
 use crate::pipeline_slots::PipelineSlots;
 use crate::triton::Triton;
@@ -43,12 +44,13 @@ impl Lprs {
             .context("can't connect to the LPRS database")?;
 
         let groups = PgCache::start("lprs.caches.groups", cluster.clone(), &config.groups_cache, logger.clone(), caches::load_groups).await?;
+        let warnings = StoredConfigWarnings::new(logger.clone());
         let vstreams_config = PgCache::start(
             "lprs.caches.video-streams-config",
             cluster.clone(),
             &config.video_streams_config_cache,
             logger.clone(),
-            caches::load_vstreams_config,
+            move |cluster, host_type| caches::load_vstreams_config(cluster, host_type, warnings.clone()),
         )
         .await?;
         let vstream_group = PgCache::start(

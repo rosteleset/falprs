@@ -1,11 +1,69 @@
-//! Typed video stream config, read leniently from its JSON form with the C++ service's defaults.
+//! Typed video stream config, read from its stored JSON form through its schema, with the C++
+//! service's defaults.
 
+use std::sync::LazyLock;
 use std::time::Duration;
 
-use serde_json::Value;
+use serde_json::{Value, json};
 
-use crate::converters::{to_bool, to_duration, to_f32, to_i64, to_string};
+use crate::config_schema::{Kind, Legacy, Schema, SchemaBuilder};
 use crate::logging::Level;
+
+/// The models: key prefix, model name, input width and height, input and output tensor names.
+const MODELS: [(&str, &str, i64, i64, &str, &str); 6] = [
+    ("vd-net", "vdnet_yolo", 640, 640, "images", "output0"),
+    ("vc-net", "vcnet_vit", 224, 224, "input", "output"),
+    ("lpd-net", "lpdnet_yolo", 640, 640, "images", "output0"),
+    ("lpc-net", "lpcnet_vit", 224, 224, "input", "output"),
+    ("lpr-net", "lprnet_yolo", 320, 320, "images", "output0"),
+    ("uod-net", "uodnet", 640, 640, "images", "output0"),
+];
+
+/// The schema of a video stream config and of a default video stream config.
+pub static SCHEMA: LazyLock<Schema> = LazyLock::new(|| {
+    let mut builder = SchemaBuilder::new("LPRS video stream config", Legacy::Lenient);
+    for (prefix, name, width, height, input, output) in MODELS {
+        builder = builder
+            .string(format!("{prefix}-inference-server"), "127.0.0.1:8001")
+            .string(format!("{prefix}-model-name"), name)
+            .int(format!("{prefix}-input-width"), 1, width)
+            .int(format!("{prefix}-input-height"), 1, height)
+            .string(format!("{prefix}-input-tensor-name"), input)
+            .string(format!("{prefix}-output-tensor-name"), output);
+    }
+    builder
+        .fraction("uod-net-nms-iou-threshold", 0.7)
+        .fraction("uod-net-keypoint-confidence", 0.5)
+        .fraction("uod-net-nested-box-overlap", 0.85)
+        .fraction("uod-net-nested-footprint-overlap", 0.3)
+        .duration("callback-timeout", "2s")
+        .fraction("plate-confidence", 0.6)
+        .fraction("char-score", 0.4)
+        .fraction("char-iou-threshold", 0.7)
+        .int("max-capture-error-count", 0, 3)
+        .fraction("vehicle-confidence", 0.6)
+        .fraction("vehicle-iou-threshold", 0.45)
+        .fraction("vehicle-area-ratio-threshold", 0.01)
+        .fraction("special-confidence", 0.7)
+        .duration("capture-timeout", "2s")
+        .duration("event-log-before", "10s")
+        .duration("event-log-after", "5s")
+        .duration("delay-between-frames", "1s")
+        .duration("ban-duration", "30s")
+        .duration("ban-duration-area", "12h")
+        .fraction("ban-iou-threshold", 0.9)
+        .duration("delay-after-error", "30s")
+        .key("logs-level", Kind::Level, json!("info"))
+        .int("min-plate-height", 0, 0)
+        .key("work-area", Kind::LprsWorkArea, json!([]))
+        .bool("flag-save-failed", false)
+        .bool("flag-process-special", false)
+        .duration("workflow-timeout", "0s")
+        .duration("inference-timeout", "1s")
+        .string("screenshot-url", "")
+        .string("callback-url", "")
+        .build()
+});
 
 /// A model served by Triton.
 #[derive(Debug, Clone)]
@@ -19,17 +77,16 @@ pub struct ModelConfig {
 }
 
 impl ModelConfig {
-    /// Reads `<prefix>-*` keys; `server_key` names the key holding the inference server address.
-    fn read(json: &Value, prefix: &str, server_key: &str, defaults: (&str, u32, u32, &str, &str)) -> Self {
-        let (model_name, width, height, input, output) = defaults;
-        let key = |suffix: &str| json.get(format!("{prefix}-{suffix}"));
+    /// Reads the `<prefix>-*` keys.
+    fn read(json: &Value, prefix: &str) -> Self {
+        let key = |suffix: &str| format!("{prefix}-{suffix}");
         Self {
-            inference_server: to_string(json.get(server_key), "127.0.0.1:8001"),
-            model_name: to_string(key("model-name"), model_name),
-            input_width: to_i64(key("input-width"), width as i64) as u32,
-            input_height: to_i64(key("input-height"), height as i64) as u32,
-            input_tensor_name: to_string(key("input-tensor-name"), input),
-            output_tensor_name: to_string(key("output-tensor-name"), output),
+            inference_server: SCHEMA.string(json, &key("inference-server")),
+            model_name: SCHEMA.string(json, &key("model-name")),
+            input_width: SCHEMA.i64(json, &key("input-width")) as u32,
+            input_height: SCHEMA.i64(json, &key("input-height")) as u32,
+            input_tensor_name: SCHEMA.string(json, &key("input-tensor-name")),
+            output_tensor_name: SCHEMA.string(json, &key("output-tensor-name")),
         }
     }
 }
@@ -90,73 +147,59 @@ pub struct VStreamConfig {
     pub callback_url: String,
 }
 
-fn read_work_area(value: Option<&Value>) -> Vec<WorkAreaPolygon> {
-    let parse = |value: &Value| -> Option<Vec<WorkAreaPolygon>> {
-        value
-            .as_array()?
-            .iter()
-            .map(|polygon| {
-                polygon
-                    .as_array()?
-                    .iter()
-                    .map(|point| {
-                        let point = point.as_array()?;
-                        Some([point.first()?.as_f64()? as f32, point.get(1)?.as_f64()? as f32])
-                    })
-                    .collect()
-            })
-            .collect()
-    };
-    value.and_then(parse).unwrap_or_default()
-}
-
-fn read_level(value: Option<&Value>, default: Level) -> Level {
-    value.and_then(Value::as_str).and_then(|text| text.parse().ok()).unwrap_or(default)
+fn read_work_area(value: &Value) -> Vec<WorkAreaPolygon> {
+    let point = |point: &Value| [point[0].as_f64().unwrap_or_default() as f32, point[1].as_f64().unwrap_or_default() as f32];
+    value
+        .as_array()
+        .into_iter()
+        .flatten()
+        .map(|polygon| polygon.as_array().into_iter().flatten().map(point).collect())
+        .collect()
 }
 
 impl VStreamConfig {
     pub fn from_json(json: &Value) -> Self {
-        let f32_of = |key: &str, default: f32| to_f32(json.get(key), default);
-        let duration_of = |key: &str, default: Duration| to_duration(json.get(key), default);
-        let secs = Duration::from_secs;
+        let schema = &*SCHEMA;
+        let f32_of = |key: &str| schema.f32(json, key);
+        let duration_of = |key: &str| schema.duration(json, key);
         Self {
-            vd_net: ModelConfig::read(json, "vd-net", "vd-net-inference-server", ("vdnet_yolo", 640, 640, "images", "output0")),
-            vc_net: ModelConfig::read(json, "vc-net", "vc-net-inference-server", ("vcnet_vit", 224, 224, "input", "output")),
-            lpd_net: ModelConfig::read(json, "lpd-net", "lpd-net-inference-server", ("lpdnet_yolo", 640, 640, "images", "output0")),
-            lpc_net: ModelConfig::read(json, "lpc-net", "lpc-net-inference-server", ("lpcnet_vit", 224, 224, "input", "output")),
-            lpr_net: ModelConfig::read(json, "lpr-net", "lpr-net-inference-server", ("lprnet_yolo", 320, 320, "images", "output0")),
-            uod_net: ModelConfig::read(json, "uod-net", "uod-net-inference-server", ("uodnet", 640, 640, "images", "output0")),
-            uod_net_nms_iou_threshold: f32_of("uod-net-nms-iou-threshold", 0.7),
-            uod_net_keypoint_confidence: f32_of("uod-net-keypoint-confidence", 0.5),
-            uod_net_nested_box_overlap: f32_of("uod-net-nested-box-overlap", 0.85),
-            uod_net_nested_footprint_overlap: f32_of("uod-net-nested-footprint-overlap", 0.3),
+            vd_net: ModelConfig::read(json, "vd-net"),
+            vc_net: ModelConfig::read(json, "vc-net"),
+            lpd_net: ModelConfig::read(json, "lpd-net"),
+            lpc_net: ModelConfig::read(json, "lpc-net"),
+            lpr_net: ModelConfig::read(json, "lpr-net"),
+            uod_net: ModelConfig::read(json, "uod-net"),
+            uod_net_nms_iou_threshold: f32_of("uod-net-nms-iou-threshold"),
+            uod_net_keypoint_confidence: f32_of("uod-net-keypoint-confidence"),
+            uod_net_nested_box_overlap: f32_of("uod-net-nested-box-overlap"),
+            uod_net_nested_footprint_overlap: f32_of("uod-net-nested-footprint-overlap"),
 
-            callback_timeout: duration_of("callback-timeout", secs(2)),
-            plate_confidence: f32_of("plate-confidence", 0.6),
-            char_score: f32_of("char-score", 0.4),
-            char_iou_threshold: f32_of("char-iou-threshold", 0.7),
-            max_capture_error_count: to_i64(json.get("max-capture-error-count"), 3).max(0) as u32,
-            vehicle_confidence: f32_of("vehicle-confidence", 0.6),
-            vehicle_iou_threshold: f32_of("vehicle-iou-threshold", 0.45),
-            vehicle_area_ratio_threshold: f32_of("vehicle-area-ratio-threshold", 0.01),
-            special_confidence: f32_of("special-confidence", 0.7),
-            capture_timeout: duration_of("capture-timeout", secs(2)),
-            event_log_before: duration_of("event-log-before", secs(10)),
-            event_log_after: duration_of("event-log-after", secs(5)),
-            delay_between_frames: duration_of("delay-between-frames", secs(1)),
-            ban_duration: duration_of("ban-duration", secs(30)),
-            ban_duration_area: duration_of("ban-duration-area", secs(12 * 3600)),
-            ban_iou_threshold: f32_of("ban-iou-threshold", 0.9),
-            delay_after_error: duration_of("delay-after-error", secs(30)),
-            logs_level: read_level(json.get("logs-level"), Level::Info),
-            min_plate_height: to_i64(json.get("min-plate-height"), 0) as f32,
-            work_area: read_work_area(json.get("work-area")),
-            flag_save_failed: to_bool(json.get("flag-save-failed"), false),
-            flag_process_special: to_bool(json.get("flag-process-special"), false),
-            workflow_timeout: duration_of("workflow-timeout", Duration::ZERO),
-            inference_timeout: duration_of("inference-timeout", secs(1)),
-            screenshot_url: to_string(json.get("screenshot-url"), ""),
-            callback_url: to_string(json.get("callback-url"), ""),
+            callback_timeout: duration_of("callback-timeout"),
+            plate_confidence: f32_of("plate-confidence"),
+            char_score: f32_of("char-score"),
+            char_iou_threshold: f32_of("char-iou-threshold"),
+            max_capture_error_count: schema.i64(json, "max-capture-error-count") as u32,
+            vehicle_confidence: f32_of("vehicle-confidence"),
+            vehicle_iou_threshold: f32_of("vehicle-iou-threshold"),
+            vehicle_area_ratio_threshold: f32_of("vehicle-area-ratio-threshold"),
+            special_confidence: f32_of("special-confidence"),
+            capture_timeout: duration_of("capture-timeout"),
+            event_log_before: duration_of("event-log-before"),
+            event_log_after: duration_of("event-log-after"),
+            delay_between_frames: duration_of("delay-between-frames"),
+            ban_duration: duration_of("ban-duration"),
+            ban_duration_area: duration_of("ban-duration-area"),
+            ban_iou_threshold: f32_of("ban-iou-threshold"),
+            delay_after_error: duration_of("delay-after-error"),
+            logs_level: schema.level(json, "logs-level"),
+            min_plate_height: schema.i64(json, "min-plate-height") as f32,
+            work_area: read_work_area(&schema.value(json, "work-area")),
+            flag_save_failed: schema.bool(json, "flag-save-failed"),
+            flag_process_special: schema.bool(json, "flag-process-special"),
+            workflow_timeout: duration_of("workflow-timeout"),
+            inference_timeout: duration_of("inference-timeout"),
+            screenshot_url: schema.string(json, "screenshot-url"),
+            callback_url: schema.string(json, "callback-url"),
         }
     }
 

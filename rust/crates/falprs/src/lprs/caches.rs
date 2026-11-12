@@ -7,7 +7,8 @@ use anyhow::Result;
 use pg_cluster::{Cluster, HostType};
 use serde_json::Value;
 
-use super::vstream_config::VStreamConfig;
+use super::vstream_config::{SCHEMA, VStreamConfig};
+use crate::config_schema::StoredConfigWarnings;
 
 /// Stream group id by access token.
 pub type GroupsData = HashMap<String, i32>;
@@ -42,7 +43,8 @@ const SQL_VSTREAMS_CONFIG: &str = r#"
       vs.id_vstream,
       vs.ext_id,
       -- a JSON null (stored by addStream without a config before) counts as no config
-      coalesce(d.config, '{}') || coalesce(nullif(vs.config, 'null'), '{}') config
+      coalesce(d.config, '{}') || coalesce(nullif(vs.config, 'null'), '{}') config,
+      vs.config own_config
     from
       vstreams vs
       left join default_vstream_config d
@@ -57,18 +59,27 @@ const SQL_VSTREAMS_CONFIG: &str = r#"
       d.id_group,
       0 id_vstream,
       'v' ext_id,
-      d.config
+      d.config,
+      d.config own_config
     from
       default_vstream_config d
 "#;
 
-pub async fn load_vstreams_config(cluster: Cluster, host_type: HostType) -> Result<VStreamsConfigData> {
+pub async fn load_vstreams_config(cluster: Cluster, host_type: HostType, warnings: Arc<StoredConfigWarnings>) -> Result<VStreamsConfigData> {
     let rows = cluster.query(host_type, SQL_VSTREAMS_CONFIG, &[]).await?;
     // vstreams.id_group is nullable; a video stream without a stream group is unreachable through the API
     Ok(rows
         .iter()
         .filter_map(|row| {
-            row.get::<_, Option<i32>>(1)?;
+            let id_group = row.get::<_, Option<i32>>(1)?;
+            let own_config = row.get::<_, Option<Value>>(5).unwrap_or(Value::Null);
+            let id_vstream: i32 = row.get(2);
+            if id_vstream == 0 {
+                warnings.check(&SCHEMA, "default_vstream_config", &format!("stream group {id_group}"), &own_config);
+            } else {
+                let row_name = format!("stream group {id_group}, video stream {}", row.get::<_, String>(3));
+                warnings.check(&SCHEMA, "vstreams", &row_name, &own_config);
+            }
             let config = row.get::<_, Option<Value>>(4).unwrap_or(Value::Null);
             let entry = VStreamEntry {
                 id_vstream: row.get(2),

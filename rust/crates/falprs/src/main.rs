@@ -1,6 +1,7 @@
 mod cache;
 mod callback;
 mod config;
+mod config_schema;
 mod converters;
 mod database;
 mod fetch;

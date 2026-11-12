@@ -12,7 +12,8 @@ use chrono::{DateTime, Utc};
 use pg_cluster::{Cluster, HostType};
 use serde_json::Value;
 
-use super::config::{CommonConfig, VStreamConfig};
+use super::config::{COMMON_SCHEMA, CommonConfig, VSTREAM_SCHEMA, VStreamConfig};
+use crate::config_schema::StoredConfigWarnings;
 
 /// Stream group id by access token.
 pub type GroupsData = HashMap<String, i32>;
@@ -31,14 +32,17 @@ pub struct ConfigData {
     pub default_vstream: HashMap<i32, Arc<VStreamConfig>>,
 }
 
-pub async fn load_config(cluster: Cluster, host_type: HostType) -> Result<ConfigData> {
+/// Each stream group's common config and default video stream config; each is read from its own
+/// table only.
+pub async fn load_config(cluster: Cluster, host_type: HostType, warnings: Arc<StoredConfigWarnings>) -> Result<ConfigData> {
     let rows = cluster
         .query(
             host_type,
             r#"
             select
               vg.id_group,
-              coalesce(cc.config, '{}') || coalesce(dvc.config, '{}') config
+              coalesce(cc.config, '{}') common_config,
+              coalesce(dvc.config, '{}') default_vstream_config
             from
               vstream_groups vg
               left join common_config cc
@@ -52,9 +56,12 @@ pub async fn load_config(cluster: Cluster, host_type: HostType) -> Result<Config
     let mut data = ConfigData::default();
     for row in &rows {
         let id_group: i32 = row.get(0);
-        let config: Value = row.get(1);
-        data.common.insert(id_group, Arc::new(CommonConfig::from_json(&config)));
-        let mut default_vstream = VStreamConfig::from_json(&config);
+        let (common, default): (Value, Value) = (row.get(1), row.get(2));
+        let group = format!("stream group {id_group}");
+        warnings.check(&COMMON_SCHEMA, "common_config", &group, &common);
+        warnings.check(&VSTREAM_SCHEMA, "default_vstream_config", &group, &default);
+        data.common.insert(id_group, Arc::new(CommonConfig::from_json(&common)));
+        let mut default_vstream = VStreamConfig::from_json(&default);
         default_vstream.id_group = id_group;
         data.default_vstream.insert(id_group, Arc::new(default_vstream));
     }
@@ -73,7 +80,12 @@ pub struct VStreamConfigRow {
     config: Option<VStreamConfig>,
 }
 
-pub async fn load_vstreams_config(cluster: Cluster, host_type: HostType, since: Option<DateTime<Utc>>) -> Result<Vec<VStreamConfigRow>> {
+pub async fn load_vstreams_config(
+    cluster: Cluster,
+    host_type: HostType,
+    since: Option<DateTime<Utc>>,
+    warnings: Arc<StoredConfigWarnings>,
+) -> Result<Vec<VStreamConfigRow>> {
     const QUERY: &str = r#"
         select
           concat(vs.id_group, '_', vs.vstream_ext) unique_key,
@@ -84,7 +96,8 @@ pub async fn load_vstreams_config(cluster: Cluster, host_type: HostType, since: 
           coalesce(vs.callback_url, '') callback_url,
           coalesce(vs.callback_url_barcodes, '') callback_url_barcodes,
           coalesce(d.config, '{}') || coalesce(vs.config, '{}') config,
-          vs.flag_deleted
+          vs.flag_deleted,
+          vs.config own_config
         from
           video_streams vs
           left join default_vstream_config d
@@ -102,6 +115,10 @@ pub async fn load_vstreams_config(cluster: Cluster, host_type: HostType, since: 
         .map(|row| {
             let flag_deleted: bool = row.get(8);
             let config = (!flag_deleted).then(|| {
+                let own_config = row.get::<_, Option<Value>>(9).unwrap_or(Value::Null);
+                let id_group = row.get::<_, Option<i32>>(1).unwrap_or_default();
+                let row_name = format!("stream group {id_group}, video stream {}", row.get::<_, String>(3));
+                warnings.check(&VSTREAM_SCHEMA, "video_streams", &row_name, &own_config);
                 let json: Value = row.get(7);
                 let mut config = VStreamConfig::from_json(&json);
                 // A video stream without a stream group is unreachable through the API

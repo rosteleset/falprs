@@ -19,6 +19,7 @@ use pg_cluster::Cluster;
 
 use crate::cache::PgCache;
 use crate::config::{FrsConfig, FrsSettings};
+use crate::config_schema::StoredConfigWarnings;
 use crate::logging::{Level, Logger};
 use crate::pipeline_slots::PipelineSlots;
 use crate::triton::Triton;
@@ -58,9 +59,15 @@ impl Frs {
         let (name, c, cfg, l) = start("frs.caches.groups", &config.groups_cache);
         let groups = PgCache::start(name, c, cfg, l, caches::load_groups).await?;
         let (name, c, cfg, l) = start("frs.caches.config", &config.config_cache);
-        let common_config = PgCache::start(name, c, cfg, l, caches::load_config).await?;
+        let warnings = StoredConfigWarnings::new(logger.clone());
+        let load_config = {
+            let warnings = warnings.clone();
+            move |cluster, host_type| caches::load_config(cluster, host_type, warnings.clone())
+        };
+        let common_config = PgCache::start(name, c, cfg, l, load_config).await?;
         let (name, c, cfg, l) = start("frs.caches.video-streams-config", &config.video_streams_config_cache);
-        let vstreams_config = PgCache::start_incremental(name, c, cfg, l, caches::load_vstreams_config, caches::apply_vstreams_config).await?;
+        let load_vstreams_config = move |cluster, host_type, since| caches::load_vstreams_config(cluster, host_type, since, warnings.clone());
+        let vstreams_config = PgCache::start_incremental(name, c, cfg, l, load_vstreams_config, caches::apply_vstreams_config).await?;
         let (name, c, cfg, l) = start("frs.caches.face-descriptors", &config.face_descriptors_cache);
         let face_descriptors = PgCache::start_incremental(name, c, cfg, l, caches::load_face_descriptors, caches::apply_face_descriptors).await?;
         let (name, c, cfg, l) = start("frs.caches.video-stream-descriptors", &config.video_stream_descriptors_cache);

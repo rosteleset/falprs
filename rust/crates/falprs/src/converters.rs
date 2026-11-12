@@ -35,13 +35,6 @@ pub fn parse_duration(text: &str) -> Option<Duration> {
     }
 }
 
-pub fn to_duration(value: Option<&Value>, default: Duration) -> Duration {
-    match value {
-        Some(Value::String(text)) => parse_duration(text).unwrap_or(default),
-        _ => default,
-    }
-}
-
 pub fn to_string(value: Option<&Value>, default: &str) -> String {
     match value {
         None | Some(Value::Null) => default.to_string(),
@@ -56,20 +49,6 @@ pub fn to_f32(value: Option<&Value>, default: f32) -> f32 {
     match value {
         Some(Value::Number(number)) => number.as_f64().map_or(default, |n| n as f32),
         Some(Value::String(text)) => text.trim().parse().unwrap_or(default),
-        _ => default,
-    }
-}
-
-/// Booleans also come as numbers (non-zero is true) or as `true`/`false`, `yes`/`no`, `1`/`0` strings.
-pub fn to_bool(value: Option<&Value>, default: bool) -> bool {
-    match value {
-        Some(Value::Bool(b)) => *b,
-        Some(Value::Number(number)) => number.as_f64().map_or(default, |n| n != 0.0),
-        Some(Value::String(text)) => match text.to_ascii_lowercase().as_str() {
-            "true" | "t" | "yes" | "y" | "1" => true,
-            "false" | "f" | "no" | "n" | "0" => false,
-            _ => default,
-        },
         _ => default,
     }
 }
@@ -98,7 +77,6 @@ mod tests {
         assert_eq!(parse_duration("-1s"), None);
         assert_eq!(parse_duration("1.5s"), None);
         assert_eq!(parse_duration("1w"), None);
-        assert_eq!(to_duration(Some(&json!(5)), Duration::from_secs(1)), Duration::from_secs(1));
     }
 
     #[test]
