@@ -140,7 +140,7 @@ sudo apt-get install -y git
 Obtaining the project source code:
 ```bash
 cd ~
-git clone --recurse-submodules https://github.com/rosteleset/falprs.git
+git clone https://github.com/rosteleset/falprs.git
 ```
 <a id="install_drivers"></a>
 ### NVIDIA Driver Installation
@@ -267,7 +267,6 @@ Update the repository and run the **scripts/update_falprs.sh** script:
 ```bash
 cd ~/falprs
 git pull
-git submodule update --init --recursive
 sudo ~/falprs/scripts/update_falprs.sh
 ```
 The script:

@@ -140,7 +140,7 @@ sudo apt-get install -y git
 Получение исходного кода проекта:
 ```bash
 cd ~
-git clone --recurse-submodules https://github.com/rosteleset/falprs.git
+git clone https://github.com/rosteleset/falprs.git
 ```
 <a id="install_drivers"></a>
 ### Установка драйверов NVIDIA
@@ -267,7 +267,6 @@ sudo systemctl start falprs.service
 ```bash
 cd ~/falprs
 git pull
-git submodule update --init --recursive
 sudo ~/falprs/scripts/update_falprs.sh
 ```
 Скрипт:
