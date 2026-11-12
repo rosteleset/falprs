@@ -184,6 +184,15 @@ impl Logger {
         })
     }
 
+    /// A logger of warnings and above to the standard error, for the subcommands.
+    pub fn stderr() -> Result<Logger> {
+        let config = LoggerConfig {
+            file_path: "@stderr".to_string(),
+            level: "warning".to_string(),
+        };
+        Logger::new("stderr", &config)
+    }
+
     /// A logger that discards everything, for tests.
     #[cfg(test)]
     pub fn null() -> Logger {

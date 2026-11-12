@@ -1,5 +1,6 @@
 mod cache;
 mod callback;
+mod check_configs;
 mod config;
 mod config_schema;
 mod converters;
@@ -23,7 +24,7 @@ use std::sync::Arc;
 use anyhow::{Context, Result};
 use axum::Router;
 use axum::extract::DefaultBodyLimit;
-use clap::Parser;
+use clap::{Parser, Subcommand};
 use tokio::net::TcpListener;
 use tokio::signal::unix::{SignalKind, signal};
 use tokio::sync::watch;
@@ -41,8 +42,22 @@ struct Args {
     #[arg(short, long)]
     version: bool,
     /// Path to the service config (config.toml)
-    #[arg(short, long, required_unless_present = "version")]
+    #[arg(short, long, global = true)]
     config: Option<PathBuf>,
+    #[command(subcommand)]
+    command: Option<Command>,
+}
+
+#[derive(Subcommand)]
+enum Command {
+    /// Check the video stream, default video stream and common configs stored in the databases;
+    /// exits with 1 if some need cleaning
+    CheckConfigs {
+        /// Clean them: normalize, move or remove values, saving the changed rows to a backup file
+        /// next to the service config first
+        #[arg(long)]
+        fix: bool,
+    },
 }
 
 async fn serve(port: u16, router: Router, mut shutdown: watch::Receiver<bool>) -> Result<()> {
@@ -78,10 +93,17 @@ async fn wait_for_termination() -> Result<()> {
 #[tokio::main]
 async fn main() -> Result<()> {
     let args = Args::parse();
-    let Some(config_path) = args.config.filter(|_| !args.version) else {
+    if args.version {
         println!("{}", env!("CARGO_PKG_VERSION"));
         return Ok(());
+    }
+    let Some(config_path) = args.config else {
+        anyhow::bail!("the service config is required: -c <path to config.toml>");
     };
+    if let Some(Command::CheckConfigs { fix }) = args.command {
+        let code = check_configs::run(&config_path, fix).await?;
+        std::process::exit(code);
+    }
     // TLS for outgoing HTTPS uses ring, the only dependency with C/asm code
     rustls::crypto::ring::default_provider()
         .install_default()

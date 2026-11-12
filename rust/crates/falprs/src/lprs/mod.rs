@@ -22,6 +22,8 @@ use crate::triton::Triton;
 use caches::{GroupsData, VStreamGroupData, VStreamsConfigData};
 use workflow::Workflows;
 
+pub use vstream_config::SCHEMA;
+
 pub struct Lprs {
     cluster: Cluster,
     logger: Arc<Logger>,

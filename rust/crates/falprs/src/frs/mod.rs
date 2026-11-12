@@ -27,6 +27,8 @@ use caches::{ConfigData, FaceDescriptorData, GroupsData, SGConfigData, SGDescrip
 use descriptor_index::DescriptorLists;
 use workflow::Workflows;
 
+pub use config::{COMMON_SCHEMA, VSTREAM_SCHEMA};
+
 pub struct Frs {
     cluster: Cluster,
     logger: Arc<Logger>,
