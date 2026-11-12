@@ -573,6 +573,21 @@ mod tests {
         );
     }
 
+    /// The converter's output of the old configs, as scripts/tests/test_convert_config.py checks it.
+    #[test]
+    fn converted_configs_mean_the_same_as_the_new_ones() {
+        let converted = Config::load(&repo_file("scripts/tests/fixtures/test_config.converted.toml")).unwrap();
+        assert_eq!(converted, Config::load(&repo_file("tests/test_config.toml")).unwrap());
+
+        // The old example set a pool size of 15 that was ignored before; it is carried over now
+        let mut converted = Config::load(&repo_file("scripts/tests/fixtures/config.converted.toml")).unwrap();
+        for database in [&mut converted.lprs.as_mut().unwrap().database, &mut converted.frs.as_mut().unwrap().database] {
+            assert_eq!(database.max_pool_size, 15);
+            database.max_pool_size = 16;
+        }
+        assert_eq!(converted, Config::load(&repo_file("config.toml.example")).unwrap());
+    }
+
     #[test]
     fn minimal_config_has_the_documented_defaults() {
         let config = Config::parse(MINIMAL).unwrap();

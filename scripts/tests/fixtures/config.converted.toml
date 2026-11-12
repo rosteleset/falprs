@@ -1,0 +1,109 @@
+# Converted from config.yaml by scripts/convert_config.py.
+# config.toml.example lists every setting with its default.
+
+[server]
+port = 9051
+monitor-port = 9052
+static-dir = "/opt/falprs/static/"
+max-request-size = 5242880
+
+[logging.default]
+file = "/var/log/falprs/log.txt"
+level = "error"
+
+[logging.lprs]
+file = "/var/log/falprs/lprs-log.txt"
+level = "info"
+
+[logging.frs]
+file = "/var/log/falprs/frs-log.txt"
+level = "info"
+
+[lprs]
+no-auth-group-id = 1
+ban-cleanup-interval = "5s"
+events-log-cleanup-interval = "2h"
+events-log-ttl = "4h"
+screenshots-path = "/opt/falprs/static/lprs/"
+screenshots-url-prefix = "http://localhost:9051/lprs/"
+failed-path = "/opt/falprs/static/lprs/failed/"
+failed-ttl = "60d"
+
+[lprs.database]
+dsn = "postgresql://falprs:123@localhost:5432/lprs"
+max-pool-size = 15
+network-timeout = "5s"
+statement-timeout = "5s"
+discovery-timeout = "2s"
+
+[lprs.caches.groups]
+update-interval = "1m"
+host-type = "master"
+
+[lprs.caches.video-streams-config]
+update-interval = "1m"
+host-type = "master"
+
+[lprs.caches.video-stream-groups]
+update-interval = "1m"
+host-type = "master"
+
+[frs]
+no-auth-group-id = 1
+screenshots-path = "/opt/falprs/static/frs/screenshots/"
+screenshots-url-prefix = "http://localhost:9051/frs/screenshots/"
+events-path = "/opt/falprs/static/frs/events/"
+log-faces-cleanup-interval = "1h"
+log-faces-ttl = "4h"
+flag-deleted-cleanup-interval = "10s"
+flag-deleted-ttl = "5m"
+copy-events-interval = "30s"
+events-cleanup-interval = "1d"
+events-ttl = "30d"
+barcodes-path = "/opt/falprs/static/frs/barcodes/"
+barcodes-url-prefix = "http://localhost:9051/frs/barcodes/"
+log-barcodes-cleanup-interval = "1h"
+log-barcodes-ttl = "4h"
+
+[frs.database]
+dsn = "postgresql://falprs:123@localhost:5432/frs"
+max-pool-size = 15
+network-timeout = "5s"
+statement-timeout = "5s"
+discovery-timeout = "2s"
+
+[frs.caches.groups]
+update-interval = "1m"
+host-type = "master"
+
+[frs.caches.config]
+update-interval = "1m"
+host-type = "master"
+
+[frs.caches.video-streams-config]
+update-interval = "10s"
+full-update-interval = "5m"
+update-correction = "1s"
+host-type = "master"
+
+[frs.caches.face-descriptors]
+update-interval = "10s"
+full-update-interval = "10m"
+update-correction = "1s"
+host-type = "master"
+
+[frs.caches.video-stream-descriptors]
+update-interval = "10s"
+full-update-interval = "10m"
+update-correction = "1s"
+host-type = "master"
+
+[frs.caches.sg-config]
+update-interval = "1m"
+host-type = "master"
+
+[frs.caches.sg-descriptors]
+update-interval = "10s"
+full-update-interval = "10m"
+update-correction = "1s"
+host-type = "master"
