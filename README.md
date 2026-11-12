@@ -242,7 +242,7 @@ To initially populate the databases, execute the commands:
 ~/falprs/scripts/sql_frs.sh
 ~/falprs/scripts/sql_lprs.sh
 ```
-The project configuration is in the *config.yaml* file in the working directory (by default **/opt/falprs**). Main parameters have descriptions in comments. To perform API methods with mandatory authorization, set the *allow-group-id-without-auth* attribute value to zero in the *lprs-workflow* and *frs-workflow* sections. Operation with a separate HTTP server is also possible. In this case, replace the values of the corresponding local path attributes and URL prefixes in the *lprs-workflow* and *frs-workflow* sections.
+The project configuration is in the *config.toml* file in the working directory (by default **/opt/falprs**). The build script creates it from *config.toml.example*, which lists every setting with its default value and a description, and sets the database connections from the *.env* file. Only the two database connections (*dsn* in the *[lprs.database]* and *[frs.database]* sections) are required; the other settings may be left out, and then their default values are used. Unknown settings are rejected: the service does not start and names the setting. To perform API methods with mandatory authorization, set *no-auth-group-id* to zero in the *[lprs]* and *[frs]* sections. Operation with a separate HTTP server is also possible. In this case, replace the values of the local paths and URL prefixes (*screenshots-path*, *screenshots-url-prefix* and the like) in the *[lprs]* and *[frs]* sections.
 
 To start the container with **Triton Inference Server**, execute the command:
 ```bash
@@ -263,6 +263,14 @@ Before updating, make sure you have an up-to-date backup of the project's databa
 
 **Important:** if you are updating from an older version that did not use the *.env* file, first read the [Environment Variables](#env_vars) section. Set **TRITON_VERSION** according to the working version you are currently using.
 
+**Important:** update the project with the **scripts/update_falprs.sh** script only. Older versions kept the configuration in the *config.yaml* file; the service no longer reads it, and the script converts it into *config.toml* during the update. If you update the service in another way, convert the configuration yourself before starting the service, otherwise it will not start:
+```bash
+cd /opt/falprs
+sudo python3 ~/falprs/scripts/convert_config.py config.yaml config.toml
+sudo mv config.yaml config.yaml.bak
+```
+and replace *config.yaml* with *config.toml* in the */etc/systemd/system/falprs.service* file.
+
 Update the repository and run the **scripts/update_falprs.sh** script:
 ```bash
 cd ~/falprs
@@ -271,6 +279,7 @@ sudo ~/falprs/scripts/update_falprs.sh
 ```
 The script:
 * checks whether the installed FALPRS executable needs to be rebuilt and rebuilds it only if the installed version differs from the project version or cannot be determined
+* converts the old *config.yaml* configuration into *config.toml* once, keeping your values, and keeps the old file as *config.yaml.bak*; settings that no longer exist are dropped, and the ones you had changed are listed in a warning. The service unit is switched to *config.toml*
 * performs TensorRT planning before stopping any services and determines whether any TensorRT plans need to be regenerated
 * downloads and checks the required neural network models and calculates their SHA1 hashes
 * regenerates TensorRT plans only for changed models or missing plans
@@ -311,7 +320,7 @@ Example output:
 |    2     | My new group | 74c0e0f0-ea70-47fb-b715-8932baf7e049 |
 +----------+--------------+--------------------------------------+
 ```
-When calling API methods for new groups, an authorization token must be specified. If you want the authorization token to become mandatory for the default group, set the value to 0 for the *allow-group-id-without-auth* parameters in the corresponding sections of the project configuration file (*/opt/falprs/config.yaml*) and restart the service.
+When calling API methods for new groups, an authorization token must be specified. If you want the authorization token to become mandatory for the default group, set the value to 0 for the *no-auth-group-id* settings in the *[lprs]* and *[frs]* sections of the project configuration file (*/opt/falprs/config.toml*) and restart the service.
 
 <a id="examples"></a>
 ## Examples
@@ -424,7 +433,7 @@ Create directories and test databases:
 cd ~/falprs/tests
 ./test_prepare.sh
 ```
-The tests run the implementation set by the **FALPRS_IMPL** variable (*rust* by default, or *cpp*), taken from the environment or from the *.env* file like in the build scripts; the **FALPRS_BIN** variable sets the path to the service binary explicitly. The C++ sources are not in this branch, so *cpp* needs **FALPRS_BIN** set to the C++ binary built from the `main` branch.
+The tests run the implementation set by the **FALPRS_IMPL** variable (*rust* by default, or *cpp*), taken from the environment or from the *.env* file like in the build scripts; the **FALPRS_BIN** variable sets the path to the service binary explicitly. The C++ sources are not in this branch, so *cpp* needs **FALPRS_BIN** set to the C++ binary built from the `main` branch. The Rust service is started with the *tests/test_config.toml* configuration, the C++ one with *tests/test_config.yaml*, which holds the same settings in the userver format.
 
 <a id="lprs_tests"></a>
 ### LPRS
@@ -456,6 +465,10 @@ The Rust implementation also has unit tests. They need neither the test database
 ```bash
 cd ~/falprs/rust
 cargo test
+```
+The tests of the *config.yaml* converter:
+```bash
+python3 -m pytest ~/falprs/scripts/tests
 ```
 
 <a id="stress_tests"></a>
