@@ -1,7 +1,7 @@
 # yaml
-# Template of the stress tests' service config: tests/stress/stress.py renders it into /tmp/test_falprs/.
-# The runner sets the PostgreSQL port, the log paths, the TTLs and intervals given as arguments and
-# pipelines-per-cpu. Unlike tests/test_config.yaml: info logs everywhere, short retention, frequent cleanup.
+# Template of the stress tests' service config for the C++ reference (FALPRS_IMPL=cpp): tests/stress/stress.py
+# renders it into /tmp/test_falprs/. stress_config.toml is the same template for the Rust service; keep
+# the two in step. Unlike tests/test_config.yaml: info logs everywhere, short retention, frequent cleanup.
 components_manager:
     coro_pool:
         initial_size: 500             # Preallocate 500 coroutines at startup.

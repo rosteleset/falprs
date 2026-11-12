@@ -566,6 +566,13 @@ mod tests {
     }
 
     #[test]
+    fn parses_stress_config() {
+        let config = Config::load(&repo_file("tests/stress/stress_config.toml")).unwrap();
+        assert_eq!(config.loggers["frs"].level, "info");
+        assert_eq!(config.lprs.unwrap().settings.events_log_cleanup_interval, secs(60));
+    }
+
+    #[test]
     fn example_config_states_the_defaults() {
         assert_eq!(
             Config::load(&repo_file("config.toml.example")).unwrap(),

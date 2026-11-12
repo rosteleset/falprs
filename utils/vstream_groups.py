@@ -1,10 +1,10 @@
 import psycopg2
 import argparse
-import yaml
+import tomllib
 from prettytable import PrettyTable
 
 parser = argparse.ArgumentParser()
-parser.add_argument('-c', '--config', metavar='<path>', default='/opt/falprs/config.yaml', help="path to FALPRS configuration file (default: %(default)s)")
+parser.add_argument('-c', '--config', metavar='<path>', default='/opt/falprs/config.toml', help="path to FALPRS configuration file (default: %(default)s)")
 parser.add_argument('-t', '--type', choices=['frs', 'lprs'], required=True, help='project type (required)')
 parser.add_argument('-l', '--list', action='store_true', default=False, help='list video stream groups')
 parser.add_argument('-a', '--add', metavar='<group_name>', help='add new video stream group')
@@ -12,11 +12,10 @@ parser.add_argument('-r', '--remove', metavar='<id_group>', help='remove video s
 args = parser.parse_args()
 
 try:
-    with open(args.config) as stream:
-        config = yaml.safe_load(stream)
-        pg_database = f"{args.type}-postgresql-database"
-        if 'dbconnection' in config['components_manager']['components'][pg_database]:
-            dbconn = config['components_manager']['components'][pg_database]['dbconnection']
+    with open(args.config, 'rb') as stream:
+        config = tomllib.load(stream)
+        if 'dsn' in config.get(args.type, {}).get('database', {}):
+            dbconn = config[args.type]['database']['dsn']
             try:
                 pg_conn = psycopg2.connect(dbconn)
                 with pg_conn.cursor() as pg_cursor:
@@ -54,6 +53,6 @@ try:
             except Exception as error:
                 print(error)
         else:
-            print(f"Error parsing YAML configuration file: {args.config}")
+            print(f"No [{args.type}.database] dsn in the configuration file: {args.config}")
 except Exception as error:
     print(error)

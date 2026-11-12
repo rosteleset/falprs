@@ -87,8 +87,8 @@ Common to `sweep` and `soak`:
 | `--trace` | off | `logs-level: trace` on every stream, for `fairness.py` |
 | `--sample-interval` | `5s` | Metrics sampling interval |
 | `--min-free` | `5` GB | Disk guard: stop the run below this free space on the screenshots partition |
-| `--log-faces-ttl`, `--clear-old-log-faces`, `--events-ttl`, `--clear-old-events`, `--log-barcodes-ttl`, `--clear-old-log-barcodes` | `10m` / `1m` | FRS retention and cleanup intervals |
-| `--events-log-ttl`, `--events-log-maintenance-interval`, `--failed-ttl` | `10m` / `1m` / `10m` | LPRS retention and cleanup interval |
+| `--log-faces-ttl`, `--log-faces-cleanup-interval`, `--events-ttl`, `--events-cleanup-interval`, `--log-barcodes-ttl`, `--log-barcodes-cleanup-interval` | `10m` / `1m` | FRS retention and cleanup intervals |
+| `--events-log-ttl`, `--events-log-cleanup-interval`, `--failed-ttl` | `10m` / `1m` / `10m` | LPRS retention and cleanup interval |
 
 `sweep`:
 
@@ -118,11 +118,12 @@ Common to `sweep` and `soak`:
 
 ## What the runner does
 
-- It recreates the databases, renders `stress_config.yaml` into `/tmp/test_falprs/stress_config.yaml` and starts the
-  binary. It waits for `/ping`, and stops the service with SIGTERM at the end. `sweep` repeats this for every
-  point. Compared with `tests/test_config.yaml`, the template logs at `info` and has short TTLs and frequent
-  cleanup, so the service's own cleanup keeps the screenshot directories bounded.
-- `--pipelines-per-cpu N` goes into both the FRS and the LPRS workflow config. The two subsystems keep separate
+- It recreates the databases, renders the template into `/tmp/test_falprs/` and starts the binary: `stress_config.toml`
+  for the Rust service, `stress_config.yaml` for the C++ reference (`FALPRS_IMPL=cpp`, which reads the userver-shaped
+  config); the two templates hold the same settings. It waits for `/ping`, and stops the service with SIGTERM at the
+  end. `sweep` repeats this for every point. Compared with `tests/test_config.toml`, the template logs at `info` and
+  has short TTLs and frequent cleanup, so the service's own cleanup keeps the screenshot directories bounded.
+- `--pipelines-per-cpu N` goes into both the `[frs]` and the `[lprs]` settings. The two subsystems keep separate
   slot pools, so when both run, up to `2 × N × CPUs` pipelines run at once.
 - FRS streams: `addStream` with the emulator's frame and callback URLs, then `motionDetection` start. LPRS
   streams: `addStream` with `screenshot-url`, `callback-url` and `ban-duration: 0s` (no plate or special-vehicle

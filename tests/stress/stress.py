@@ -101,7 +101,7 @@ def add_run_args(parser):
                        help="stop the run when the screenshots partition has less free space (default 5 GB)")
 
     group = parser.add_argument_group("service retention (default: the template's)")
-    for arg, (subsystem, key) in service.RETENTION_KEYS.items():
+    for arg, (subsystem, key, _) in service.RETENTION_KEYS.items():
         group.add_argument("--" + key, dest=arg, type=service_duration_arg, metavar="DURATION",
                            help=f"{subsystem.upper()} {key}")
     parser.add_argument("--results-dir", type=Path, default=RESULTS_DIR,
@@ -219,7 +219,7 @@ class Run:
                                       for a in ("pipelines_per_cpu", "pipelines_per_cpu_values")):
             raise EnvironmentFailure("pipelines-per-cpu is not supported by the C++ service: it rejects the key")
         self.pg_port = service.pg_port()
-        self.template = service.load_template()
+        self.template = service.load_template(self.impl)
         self.cpus = service.service_cpus()
         self.retention = {arg: getattr(args, arg) for arg in service.RETENTION_KEYS}
         self.dir = make_results_dir(args.results_dir)
@@ -279,7 +279,7 @@ class Run:
         config = service.render_config(self.template, impl=self.impl, port=self.pg_port,
                                        pipelines_per_cpu=pipelines_per_cpu, retention=self.retention,
                                        log_dir=service.LOGS_DIR / label)
-        service.write_config(config, self.dir / f"config-{label}.yaml")
+        service.write_config(config, self.dir / f"config-{label}{service.config_suffix(config)}")
         return config
 
     async def start_service(self, label, pipelines_per_cpu):
@@ -525,11 +525,11 @@ def plateau_start(retention, setup_end):
         return parse_duration(retention[arg]) or 0.0
 
     cycle = max(
-        s("log_faces_ttl") + s("clear_old_log_faces"),
-        s("events_ttl") + s("clear_old_events"),
-        s("log_barcodes_ttl") + s("clear_old_log_barcodes"),
-        s("events_log_ttl") + s("events_log_maintenance_interval"),
-        s("failed_ttl") + s("events_log_maintenance_interval"),
+        s("log_faces_ttl") + s("log_faces_cleanup_interval"),
+        s("events_ttl") + s("events_cleanup_interval"),
+        s("log_barcodes_ttl") + s("log_barcodes_cleanup_interval"),
+        s("events_log_ttl") + s("events_log_cleanup_interval"),
+        s("failed_ttl") + s("events_log_cleanup_interval"),
     )
     return setup_end + cycle
 

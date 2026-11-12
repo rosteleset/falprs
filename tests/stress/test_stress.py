@@ -28,17 +28,17 @@ def test_defaults():
 
 
 def test_retention_args():
-    args = stress.parse_args(["soak", "--log-faces-ttl", "5m", "--events-log-maintenance-interval", "30s"])
-    assert args.log_faces_ttl == "5m" and args.events_log_maintenance_interval == "30s"
+    args = stress.parse_args(["soak", "--log-faces-ttl", "5m", "--events-log-cleanup-interval", "30s"])
+    assert args.log_faces_ttl == "5m" and args.events_log_cleanup_interval == "30s"
     assert args.failed_ttl is None
     with pytest.raises(SystemExit):
         stress.parse_args(["soak", "--failed-ttl", "1.5h"])
 
 
 def test_plateau_start():
-    retention = {"log_faces_ttl": "10m", "clear_old_log_faces": "1m", "events_ttl": "10m",
-                 "clear_old_events": "1m", "log_barcodes_ttl": "10m", "clear_old_log_barcodes": "1m",
-                 "events_log_ttl": "20m", "events_log_maintenance_interval": "2m", "failed_ttl": "10m"}
+    retention = {"log_faces_ttl": "10m", "log_faces_cleanup_interval": "1m", "events_ttl": "10m",
+                 "events_cleanup_interval": "1m", "log_barcodes_ttl": "10m", "log_barcodes_cleanup_interval": "1m",
+                 "events_log_ttl": "20m", "events_log_cleanup_interval": "2m", "failed_ttl": "10m"}
     assert stress.plateau_start(retention, 30) == 30 + 22 * 60
 
 

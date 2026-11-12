@@ -1,0 +1,100 @@
+# Template of the stress tests' service config for the Rust service: tests/stress/stress.py renders
+# it into /tmp/test_falprs/. stress_config.yaml is the same template for the C++ reference
+# (FALPRS_IMPL=cpp); keep the two in step. The runner sets the PostgreSQL port, the log paths, the
+# TTLs and intervals given as arguments and pipelines-per-cpu. Unlike tests/test_config.toml: info
+# logs everywhere, short retention, frequent cleanup.
+
+[server]
+port = 9071
+monitor-port = 9072
+static-dir = "/tmp/test_falprs/stress-www/"
+max-request-size = 1048576
+
+[logging.default]
+file = "/tmp/test_falprs/logs/log.txt"
+level = "info"
+
+[logging.lprs]
+file = "/tmp/test_falprs/logs/lprs-log.txt"
+level = "info"
+
+[logging.frs]
+file = "/tmp/test_falprs/logs/frs-log.txt"
+level = "info"
+
+[lprs]
+no-auth-group-id = 1
+ban-cleanup-interval = "5s"
+events-log-cleanup-interval = "1m"
+events-log-ttl = "10m"
+screenshots-path = "/tmp/test_falprs/static/lprs/"
+screenshots-url-prefix = "http://localhost:9071/lprs/"
+failed-path = "/tmp/test_falprs/static/lprs/failed/"
+failed-ttl = "10m"
+
+[lprs.database]
+dsn = "postgresql://test_falprs:123@localhost:5432/test_lprs"
+max-pool-size = 15
+network-timeout = "500ms"
+statement-timeout = "250ms"
+
+[lprs.caches.groups]
+update-interval = "5s"
+
+[lprs.caches.video-streams-config]
+update-interval = "5s"
+
+[lprs.caches.video-stream-groups]
+update-interval = "5s"
+
+[frs]
+no-auth-group-id = 1
+screenshots-path = "/tmp/test_falprs/static/frs/screenshots/"
+screenshots-url-prefix = "http://localhost:9071/frs/screenshots/"
+events-path = "/tmp/test_falprs/static/frs/events/"
+log-faces-cleanup-interval = "1m"
+log-faces-ttl = "10m"
+flag-deleted-cleanup-interval = "10s"
+flag-deleted-ttl = "5m"
+copy-events-interval = "30s"
+events-cleanup-interval = "1m"
+events-ttl = "10m"
+barcodes-path = "/tmp/test_falprs/static/frs/barcodes/"
+barcodes-url-prefix = "http://localhost:9071/frs/barcodes/"
+log-barcodes-cleanup-interval = "1m"
+log-barcodes-ttl = "10m"
+
+[frs.database]
+dsn = "postgresql://test_falprs:123@localhost:5432/test_frs"
+max-pool-size = 15
+network-timeout = "500ms"
+statement-timeout = "250ms"
+
+[frs.caches.groups]
+update-interval = "1m"
+
+[frs.caches.config]
+update-interval = "1m"
+
+[frs.caches.video-streams-config]
+update-interval = "5s"
+full-update-interval = "30s"
+update-correction = "1s"
+
+[frs.caches.face-descriptors]
+update-interval = "5s"
+full-update-interval = "10m"
+update-correction = "1s"
+
+[frs.caches.video-stream-descriptors]
+update-interval = "5s"
+full-update-interval = "10m"
+update-correction = "1s"
+
+[frs.caches.sg-config]
+update-interval = "5s"
+
+[frs.caches.sg-descriptors]
+update-interval = "5s"
+full-update-interval = "10m"
+update-correction = "1s"
