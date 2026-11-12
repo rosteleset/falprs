@@ -147,6 +147,14 @@ Every 10 s:
 - `GPU`: mean `nvidia-smi` utilisation over the sampling interval; `-` without a local `nvidia-smi`.
 - `shots`: FRS + LPRS screenshot directories. `free`: free space on their partition.
 
+## Cleaning up
+
+At the end, also when interrupted with Ctrl+C, the runner stops the service and the emulator, but leaves the test
+databases and `/tmp/test_falprs` (logs, the rendered config, the last screenshots). The next run, like
+`tests/test_prepare.sh`, recreates the databases, so nothing has to be cleaned in between. When done with the stress
+tests, delete them with `tests/test_clean.sh`; it also stops a service left running by a runner that was killed. The
+results in `tests/stress/results/` are kept.
+
 ## Results
 
 `tests/stress/results/<YYYYmmdd-HHMMSS>/` (git-ignored) holds:

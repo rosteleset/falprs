@@ -496,6 +496,10 @@ sudo apt-get install -y python3-aiohttp python3-yaml
 python3 ~/falprs/tests/stress/stress.py sweep
 python3 ~/falprs/tests/stress/stress.py soak
 ```
+В конце запускающий скрипт останавливает сервис, в том числе при прерывании, но оставляет тестовые базы данных и директорию */tmp/test_falprs*; следующий запуск, как и *test_prepare.sh*, создаёт их заново. После завершения стресс-тестов удалите их:
+```bash
+~/falprs/tests/test_clean.sh
+```
 Режимы, аргументы, результаты и критерии ошибки описаны в [tests/stress/README.md](./tests/stress/README.md) (на английском языке).
 
 <a id="frs_sync_data"></a>

@@ -496,6 +496,10 @@ Examples:
 python3 ~/falprs/tests/stress/stress.py sweep
 python3 ~/falprs/tests/stress/stress.py soak
 ```
+The runner stops the service at the end, also when it is interrupted, but leaves the test databases and the */tmp/test_falprs* directory; the next run, like *test_prepare.sh*, recreates them. After finishing the stress tests, delete them:
+```bash
+~/falprs/tests/test_clean.sh
+```
 The modes, arguments, results and failure criteria are described in [tests/stress/README.md](./tests/stress/README.md).
 
 <a id="frs_sync_data"></a>
