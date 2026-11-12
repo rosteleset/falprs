@@ -247,6 +247,8 @@ To initially populate the databases, execute the commands:
 ```
 The project configuration is in the *config.toml* file in the working directory (by default **/opt/falprs**). The build script creates it from *config.toml.example*, which lists every setting with its default value and a description, and sets the database connections from the *.env* file. Later the file is not overwritten: neither the build nor the update script changes it, and new settings get their default values. Only the two database connections (*dsn* in the *[lprs.database]* and *[frs.database]* sections) are required; the other settings may be left out, and then their default values are used. Unknown settings are rejected: the service does not start and names the setting. To perform API methods with mandatory authorization, set *no-auth-group-id* to zero in the *[lprs]* and *[frs]* sections. Operation with a separate HTTP server is also possible. In this case, replace the values of the local paths and URL prefixes (*screenshots-path*, *screenshots-url-prefix* and the like) in the *[lprs]* and *[frs]* sections.
 
+The video stream configs (the *config* member of **addStream**), the default video stream configs (**setStreamDefaultConfig**) and the FRS common config (**setCommonConfig**) are checked when they are set, against the parameter descriptions in *docs/openapi.yaml*: a value of another type, format or range is answered with code 400 naming the parameter, unknown parameters are dropped (the service writes a warning to its log), and a parameter set to *null* is removed, so that its default applies again. Numbers may also be given as strings and durations as a number of seconds; values are stored in their canonical form. A stored value the service cannot use is replaced with its default, with a warning in the log.
+
 To start the container with **Triton Inference Server**, execute the command:
 ```bash
 sudo ~/falprs/scripts/triton_service.sh
@@ -290,9 +292,17 @@ The script:
 * stops the `falprs` service and the Triton Inference Server container only when TensorRT plans need to be regenerated or unused models need to be removed
 * starts the Triton Inference Server container again after successful TensorRT plan generation when it was running before the update
 * updates schemas and data in the DB (old data is not overwritten)
+* checks the video stream configs, default video stream configs and common configs stored in the DB and cleans them: values in a form the service also took (e.g. *"true"* or *"0.7"* as strings) are stored in their canonical form, so that the video streams keep working as before; FRS parameters stored in the wrong config of a stream group are moved to the right one; values the service ignored and unknown parameters are removed. The original configs of the changed rows are saved to the *config-cleanup-&lt;date&gt;.json* file in the working directory first
 * restores the `falprs` service to its previous state after the update
 
 If the FALPRS executable is up to date and all TensorRT plans are current, neither the `falprs` service nor the Triton Inference Server container is stopped during the update.
+
+The stored configs can also be checked by hand. Without *--fix* the command only lists what would change and exits with code 1 if something needs cleaning:
+```bash
+cd /opt/falprs
+sudo ./falprs -c config.toml check-configs
+sudo ./falprs -c config.toml check-configs --fix
+```
 
 <a id="vstream_groups"></a>
 ### Managing Video Stream Groups

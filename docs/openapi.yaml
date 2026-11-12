@@ -1021,7 +1021,6 @@ paths:
                   comments-non-frontal-face: The face in the image must be frontal.
                   comments-non-normal-face-class: A person wearing a mask or dark glasses.
                   comments-partial-face: The face must be fully visible in the image.
-                  comments-url-image-error: Failed to receive image.
                   dnn-bd-input-height: 320
                   dnn-bd-input-tensor-name: images
                   dnn-bd-input-width: 320
@@ -1044,7 +1043,6 @@ paths:
                   dnn-fr-output-size: 512
                   dnn-fr-output-tensor-name: '683'
                   flag-copy-event-data: false
-                  inference-timeout: 1s
                   sg-max-descriptor-count: 1000
         '204':
           description: No content
@@ -1119,7 +1117,6 @@ paths:
                   logs-level: info
                   margin: 5
                   max-capture-error-count: 3
-                  open-door-duration: 10s
                   osd-datetime-format: '%Y-%m-%d %H:%M:%S'
                   title-height-ratio: 0.033
                   tolerance: 0.5
@@ -2221,7 +2218,7 @@ paths:
                   type: string
                 imageSize:
                   description: >-
-                    Image size used for inference. Must be between 160 and 1024, inclusive. If omitted, the default is the maximum of the configured ovd-net-input-width and ovd-net-input-height values.
+                    Image size used for inference. Must be between 160 and 1024, inclusive. If omitted, the default is the maximum of the configured uod-net-input-width and uod-net-input-height values.
                   type: integer
                   minimum: 160
                   maximum: 1024
@@ -2533,612 +2530,716 @@ components:
       description: Special group identifier
       type: integer
     FRSCommonConfig:
-      description: FRS Common Config Parameters
+      description: 'FRS Common Config Parameters. Values are checked when they are set: a value of another type, format or range is answered with code 400, unknown keys are dropped, and a key set to null is removed, so that its default applies again. Numbers may also be given as strings and durations as a number of seconds; values are stored in their canonical form.'
       type: object
       properties:
         callback-timeout:
-          default: 2s
-          description: Maximum waiting time for a response from the host during a callback
-          pattern: ^\d+(ms|[smhd])$
           type: string
+          pattern: ^\d+(ms|[smhd])?$
+          default: 2s
+          description: Maximum waiting time for a response from the host during a callback (a duration, or a number of seconds)
         comments-blurry-face:
+          type: string
           default: The face image is not clear enough for registration.
           description: Blurred face message
-          type: string
         comments-descriptor-creation-error:
+          type: string
           default: Failed to register descriptor.
           description: Error message when creating a face descriptor
-          type: string
         comments-descriptor-exists:
+          type: string
           default: The descriptor already exists.
           description: Message that a face descriptor already exists
-          type: string
         comments-inference-error:
+          type: string
           default: 'Error: Triton Inference Server request failed.'
           description: Inference error message
-          type: string
         comments-new-descriptor:
+          type: string
           default: A new descriptor has been created.
           description: Message about created face descriptor
-          type: string
         comments-no-faces:
+          type: string
           default: There are no faces in the image.
           description: Message about missing faces in the image
-          type: string
         comments-non-frontal-face:
+          type: string
           default: The face in the image must be frontal.
           description: Message that the face is not frontal
+        comments-non-normal-face-class:
           type: string
+          default: A person wearing a mask or dark glasses.
+          description: Message that the face is in a mask or dark glasses
         comments-partial-face:
+          type: string
           default: The face must be fully visible in the image.
           description: Message that the face is not fully visible in the image
-          type: string
-        comments-url-image-error:
-          default: Failed to receive image.
-          description: Error message when receiving an image
-          type: string
         dnn-bd-input-height:
+          type: integer
+          minimum: 1
           default: 320
           description: Height of the input image for the barcode detection model
-          type: integer
         dnn-bd-input-tensor-name:
+          type: string
           default: images
           description: Name of the input tensor for the barcode detection model
-          type: string
         dnn-bd-input-width:
+          type: integer
+          minimum: 1
           default: 320
           description: Width of the input image of the barcode detection model
-          type: integer
         dnn-bd-model-name:
+          type: string
           default: barcode_detection
           description: Barcode detection model name in Triton Inference Server
-          type: string
+        dnn-bd-output-size:
+          type: integer
+          minimum: 0
+          default: 0
+          description: Number of output array elements of the barcode detection model
         dnn-bd-output-tensor-name:
+          type: string
           default: output0
           description: Name of the output tensor for the barcode detection model
-          type: string
         dnn-fc-input-height:
+          type: integer
+          minimum: 1
           default: 192
           description: Height of the input image for the face class model
-          type: integer
         dnn-fc-input-tensor-name:
+          type: string
           default: input.1
           description: Name of the input tensor for the face class model
-          type: string
         dnn-fc-input-width:
+          type: integer
+          minimum: 1
           default: 192
           description: Width of the input image of the face class model
-          type: integer
         dnn-fc-model-name:
+          type: string
           default: genet
           description: Face class model name in Triton Inference Server
-          type: string
         dnn-fc-output-size:
+          type: integer
+          minimum: 0
           default: 3
           description: Number of output array elements to obtain the face class
-          type: integer
         dnn-fc-output-tensor-name:
+          type: string
           default: '419'
           description: Name of the output tensor for the face class model
-          type: string
         dnn-fd-input-height:
+          type: integer
+          minimum: 1
           default: 320
           description: Height of the input image for the face detection model
-          type: integer
         dnn-fd-input-tensor-name:
+          type: string
           default: input.1
           description: Name of the input tensor for the face detection model
-          type: string
         dnn-fd-input-width:
+          type: integer
+          minimum: 1
           default: 320
           description: Width of the input image of the face detection model
-          type: integer
         dnn-fd-model-name:
+          type: string
           default: scrfd
           description: Face detection model name in Triton Inference Server
+        dnn-fd-output-size:
+          type: integer
+          minimum: 0
+          default: 0
+          description: Number of output array elements of the face detection model
+        dnn-fd-output-tensor-name:
           type: string
+          default: ''
+          description: Name of the output tensor for the face detection model
         dnn-fr-input-height:
+          type: integer
+          minimum: 1
           default: 112
           description: Height of the input image for the face recognition model
-          type: integer
         dnn-fr-input-tensor-name:
+          type: string
           default: input.1
           description: Name of the input tensor for the face recognition model
-          type: string
         dnn-fr-input-width:
+          type: integer
+          minimum: 1
           default: 112
           description: Width of the input image of the face recognition model
-          type: integer
         dnn-fr-model-name:
+          type: string
           default: arcface
           description: Face recognition model name in Triton Inference Server
-          type: string
         dnn-fr-output-size:
+          type: integer
+          minimum: 0
           default: 512
           description: Number of output array elements to obtain a descriptor
-          type: integer
         dnn-fr-output-tensor-name:
+          type: string
           default: '683'
           description: Name of the output tensor for the face recognition model
-          type: string
         flag-copy-event-data:
+          type: boolean
           default: false
           description: Flag for copying event data to a separate directory
-          type: boolean
-        inference-timeout:
-          default: 1s
-          description: Maximum waiting time for an inference
-          pattern: ^\d+(ms|[smhd])$
-          type: string
         sg-max-descriptor-count:
+          type: integer
+          minimum: 0
           default: 1000
           description: Maximum allowed number of descriptors in the special group
-          type: integer
 
     FRSDefaultVStreamConfig:
+      description: 'FRS video stream config parameters. Values are checked when they are set: a value of another type, format or range is answered with code 400, unknown keys are dropped, and a key set to null is removed, so that its default applies again. Numbers may also be given as strings and durations as a number of seconds; values are stored in their canonical form.'
       type: object
       properties:
         barcode-confidence:
+          type: number
+          format: float
+          minimum: 0
+          maximum: 1
           default: 0.8
           description: Barcode detection probability threshold
-          format: float
-          type: number
         best-quality-interval-after:
+          type: string
+          pattern: ^\d+(ms|[smhd])?$
           default: 2s
-          description: Period after the time point to find the best frame
-          pattern: ^\d+(ms|[smhd])$
-          type: string
+          description: Period after the time point to find the best frame (a duration, or a number of seconds)
         best-quality-interval-before:
-          default: 5s
-          description: Period before the time point to find the best frame
-          pattern: ^\d+(ms|[smhd])$
           type: string
+          pattern: ^\d+(ms|[smhd])?$
+          default: 5s
+          description: Period before the time point to find the best frame (a duration, or a number of seconds)
         blur:
+          type: number
+          format: float
+          minimum: 0
           default: 300
           description: Lower threshold for face blur
-          format: float
-          type: number
         blur-max:
+          type: number
+          format: float
+          minimum: 0
           default: 13000
           description: Upper threshold for face blur
-          format: float
-          type: number
         capture-timeout:
+          type: string
+          pattern: ^\d+(ms|[smhd])?$
           default: 2s
-          description: Timeout for receiving screenshot from the video stream
-          pattern: ^\d+(ms|[smhd])$
-          type: string
+          description: Timeout for receiving screenshot from the video stream (a duration, or a number of seconds)
         delay-after-error:
+          type: string
+          pattern: ^\d+(ms|[smhd])?$
           default: 30s
-          description: Delay for processing workflow after error
-          pattern: ^\d+(ms|[smhd])$
-          type: string
+          description: Delay for processing workflow after error (a duration, or a number of seconds)
         delay-between-frames:
-          default: 1s
-          description: Interval between processing video stream screenshots
-          pattern: ^\d+(ms|[smhd])$
           type: string
+          pattern: ^\d+(ms|[smhd])?$
+          default: 1s
+          description: Interval between processing video stream screenshots (a duration, or a number of seconds)
+        dnn-bd-inference-server:
+          type: string
+          default: 127.0.0.1:8001
+          description: URL of Triton Inference Server for barcode detection inference
         dnn-fc-inference-server:
+          type: string
           default: 127.0.0.1:8001
           description: URL of Triton Inference Server for face class inference
-          type: string
         dnn-fd-inference-server:
+          type: string
           default: 127.0.0.1:8001
           description: URL of Triton Inference Server for face detection inference
-          type: string
         dnn-fr-inference-server:
+          type: string
           default: 127.0.0.1:8001
           description: URL of Triton Inference Server for face recognition inference
-          type: string
         face-class-confidence:
+          type: number
+          format: float
+          minimum: 0
+          maximum: 1
           default: 0.7
           description: Probability threshold for detecting a face mask or dark glasses
-          format: float
-          type: number
         face-confidence:
+          type: number
+          format: float
+          minimum: 0
+          maximum: 1
           default: 0.7
           description: Face detection probability threshold
-          format: float
-          type: number
         face-enlarge-scale:
+          type: number
+          format: float
+          minimum: 0
           default: 1.5
           description: Expansion factor of rectangular face storage area
-          format: float
-          type: number
         face-iou-threshold:
+          type: number
+          format: float
+          minimum: 0
+          maximum: 1
           default: 0.4
           description: Face intersection over union threshold value for NMS algorithm
-          format: float
-          type: number
         flag-process-barcodes:
+          type: boolean
           default: false
           description: Barcode processing flag
-          type: boolean
         flag-process-faces:
+          type: boolean
           default: true
           description: Face processing flag
-          type: boolean
         flag-spawned-descriptors:
+          type: boolean
           default: false
           description: Flag for using spawned descriptors
-          type: boolean
+        inference-timeout:
+          type: string
+          pattern: ^\d+(ms|[smhd])?$
+          default: 1s
+          description: Maximum waiting time for an inference (a duration, or a number of seconds)
         logs-level:
+          type: string
+          enum:
+          - trace
+          - debug
+          - info
+          - warning
+          - error
+          - critical
+          - none
           default: info
           description: Logs level
-          enum:
-            - trace
-            - debug
-            - info
-            - warning
-            - error
-            - critical
-            - none
-          type: string
         margin:
+          type: number
+          format: float
+          minimum: 0
           default: 5
           description: Percentage offset from frame edges to reduce work area
-          format: float
-          type: number
         max-capture-error-count:
+          type: integer
+          minimum: 0
+          maximum: 32767
           default: 3
           description: Retry count for receiving screenshot from the video stream
-          type: integer
-        open-door-duration:
-          default: 10s
-          description: Timeout for receiving screenshot from the video stream
-          pattern: ^\d+(ms|[smhd])$
-          type: string
         osd-datetime-format:
+          type: string
           default: '%Y-%m-%d %H:%M:%S'
           description: Date and time format in OSD
-          type: string
         title:
-          description: Video stream title
           type: string
+          default: ''
+          description: Video stream title
         title-height-ratio:
+          type: number
+          format: float
+          minimum: 0
+          maximum: 1
           default: 0.033
           description: Ratio of OSD height to frame height
-          format: float
-          type: number
         tolerance:
+          type: number
+          format: float
+          minimum: 0
           default: 0.5
           description: Tolerance parameter
-          format: float
-          type: number
         unknown-descriptor-ttl:
-          default: 5s
-          description: >-
-            Time to live for the spawned descriptors (has meaning only if
-            flag-spawned-descriptors = true)
-          example: 10s
-          pattern: ^\d+(ms|[smhd])$
           type: string
+          pattern: ^\d+(ms|[smhd])?$
+          default: 5s
+          description: Time to live for the spawned descriptors (has meaning only if flag-spawned-descriptors = true) (a duration, or a number of seconds)
+          example: 10s
         work-area:
-          description: >-
-            List of coordinates of the upper left corner, width and height of the
-            rectangular area in percentage
-          example:
-            - 20
-            - 20
-            - 60
-            - 60
+          type: array
           items:
             type: number
             format: float
-          type: array
+            minimum: 0
+            maximum: 100
+          default: []
+          description: 'List of coordinates of the upper left corner, width and height of the rectangular area in percentage (an empty array or 4 numbers: no work area or left, top, width, height)'
+          example:
+          - 20
+          - 20
+          - 60
+          - 60
         workflow-timeout:
-          default: 0s
-          description: >-
-            The period after which processing workflow automatically stops after start
-            (a value of 0s disables the timeout)
-          example: 60s
-          pattern: ^\d+(ms|[smhd])$
           type: string
-
+          pattern: ^\d+(ms|[smhd])?$
+          default: 0s
+          description: The period after which processing workflow automatically stops after start (a value of 0s disables the timeout) (a duration, or a number of seconds)
+          example: 60s
     LPRSInternalVStreamConfig:
-      description: Configuration of the video stream
+      description: 'Configuration of the video stream. Values are checked when they are set: a value of another type, format or range is answered with code 400, unknown keys are dropped, and a key set to null is removed, so that its default applies again. Numbers may also be given as strings and durations as a number of seconds; values are stored in their canonical form.'
       type: object
       properties:
-        screenshot-url:
-          description: URL for capturing screenshots
-          type: string
-          format: url
-          example: https://my.video.stream/capture
         callback-url:
-          description: URL for sending license plate recognition events
           type: string
           format: url
+          default: ''
+          description: URL for sending license plate recognition events
           example: https://my.host/callback?streamId=1
+        screenshot-url:
+          type: string
+          format: url
+          default: ''
+          description: URL for capturing screenshots
+          example: https://my.video.stream/capture
         work-area:
-          description: List of convex polygonal areas for searching license plates. Each polygon is specified by a list of points. Each point is specified by a list of two coordinates in percent.
           type: array
           items:
             type: array
+            minItems: 3
             items:
               type: array
+              minItems: 2
+              maxItems: 2
               items:
                 type: number
                 format: float
-          example: [
-            [
-              [ 10.23, 24.23 ],
-              [ 56.12, 43.75 ],
-              [ 83.45, 90.02 ],
-              [ 10.18, 90.03 ]
-            ],
-            [
-              [ 33.10, 33.10 ],
-              [ 86.14, 44.26 ],
-              [ 51.09, 79.11 ]
-            ]
-          ]
+                minimum: 0
+                maximum: 100
+          default: []
+          description: List of convex polygonal areas for searching license plates. Each polygon is specified by a list of points. Each point is specified by a list of two coordinates in percent.
+          example:
+          - - - 10.23
+              - 24.23
+            - - 56.12
+              - 43.75
+            - - 83.45
+              - 90.02
+            - - 10.18
+              - 90.03
+          - - - 33.1
+              - 33.1
+            - - 86.14
+              - 44.26
+            - - 51.09
+              - 79.11
     LPRSDefaultVStreamConfig:
+      description: 'LPRS video stream config parameters. Values are checked when they are set: a value of another type, format or range is answered with code 400, unknown keys are dropped, and a key set to null is removed, so that its default applies again. Numbers may also be given as strings and durations as a number of seconds; values are stored in their canonical form.'
       type: object
       properties:
         ban-duration:
-          default: 30s
-          description: License plate ban duration (0s - disabled)
-          pattern: ^\d+(ms|[smhd])$
           type: string
+          pattern: ^\d+(ms|[smhd])?$
+          default: 30s
+          description: License plate ban duration (0s - disabled) (a duration, or a number of seconds)
         ban-duration-area:
+          type: string
+          pattern: ^\d+(ms|[smhd])?$
           default: 12h
-          description: Duration of license plate ban according to its position (0s - disabled)
-          pattern: ^\d+(ms|[smhd])$
-          type: string
+          description: Duration of license plate ban according to its position (0s - disabled) (a duration, or a number of seconds)
         ban-iou-threshold:
-          default: 0.7
+          type: number
+          format: float
+          minimum: 0
+          maximum: 1
+          default: 0.9
           description: Intersection over union threshold value for banning a car number by position
-          type: number
         callback-timeout:
-          default: 2s
-          description: Maximum waiting time for a response from the host during a callback
-          pattern: ^\d+(ms|[smhd])$
           type: string
+          pattern: ^\d+(ms|[smhd])?$
+          default: 2s
+          description: Maximum waiting time for a response from the host during a callback (a duration, or a number of seconds)
         capture-timeout:
+          type: string
+          pattern: ^\d+(ms|[smhd])?$
           default: 2s
-          description: Timeout for receiving screenshot from the video stream
-          pattern: ^\d+(ms|[smhd])$
-          type: string
-        char-score:
-          default: 0.4
-          description: >-
-            LPRNet: probability threshold for each license's character to consider that
-            it's recognized
+          description: Timeout for receiving screenshot from the video stream (a duration, or a number of seconds)
+        char-iou-threshold:
           type: number
+          format: float
+          minimum: 0
+          maximum: 1
+          default: 0.7
+          description: 'LPRNet: intersection over union threshold above which two recognized characters are considered one'
+        char-score:
+          type: number
+          format: float
+          minimum: 0
+          maximum: 1
+          default: 0.4
+          description: 'LPRNet: probability threshold for each license''s character to consider that it''s recognized'
         delay-after-error:
+          type: string
+          pattern: ^\d+(ms|[smhd])?$
           default: 30s
-          description: Delay for processing workflow after error
-          pattern: ^\d+(ms|[smhd])$
-          type: string
+          description: Delay for processing workflow after error (a duration, or a number of seconds)
         delay-between-frames:
+          type: string
+          pattern: ^\d+(ms|[smhd])?$
           default: 1s
-          description: Interval between processing video stream screenshots
-          pattern: ^\d+(ms|[smhd])$
-          type: string
+          description: Interval between processing video stream screenshots (a duration, or a number of seconds)
         event-log-after:
+          type: string
+          pattern: ^\d+(ms|[smhd])?$
           default: 5s
-          description: Interval for searching event after the given date
-          pattern: ^\d+(ms|[smhd])$
-          type: string
+          description: Interval for searching event after the given date (a duration, or a number of seconds)
         event-log-before:
-          default: 10s
-          description: Interval for searching event before the given date
-          pattern: ^\d+(ms|[smhd])$
           type: string
+          pattern: ^\d+(ms|[smhd])?$
+          default: 10s
+          description: Interval for searching event before the given date (a duration, or a number of seconds)
         flag-process-special:
+          type: boolean
           default: false
           description: Flag for processing special vehicles
-          type: boolean
         flag-save-failed:
+          type: boolean
           default: false
           description: Flag for saving screenshots with invalid license plate numbers
-          type: boolean
         inference-timeout:
-          default: 1s
-          description: Maximum waiting time for an inference
-          pattern: ^\d+(ms|[smhd])$
           type: string
+          pattern: ^\d+(ms|[smhd])?$
+          default: 1s
+          description: Maximum waiting time for an inference (a duration, or a number of seconds)
         logs-level:
+          type: string
+          enum:
+          - trace
+          - debug
+          - info
+          - warning
+          - error
+          - critical
+          - none
           default: info
           description: Logs level
-          enum:
-            - trace
-            - debug
-            - info
-            - warning
-            - error
-            - critical
-            - none
-          type: string
         lpc-net-inference-server:
+          type: string
           default: 127.0.0.1:8001
           description: 'LPCNet: URL for Triton Inference Server'
-          type: string
         lpc-net-input-height:
+          type: integer
+          minimum: 1
           default: 224
           description: 'LPCNet: input image height'
-          type: integer
         lpc-net-input-tensor-name:
+          type: string
           default: input
           description: 'LPCNet: name of the input tensor'
-          type: string
         lpc-net-input-width:
+          type: integer
+          minimum: 1
           default: 224
           description: 'LPCNet: input image width'
-          type: integer
         lpc-net-model-name:
+          type: string
           default: lpcnet_vit
           description: 'LPCNet: model name'
-          type: string
         lpc-net-output-tensor-name:
+          type: string
           default: output
           description: 'LPCNet: name of the output tensor'
-          type: string
         lpd-net-inference-server:
+          type: string
           default: 127.0.0.1:8001
           description: 'LPDNet: URL for Triton Inference Server'
-          type: string
         lpd-net-input-height:
+          type: integer
+          minimum: 1
           default: 640
           description: 'LPDNet: input image height'
-          type: integer
         lpd-net-input-tensor-name:
+          type: string
           default: images
           description: 'LPDNet: name of the input tensor'
-          type: string
         lpd-net-input-width:
+          type: integer
+          minimum: 1
           default: 640
           description: 'LPDNet: input image width'
-          type: integer
         lpd-net-model-name:
+          type: string
           default: lpdnet_yolo
           description: 'LPDNet: model name'
-          type: string
         lpd-net-output-tensor-name:
+          type: string
           default: output0
           description: 'LPDNet: name of the output tensor'
-          type: string
         lpr-net-inference-server:
+          type: string
           default: 127.0.0.1:8001
           description: 'LPRNet: URL for Triton Inference Server'
-          type: string
         lpr-net-input-height:
+          type: integer
+          minimum: 1
           default: 320
           description: 'LPRNet: input image height'
-          type: integer
         lpr-net-input-tensor-name:
+          type: string
           default: images
           description: 'LPRNet: name of the input tensor'
-          type: string
         lpr-net-input-width:
+          type: integer
+          minimum: 1
           default: 320
           description: 'LPRNet: input image width'
-          type: integer
         lpr-net-model-name:
+          type: string
           default: lprnet_yolo
           description: 'LPRNet: model name'
+        lpr-net-output-tensor-name:
           type: string
+          default: output0
+          description: 'LPRNet: name of the output tensor'
         max-capture-error-count:
+          type: integer
+          minimum: 0
           default: 3
           description: Retry count for receiving screenshot from the video stream
-          type: integer
         min-plate-height:
+          type: integer
+          minimum: 0
           default: 0
           description: Minimum license plate height in pixels (0 - without restrictions)
-          type: integer
         plate-confidence:
+          type: number
+          format: float
+          minimum: 0
+          maximum: 1
           default: 0.6
           description: 'LPDNet: probability threshold to consider that license plate number is found'
-          type: number
         special-confidence:
+          type: number
+          format: float
+          minimum: 0
+          maximum: 1
           default: 0.7
           description: 'VCNet: probability threshold for special vehicle classification'
-          type: number
         uod-net-inference-server:
+          type: string
           default: 127.0.0.1:8001
           description: 'UODNet (Rust only): Triton Inference Server address of the vehicle footprint model'
-          type: string
         uod-net-input-height:
+          type: integer
+          minimum: 1
           default: 640
           description: 'UODNet (Rust only): input image height'
-          type: integer
         uod-net-input-tensor-name:
+          type: string
           default: images
           description: 'UODNet (Rust only): name of the input tensor'
-          type: string
         uod-net-input-width:
+          type: integer
+          minimum: 1
           default: 640
           description: 'UODNet (Rust only): input image width'
-          type: integer
         uod-net-keypoint-confidence:
+          type: number
+          format: float
+          minimum: 0
+          maximum: 1
           default: 0.5
           description: 'UODNet (Rust only): probability every cuboid corner of a vehicle needs for its footprint to be reported; 0 disables the check'
-          type: number
         uod-net-model-name:
+          type: string
           default: uodnet
           description: 'UODNet (Rust only): model name'
-          type: string
         uod-net-nested-box-overlap:
+          type: number
+          format: float
+          minimum: 0
+          maximum: 1
           default: 0.85
           description: 'UODNet (Rust only): share of a vehicle box inside a larger vehicle box that makes it a duplicate, together with uod-net-nested-footprint-overlap; 0 disables the suppression of duplicates'
-          type: number
         uod-net-nested-footprint-overlap:
+          type: number
+          format: float
+          minimum: 0
+          maximum: 1
           default: 0.3
           description: 'UODNet (Rust only): footprint overlap, as a share of the smaller footprint, that makes a nested vehicle a duplicate'
-          type: number
         uod-net-nms-iou-threshold:
+          type: number
+          format: float
+          minimum: 0
+          maximum: 1
           default: 0.7
           description: 'UODNet (Rust only): intersection over union threshold value for NMS of vehicles of one class'
-          type: number
         uod-net-output-tensor-name:
+          type: string
           default: output0
           description: 'UODNet (Rust only): name of the output tensor'
-          type: string
         vc-net-inference-server:
+          type: string
           default: 127.0.0.1:8001
           description: 'VCNet: URL for Triton Inference Server'
-          type: string
         vc-net-input-height:
+          type: integer
+          minimum: 1
           default: 224
           description: 'VCNet: input image height'
-          type: integer
         vc-net-input-tensor-name:
+          type: string
           default: input
           description: 'VCNet: name of the input tensor'
-          type: string
         vc-net-input-width:
+          type: integer
+          minimum: 1
           default: 224
           description: 'VCNet: input image width'
-          type: integer
         vc-net-model-name:
+          type: string
           default: vcnet_vit
           description: 'VCNet: model name'
-          type: string
         vc-net-output-tensor-name:
+          type: string
           default: output
           description: 'VCNet: name of the output tensor'
-          type: string
         vd-net-inference-server:
+          type: string
           default: 127.0.0.1:8001
           description: 'VDNet: URL for Triton Inference Server'
-          type: string
         vd-net-input-height:
+          type: integer
+          minimum: 1
           default: 640
           description: 'VDNet: input image height'
-          type: integer
         vd-net-input-tensor-name:
+          type: string
           default: images
           description: 'VDNet: name of the input tensor'
-          type: string
         vd-net-input-width:
+          type: integer
+          minimum: 1
           default: 640
           description: 'VDNet: input image width'
-          type: integer
         vd-net-model-name:
+          type: string
           default: vdnet_yolo
           description: 'VDNet: model name'
-          type: string
         vd-net-output-tensor-name:
+          type: string
           default: output0
           description: 'VDNet: name of the output tensor'
-          type: string
         vehicle-area-ratio-threshold:
+          type: number
+          format: float
+          minimum: 0
+          maximum: 1
           default: 0.01
           description: 'VDNet: area ratio threshold to filter small vehicles'
-          type: number
         vehicle-confidence:
-          default: 0.5
-          description: 'VDNet: probability threshold for detecting a vehicle'
           type: number
+          format: float
+          minimum: 0
+          maximum: 1
+          default: 0.6
+          description: 'VDNet: probability threshold for detecting a vehicle'
         vehicle-iou-threshold:
+          type: number
+          format: float
+          minimum: 0
+          maximum: 1
           default: 0.45
           description: 'VDNet: intersection over union threshold value for NMS algorithm'
-          type: number
         workflow-timeout:
-          default: 0s
-          description: >-
-            The period after which processing workflow automatically stops after start
-            (a value of 0s disables the timeout)
-          example: 60s
-          pattern: ^\d+(ms|[smhd])$
           type: string
+          pattern: ^\d+(ms|[smhd])?$
+          default: 0s
+          description: The period after which processing workflow automatically stops after start (a value of 0s disables the timeout) (a duration, or a number of seconds)
+          example: 60s

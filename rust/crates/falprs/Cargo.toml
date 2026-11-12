@@ -38,6 +38,10 @@ tonic.workspace = true
 tonic-prost.workspace = true
 uuid.workspace = true
 
+[dev-dependencies]
+# Only for the test that compares the OpenAPI spec with the config schemas
+serde-saphyr.workspace = true
+
 [build-dependencies]
 anyhow.workspace = true
 protox.workspace = true

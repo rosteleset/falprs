@@ -599,3 +599,75 @@ mod tests {
         assert_eq!(seconds_to_duration(f64::NAN), None);
     }
 }
+
+/// The config schemas of `docs/openapi.yaml` describe the same keys, forms and defaults as the code.
+#[cfg(test)]
+mod openapi_tests {
+    use serde_json::Value;
+
+    use super::{Kind, Schema};
+
+    fn openapi_schemas() -> Value {
+        let path = concat!(env!("CARGO_MANIFEST_DIR"), "/../../../docs/openapi.yaml");
+        let spec: Value = serde_saphyr::from_str(&std::fs::read_to_string(path).unwrap()).unwrap();
+        spec["components"]["schemas"].clone()
+    }
+
+    fn check(schema: &Schema, documented: &[&str]) {
+        let schemas = openapi_schemas();
+        let mut properties = serde_json::Map::new();
+        for name in documented {
+            properties.extend(schemas[*name]["properties"].as_object().unwrap().clone());
+        }
+        let mut code_keys: Vec<_> = schema.keys().iter().map(|spec| spec.key.as_str()).collect();
+        let mut doc_keys: Vec<_> = properties.keys().map(String::as_str).collect();
+        code_keys.sort_unstable();
+        doc_keys.sort_unstable();
+        assert_eq!(doc_keys, code_keys, "the keys of {documented:?}");
+        for spec in schema.keys() {
+            let property = &properties[&spec.key];
+            let as_f64 = |value: &Value| value.as_f64().unwrap();
+            assert_eq!(as_f64_or(&property["default"]), as_f64_or(&spec.default), "the default of {}", spec.key);
+            let expected_type = match spec.kind {
+                Kind::Float { .. } => "number",
+                Kind::Int { .. } => "integer",
+                Kind::Bool => "boolean",
+                Kind::Str | Kind::Duration | Kind::Level => "string",
+                Kind::FrsWorkArea | Kind::LprsWorkArea => "array",
+            };
+            assert_eq!(property["type"], expected_type, "the type of {}", spec.key);
+            match spec.kind {
+                Kind::Float { min, max } => {
+                    assert_eq!(as_f64(&property["minimum"]), min, "the minimum of {}", spec.key);
+                    assert_eq!(property.get("maximum").map(as_f64).unwrap_or(f64::MAX), max, "the maximum of {}", spec.key);
+                }
+                Kind::Int { min, max } => {
+                    assert_eq!(property["minimum"].as_i64(), Some(min), "the minimum of {}", spec.key);
+                    let documented_max = property.get("maximum").and_then(Value::as_i64).unwrap_or(i64::from(i32::MAX));
+                    assert_eq!(documented_max, max, "the maximum of {}", spec.key);
+                }
+                _ => {}
+            }
+        }
+    }
+
+    /// Numbers compare by value (300 and 300.0 are the same default), anything else as JSON.
+    fn as_f64_or(value: &Value) -> Value {
+        value.as_f64().map_or_else(|| value.clone(), |n| serde_json::json!(n))
+    }
+
+    #[test]
+    fn frs_common_config() {
+        check(&crate::frs::COMMON_SCHEMA, &["FRSCommonConfig"]);
+    }
+
+    #[test]
+    fn frs_video_stream_config() {
+        check(&crate::frs::VSTREAM_SCHEMA, &["FRSDefaultVStreamConfig"]);
+    }
+
+    #[test]
+    fn lprs_video_stream_config() {
+        check(&crate::lprs::SCHEMA, &["LPRSDefaultVStreamConfig", "LPRSInternalVStreamConfig"]);
+    }
+}
