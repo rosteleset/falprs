@@ -527,7 +527,7 @@ mod tests {
                                    [frs.database]\ndsn = \"postgresql://falprs:123@localhost:5432/frs\"\n";
 
     fn repo_file(path: &str) -> PathBuf {
-        Path::new(env!("CARGO_MANIFEST_DIR")).join("../../..").join(path)
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("../..").join(path)
     }
 
     fn error_of(text: &str) -> String {

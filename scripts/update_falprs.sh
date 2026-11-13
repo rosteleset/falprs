@@ -42,11 +42,11 @@ fi
 export TRITON_VERSION=${TRITON_VERSION:-24.09}
 export FALPRS_WORKDIR=${FALPRS_WORKDIR:-/opt/falprs}
 export FALPRS_REPOSITORY_URL=${FALPRS_REPOSITORY_URL:-https://github.com/rosteleset/falprs}
-FALPRS_BINARY="$BASEDIR/../rust/target/release/falprs"
+FALPRS_BINARY="$BASEDIR/../target/release/falprs"
 
 # Extract the project version
 REQUIRED_VERSION=""
-CARGO_FILE="$BASEDIR/../rust/Cargo.toml"
+CARGO_FILE="$BASEDIR/../Cargo.toml"
 if [ -f "$CARGO_FILE" ]; then
     REQUIRED_VERSION=$(awk '/^\[workspace\.package\]/ { in_package = 1; next } /^\[/ { in_package = 0 }
         in_package && /^version[[:space:]]*=/ { gsub(/[^0-9.]/, "", $0); print; exit }' "$CARGO_FILE")

@@ -18,3 +18,9 @@
 # Environment variables
 scripts/.env
 .env
+
+# Rust build results
+/target/
+
+# Written by the service into its working directory
+/dnn_stats_data.json

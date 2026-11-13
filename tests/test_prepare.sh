@@ -21,7 +21,7 @@ pg_port="${pg_port:=5432}"
 FALPRS_IMPL="${FALPRS_IMPL:-rust}"
 case "$FALPRS_IMPL" in
     rust)
-        default_bin="$BASEDIR/../rust/target/release/falprs"
+        default_bin="$BASEDIR/../target/release/falprs"
         ;;
     cpp)
         if [ -z "$FALPRS_BIN" ]; then

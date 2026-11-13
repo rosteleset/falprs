@@ -321,7 +321,7 @@ mod tests {
 
     #[test]
     fn qr_code_from_test_image() {
-        let path = concat!(env!("CARGO_MANIFEST_DIR"), "/../../../tests/images/qr_code_001.jpg");
+        let path = concat!(env!("CARGO_MANIFEST_DIR"), "/../../tests/images/qr_code_001.jpg");
         let image = imaging::decode(&std::fs::read(path).unwrap()).unwrap();
         let codes = decode_qr_codes(&image);
         assert_eq!(codes.len(), 1);

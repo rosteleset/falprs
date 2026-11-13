@@ -608,7 +608,7 @@ mod openapi_tests {
     use super::{Kind, Schema};
 
     fn openapi_schemas() -> Value {
-        let path = concat!(env!("CARGO_MANIFEST_DIR"), "/../../../docs/openapi.yaml");
+        let path = concat!(env!("CARGO_MANIFEST_DIR"), "/../../docs/openapi.yaml");
         let spec: Value = serde_saphyr::from_str(&std::fs::read_to_string(path).unwrap()).unwrap();
         spec["components"]["schemas"].clone()
     }

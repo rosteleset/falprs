@@ -476,7 +476,7 @@ pytest -v -s test_service_endpoints.py
 ### Модульные тесты Rust
 У реализации на Rust есть также модульные тесты. Им не нужны ни тестовые базы данных, ни Triton Inference Server:
 ```bash
-cd ~/falprs/rust
+cd ~/falprs
 cargo test
 ```
 Тесты конвертера *config.yaml*, которым нужен также пакет *python3-yaml*:

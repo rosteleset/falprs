@@ -126,7 +126,7 @@ def test_default_config_path_follows_the_format():
 
 def test_implementation_defaults():
     impl, binary = service.implementation({})
-    assert impl == "rust" and binary == (service.REPO_DIR / "rust/target/release/falprs").resolve()
+    assert impl == "rust" and binary == (service.REPO_DIR / "target/release/falprs").resolve()
     with pytest.raises(EnvironmentFailure):
         service.implementation({"FALPRS_IMPL": "cpp"})
     impl, binary = service.implementation({"FALPRS_IMPL": "cpp", "FALPRS_BIN": "/opt/cpp/falprs"})

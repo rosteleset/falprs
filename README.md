@@ -476,7 +476,7 @@ After finishing the tests, delete the directories and test databases:
 ### Rust Unit Tests
 The Rust implementation also has unit tests. They need neither the test databases nor Triton Inference Server:
 ```bash
-cd ~/falprs/rust
+cd ~/falprs
 cargo test
 ```
 The tests of the *config.yaml* converter, which also need the *python3-yaml* package:

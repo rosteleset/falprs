@@ -28,7 +28,7 @@ fi
 # FALPRS_WORKDIR - FALPRS working directory
 
 export FALPRS_WORKDIR="${FALPRS_WORKDIR:-/opt/falprs}"
-FALPRS_BINARY="$BASEDIR/../rust/target/release/falprs"
+FALPRS_BINARY="$BASEDIR/../target/release/falprs"
 echo "Building FALPRS"
 
 # The Rust build needs a C compiler only for the TLS crypto library; Rust itself is installed with rustup
@@ -56,7 +56,14 @@ if ! command -v rustup >/dev/null 2>&1; then
     curl --proto "=https" --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal --default-toolchain none --no-modify-path
 fi
 
-cd "$BASEDIR/../rust"
+cd "$BASEDIR/.."
+
+# The workspace was moved from rust/ to the repository root; the old build results take gigabytes
+if [ -d rust/target ] && [ ! -e rust/Cargo.toml ]; then
+    echo "Removing the old build results in rust/target"
+    rm -rf rust/target
+    rmdir rust 2>/dev/null || true
+fi
 
 # Install, or update, the toolchain channel named in rust-toolchain.toml
 TOOLCHAIN=$(sed -n "s/^channel *= *\"\(.*\)\"/\1/p" rust-toolchain.toml)
