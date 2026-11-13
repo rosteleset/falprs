@@ -156,6 +156,19 @@ sudo ~/falprs/scripts/setup_nvidia_drivers.sh
 sudo reboot
 ```
 
+**Важно:** отключите автоматическое обновление пакетов (*unattended-upgrades*) на серверах с сервисом. Оно может обновить пакеты драйверов NVIDIA во время работы системы и перезапустить сервисы, в том числе Triton Inference Server. Тогда установленные библиотеки драйвера отличаются от модуля драйвера, загруженного в ядро, и GPU перестают работать (*nvidia-smi* сообщает *Failed to initialize NVML: Driver/library version mismatch*) до перезагрузки системы. Отключите обновления, ответив *No*:
+```bash
+sudo dpkg-reconfigure -plow unattended-upgrades
+```
+Проверьте, что `apt-config dump APT::Periodic::Unattended-Upgrade` теперь выводит *"0"*. Обновляйте систему и драйвера вручную, в то время, когда сервер можно перезагрузить. Если автоматические обновления безопасности нужно сохранить, исключите из них хотя бы пакеты драйверов NVIDIA в разделе *Unattended-Upgrade::Package-Blacklist* файла */etc/apt/apt.conf.d/50unattended-upgrades*:
+```
+Unattended-Upgrade::Package-Blacklist {
+    "nvidia-";
+    "libnvidia-";
+    "cuda-drivers";
+};
+```
+
 <a id="install_de"></a>
 ### Установка Docker Engine
 Если в системе уже установлен Docker Engine, то пропустите этот пункт. Для установки можно использовать  скрипт **scripts/setup_docker.sh**. Основные команды взяты [отсюда](https://docs.docker.com/engine/install/ubuntu/#install-using-the-repository).

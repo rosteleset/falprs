@@ -156,6 +156,19 @@ After installation, the operating system must be rebooted:
 sudo reboot
 ```
 
+**Important:** turn off automatic package updates (*unattended-upgrades*) on the servers with the service. They can update the NVIDIA driver packages while the system runs and restart services, Triton Inference Server among them. The installed driver libraries then differ from the driver module loaded in the kernel, and the GPUs stop working (*nvidia-smi* reports *Failed to initialize NVML: Driver/library version mismatch*) until the system is rebooted. Turn the updates off and answer *No*:
+```bash
+sudo dpkg-reconfigure -plow unattended-upgrades
+```
+Check that `apt-config dump APT::Periodic::Unattended-Upgrade` now prints *"0"*. Update the system and the drivers by hand, at a time when the server may be rebooted. If you need to keep the automatic security updates, exclude at least the NVIDIA driver packages from them in the *Unattended-Upgrade::Package-Blacklist* section of the */etc/apt/apt.conf.d/50unattended-upgrades* file:
+```
+Unattended-Upgrade::Package-Blacklist {
+    "nvidia-";
+    "libnvidia-";
+    "cuda-drivers";
+};
+```
+
 <a id="install_de"></a>
 ### Docker Engine Installation
 If Docker Engine is already installed on the system, skip this step. You can use the **scripts/setup_docker.sh** script for installation. The main commands are taken from [here](https://docs.docker.com/engine/install/ubuntu/#install-using-the-repository).
