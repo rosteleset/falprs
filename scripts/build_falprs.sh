@@ -2,10 +2,19 @@
 
 # Build script for the FALPRS project
 # Creates executable file and prepares a working directory
+# With --no-install only the executable is built: the working directory, including the installed
+# executable and the config, is left as is, so a running service is not affected.
 
 set -e
 
 BASEDIR=$(realpath "$(dirname "$0")")
+
+NO_INSTALL=false
+case "${1:-}" in
+    "") ;;
+    --no-install) NO_INSTALL=true ;;
+    *) echo "Usage: $0 [--no-install]" >&2; exit 1 ;;
+esac
 
 # Determine the user that invoked sudo.
 # Build artifacts must belong to the regular user, not root.
@@ -71,6 +80,10 @@ rustup toolchain install "$TOOLCHAIN" --profile minimal
 
 cargo build --release --locked -p falprs
 '
+
+if [ "$NO_INSTALL" = true ]; then
+    exit 0
+fi
 
 # Everything below this point is deployment/configuration and requires root.
 # The executable was built by BUILD_USER and is copied to the root-owned

@@ -297,6 +297,17 @@ The script:
 
 If the FALPRS executable is up to date and all TensorRT plans are current, neither the `falprs` service nor the Triton Inference Server container is stopped during the update.
 
+The update can also be run in phases, e.g. to update the servers of a cluster one at a time while a load balancer sends the requests to the other one. Each phase is a separate run of the script:
+* `--build` builds the FALPRS executable and downloads the neural network models; the running services and the working directory are left as they are, and the TensorRT plans that the next phase will generate are listed
+* `--install` is run on a server taken out of service: it converts the configuration, stops the `falprs` service if its executable has to be replaced and the Triton Inference Server container if TensorRT plans have to be generated, installs the executable, generates the plans and starts Triton Inference Server again; the `falprs` service is left stopped, and the DB is not touched
+* `--finish` updates the DB and checks the stored configs as described above, and starts the `falprs` service
+```bash
+sudo ~/falprs/scripts/update_falprs.sh --build
+sudo ~/falprs/scripts/update_falprs.sh --install
+sudo ~/falprs/scripts/update_falprs.sh --finish
+```
+Updating the DB is the step after which servers with the previous version may no longer work correctly with it (e.g. the C++ implementation does not work with the Triton gRPC port), so run `--finish` when the servers with the previous version no longer receive requests, or when the update does not change the DB in a way they cannot handle.
+
 The stored configs can also be checked by hand. Without *--fix* the command only lists what would change and exits with code 1 if something needs cleaning:
 ```bash
 cd /opt/falprs
