@@ -9,11 +9,19 @@ name: cargo-deny
 on:
   push:
     paths:
-      - "rust/**"
+      - "Cargo.toml"
+      - "Cargo.lock"
+      - "deny.toml"
+      - "crates/**"
+      - "probes/**"
       - ".github/workflows/cargo-deny.yml"
   pull_request:
     paths:
-      - "rust/**"
+      - "Cargo.toml"
+      - "Cargo.lock"
+      - "deny.toml"
+      - "crates/**"
+      - "probes/**"
       - ".github/workflows/cargo-deny.yml"
   schedule:
     # New advisories appear without changes to the code
@@ -39,4 +47,3 @@ jobs:
       - uses: EmbarkStudios/cargo-deny-action@v2
         with:
           command: check ${{ matrix.checks }}
-          manifest-path: rust/Cargo.toml
