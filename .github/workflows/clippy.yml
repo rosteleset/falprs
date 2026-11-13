@@ -1,0 +1,43 @@
+# Lints the Rust workspace with clippy and fails on any warning.
+#
+# The toolchain follows the stable channel of rust-toolchain.toml, so a new clippy release can
+# bring new lints that fail a run without changes to the code; they are fixed as they come.
+name: clippy
+
+on:
+  push:
+    paths:
+      - "Cargo.toml"
+      - "Cargo.lock"
+      - ".cargo/**"
+      - "rust-toolchain.toml"
+      - "crates/**"
+      - "probes/**"
+      - "proto/**"
+      - ".github/workflows/clippy.yml"
+  pull_request:
+    paths:
+      - "Cargo.toml"
+      - "Cargo.lock"
+      - ".cargo/**"
+      - "rust-toolchain.toml"
+      - "crates/**"
+      - "probes/**"
+      - "proto/**"
+      - ".github/workflows/clippy.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  clippy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - name: Install the toolchain of rust-toolchain.toml with clippy
+        run: |
+          TOOLCHAIN=$(sed -n "s/^channel *= *\"\(.*\)\"/\1/p" rust-toolchain.toml)
+          rustup toolchain install "$TOOLCHAIN" --profile minimal --component clippy
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo clippy --workspace --all-targets --locked -- -D warnings
