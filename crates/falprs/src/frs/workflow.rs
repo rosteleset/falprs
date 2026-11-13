@@ -997,6 +997,7 @@ fn path_suffix(id_group: i32, s_uuid: &str) -> String {
     format!("group_{id_group}/{}/{}/{}/{}/", c[0], c[1], c[2], c[3])
 }
 
+#[allow(clippy::too_many_arguments)]
 async fn add_log_face(
     ctx: &Run<'_>,
     log_date: DateTime<Utc>,

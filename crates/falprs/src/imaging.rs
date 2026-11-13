@@ -448,10 +448,12 @@ fn solve_lu<const N: usize>(mut a: [[f64; N]; N], mut b: [f64; N]) -> Option<[f6
             b.swap(i, k);
         }
         let d = -1.0 / a[i][i];
+        // Row i does not change while the rows below it are eliminated
+        let row_i = a[i];
         for j in i + 1..N {
             let alpha = a[j][i] * d;
-            for k in i + 1..N {
-                a[j][k] += alpha * a[i][k];
+            for (x, &y) in a[j][i + 1..].iter_mut().zip(&row_i[i + 1..]) {
+                *x += alpha * y;
             }
             b[j] += alpha * b[i];
         }

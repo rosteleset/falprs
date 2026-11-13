@@ -7,6 +7,8 @@ use std::time::Duration;
 use anyhow::{Context, Result, bail};
 use tonic::transport::{Channel, Endpoint};
 
+// Generated from the Triton protos, whose names the lints have no say over
+#[allow(clippy::all)]
 mod proto {
     tonic::include_proto!("inference");
 }

@@ -32,7 +32,7 @@ fn read_bgr(path: &Path) -> Result<RgbImage> {
     let stem = path.file_stem().and_then(|s| s.to_str()).context("bad file name")?;
     let (w, h) = stem.rsplit('_').next().and_then(|s| s.split_once('x')).context("no size in name")?;
     let mut data = std::fs::read(path)?;
-    data.chunks_exact_mut(3).for_each(|p| p.swap(0, 2));
+    data.as_chunks_mut::<3>().0.iter_mut().for_each(|p| p.swap(0, 2));
     RgbImage::from_raw(w.parse()?, h.parse()?, data).context("size mismatch")
 }
 
@@ -164,7 +164,7 @@ async fn compare(dir: &str, landmarks_file: &str, matrices_file: &str, aligned_d
         let parts: Vec<&str> = line.split_whitespace().collect();
         let (file, index) = (parts[0], parts[1]);
         let values: Vec<f32> = parts[2..12].iter().map(|v| v.parse()).collect::<Result<_, _>>()?;
-        let landmarks: Vec<[f32; 2]> = values.chunks_exact(2).map(|p| [p[0], p[1]]).collect();
+        let landmarks: Vec<[f32; 2]> = values.as_chunks::<2>().0.to_vec();
         let template: Vec<[f32; 2]> = TEMPLATE
             .iter()
             .map(|p| [p[0] / 112.0 * FACE_SIZE as f32, p[1] / 112.0 * FACE_SIZE as f32])
@@ -180,7 +180,7 @@ async fn compare(dir: &str, landmarks_file: &str, matrices_file: &str, aligned_d
         let reference_m = reference.get(&key).with_context(|| format!("no reference for {key}"))?;
         let stem = Path::new(file).file_stem().and_then(|s| s.to_str()).unwrap_or_default();
         let mut theirs_raw = std::fs::read(Path::new(aligned_dir).join(format!("{stem}_{index}.aligned")))?;
-        theirs_raw.chunks_exact_mut(3).for_each(|p| p.swap(0, 2));
+        theirs_raw.as_chunks_mut::<3>().0.iter_mut().for_each(|p| p.swap(0, 2));
         let theirs = RgbImage::from_raw(FACE_SIZE, FACE_SIZE, theirs_raw).context("reference size")?;
 
         let matrix_diff = m.iter().zip(reference_m).map(|(a, b)| (a - b).abs()).fold(0.0, f64::max);

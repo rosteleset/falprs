@@ -14,7 +14,7 @@ const LANES: usize = 16;
 /// Dot product of two equally long slices whose length is a multiple of `LANES`.
 fn dot(a: &[f32], b: &[f32]) -> f32 {
     let mut sums = [0.0f32; LANES];
-    for (x, y) in a.chunks_exact(LANES).zip(b.chunks_exact(LANES)) {
+    for (x, y) in a.as_chunks::<LANES>().0.iter().zip(b.as_chunks::<LANES>().0) {
         for lane in 0..LANES {
             sums[lane] += x[lane] * y[lane];
         }
@@ -24,7 +24,7 @@ fn dot(a: &[f32], b: &[f32]) -> f32 {
 
 fn read(path: &str) -> Result<Vec<f32>> {
     let bytes = std::fs::read(path).with_context(|| format!("can't read {path}"))?;
-    Ok(bytes.chunks_exact(4).map(|b| f32::from_le_bytes([b[0], b[1], b[2], b[3]])).collect())
+    Ok(bytes.as_chunks::<4>().0.iter().map(|b| f32::from_le_bytes(*b)).collect())
 }
 
 fn main() -> Result<()> {

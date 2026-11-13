@@ -11,7 +11,9 @@ use serde_json::json;
 /// ZXing's luminance of an RGB pixel. The FRS workflow hands ZXing OpenCV's BGR data labelled
 /// as RGB, so the first byte is weighted as red.
 fn luminance(bgr: &[u8]) -> Vec<u8> {
-    bgr.chunks_exact(3)
+    bgr.as_chunks::<3>()
+        .0
+        .iter()
         .map(|p| ((306 * p[0] as u32 + 601 * p[1] as u32 + 117 * p[2] as u32 + 0x200) >> 10) as u8)
         .collect()
 }

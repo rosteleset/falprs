@@ -321,7 +321,9 @@ pub async fn detect_plates(
             config.plate_confidence
         );
         let mut plates: Vec<LicensePlate> = data
-            .chunks_exact(COLUMNS)
+            .as_chunks::<COLUMNS>()
+            .0
+            .iter()
             .filter(|row| row[4] > config.plate_confidence)
             .map(|row| {
                 let mut kpts = [0.0; 8];
@@ -391,7 +393,7 @@ pub async fn detect_plates(
 
 /// Key points as the C++ service logs them: `[(x, y) (x, y) (x, y) (x, y)]`.
 fn format_key_points(kpts: &[f32; 8]) -> String {
-    let points: Vec<String> = kpts.chunks_exact(2).map(|p| format!("({:.2}, {:.2})", p[0], p[1])).collect();
+    let points: Vec<String> = kpts.as_chunks::<2>().0.iter().map(|p| format!("({:.2}, {:.2})", p[0], p[1])).collect();
     format!("[{}]", points.join(" "))
 }
 
@@ -711,7 +713,9 @@ pub async fn recognize_plates(triton: &Triton, image: &RgbImage, config: &VStrea
         let (shift_x, shift_y) = input.shift;
         stream_log!(log, Level::Trace, "char score threshold: {:.2}", config.char_score);
         let mut chars: Vec<CharData> = data
-            .chunks_exact(6)
+            .as_chunks::<6>()
+            .0
+            .iter()
             .take(300)
             .filter(|row| row[4] > config.char_score)
             .map(|row| CharData {
