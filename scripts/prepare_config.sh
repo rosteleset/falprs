@@ -49,8 +49,11 @@ if [ -f "$OLD_CONFIG" ]; then
 fi
 
 echo "Creating $CONFIG"
-awk -v lprs="postgresql://$PG_USER_LPRS:$PG_PASSWD_LPRS@$PG_HOST_LPRS:$PG_PORT_LPRS/$PG_DB_LPRS" \
-    -v frs="postgresql://$PG_USER_FRS:$PG_PASSWD_FRS@$PG_HOST_FRS:$PG_PORT_FRS/$PG_DB_FRS" '
+# A host may be a comma-separated list of the servers of a cluster: every host gets the port
+PG_HOSTS_LPRS=$(echo "$PG_HOST_LPRS" | sed "s/,/:$PG_PORT_LPRS,/g; s/$/:$PG_PORT_LPRS/")
+PG_HOSTS_FRS=$(echo "$PG_HOST_FRS" | sed "s/,/:$PG_PORT_FRS,/g; s/$/:$PG_PORT_FRS/")
+awk -v lprs="postgresql://$PG_USER_LPRS:$PG_PASSWD_LPRS@$PG_HOSTS_LPRS/$PG_DB_LPRS" \
+    -v frs="postgresql://$PG_USER_FRS:$PG_PASSWD_FRS@$PG_HOSTS_FRS/$PG_DB_FRS" '
 /^\[/ { section = $0 }
 section == "[lprs.database]" && /^dsn[[:space:]]*=/ { $0 = "dsn = \"" lprs "\"" }
 section == "[frs.database]" && /^dsn[[:space:]]*=/ { $0 = "dsn = \"" frs "\"" }

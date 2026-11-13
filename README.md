@@ -191,7 +191,7 @@ psql --version
 psql (PostgreSQL) 16.14 (Ubuntu 16.14-0ubuntu0.24.04.1)
 ```
 This means *PG_VERSION=16*
-Other variables with the **PG_** prefix define the connection to PostgreSQL. Don't forget to specify your password. The build script writes the connections into the *config.toml* configuration only when it creates the file; later changes of these variables do not get into an existing configuration, so change the *dsn* settings in it as well.
+Other variables with the **PG_** prefix define the connection to PostgreSQL. Don't forget to specify your password. The build script writes the connections into the *config.toml* configuration only when it creates the file; later changes of these variables do not get into an existing configuration, so change the *dsn* settings in it as well. For a PostgreSQL cluster, list its servers in **PG_HOST_FRS** and **PG_HOST_LPRS** separated by commas (e.g. *PG_HOST_FRS=192.168.50.12,192.168.50.13*): the DB schemas are then updated on the master, whichever server it is, and the service connects to all of them.
 The version of the Triton Inference Server container is set by the **TRITON_VERSION** variable. It is determined by the **Compute Capability** — the NVIDIA GPU hardware architecture version that determines the available instruction set, supported technologies (e.g., **Tensor cores**), and physical limitations of the GPU. It is needed for the **CUDA compiler** and software to understand how to efficiently execute code on the graphics card. You can find out the Compute Capability with the command:
 ```bash
 nvidia-smi --query-gpu=compute_cap --format=csv
