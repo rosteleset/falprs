@@ -37,3 +37,4 @@ psql postgresql://$PG_USER_LPRS:$PG_PASSWD_LPRS@$PG_HOST_LPRS:$PG_PORT_LPRS/$PG_
 psql postgresql://$PG_USER_LPRS:$PG_PASSWD_LPRS@$PG_HOST_LPRS:$PG_PORT_LPRS/$PG_DB_LPRS < $BASEDIR/../sql/lprs/03_events_log.sql
 psql postgresql://$PG_USER_LPRS:$PG_PASSWD_LPRS@$PG_HOST_LPRS:$PG_PORT_LPRS/$PG_DB_LPRS < $BASEDIR/../sql/lprs/04_default_vstream_config.sql
 psql postgresql://$PG_USER_LPRS:$PG_PASSWD_LPRS@$PG_HOST_LPRS:$PG_PORT_LPRS/$PG_DB_LPRS < $BASEDIR/../sql/lprs/05_vstreams_new_columns.sql
+psql postgresql://$PG_USER_LPRS:$PG_PASSWD_LPRS@$PG_HOST_LPRS:$PG_PORT_LPRS/$PG_DB_LPRS < $BASEDIR/../sql/lprs/06_triton_grpc_port.sql

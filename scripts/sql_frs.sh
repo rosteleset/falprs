@@ -45,3 +45,4 @@ psql postgresql://$PG_USER_FRS:$PG_PASSWD_FRS@$PG_HOST_FRS:$PG_PORT_FRS/$PG_DB_F
 psql postgresql://$PG_USER_FRS:$PG_PASSWD_FRS@$PG_HOST_FRS:$PG_PORT_FRS/$PG_DB_FRS < "$BASEDIR/../sql/frs/11_face_descriptors_new_column.sql"
 psql postgresql://$PG_USER_FRS:$PG_PASSWD_FRS@$PG_HOST_FRS:$PG_PORT_FRS/$PG_DB_FRS < "$BASEDIR/../sql/frs/12_video_streams_new_column.sql"
 psql postgresql://$PG_USER_FRS:$PG_PASSWD_FRS@$PG_HOST_FRS:$PG_PORT_FRS/$PG_DB_FRS < "$BASEDIR/../sql/frs/13_log_barcodes.sql"
+psql postgresql://$PG_USER_FRS:$PG_PASSWD_FRS@$PG_HOST_FRS:$PG_PORT_FRS/$PG_DB_FRS < "$BASEDIR/../sql/frs/14_triton_grpc_port.sql"

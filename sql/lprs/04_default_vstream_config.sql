@@ -14,17 +14,3 @@ update default_vstream_config set config = config || '{"lpc-net-input-height":22
 -- The ovdnet model is no longer used
 update default_vstream_config set config = config - array['ovd-net-inference-server','ovd-net-model-name','ovd-net-input-width','ovd-net-input-height','ovd-net-input-tensor-name','ovd-net-output-tensor-name'];
 update default_vstream_config set config = '{"uod-net-inference-server":"127.0.0.1:8001","uod-net-model-name":"uodnet","uod-net-input-width":640,"uod-net-input-height":640,"uod-net-input-tensor-name":"images","uod-net-output-tensor-name":"output0","uod-net-nms-iou-threshold":0.7,"uod-net-keypoint-confidence":0.5,"uod-net-nested-box-overlap":0.85,"uod-net-nested-footprint-overlap":0.3}' || config;
-update
-  default_vstream_config
-set
-  config = (
-    select jsonb_object_agg(
-        key,
-        case
-            when key like '%-inference-server'
-                then to_jsonb(regexp_replace(value #>> '{}', ':[0-9]+$', ':8001'))
-            else value
-        end
-    )
-    from jsonb_each(config)
-  );

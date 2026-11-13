@@ -291,7 +291,7 @@ The script:
 * removes the models that are no longer used from the Triton Inference Server model repository
 * stops the `falprs` service and the Triton Inference Server container only when TensorRT plans need to be regenerated or unused models need to be removed
 * starts the Triton Inference Server container again after successful TensorRT plan generation when it was running before the update
-* updates schemas and data in the DB (old data is not overwritten)
+* updates schemas and data in the DB (old data is not overwritten); Triton Inference Server addresses with the HTTP port 8000, left from versions that used the Triton HTTP client, get the gRPC port 8001 in all the stored configs
 * checks the video stream configs, default video stream configs and common configs stored in the DB and cleans them: values in a form the service also took (e.g. *"true"* or *"0.7"* as strings) are stored in their canonical form, so that the video streams keep working as before; FRS parameters stored in the wrong config of a stream group are moved to the right one; values the service ignored and unknown parameters are removed. The original configs of the changed rows are saved to the *config-cleanup-&lt;date&gt;.json* file in the working directory first
 * restores the `falprs` service to its previous state after the update
 
