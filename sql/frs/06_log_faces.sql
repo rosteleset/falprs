@@ -43,8 +43,5 @@ comment on column log_faces.log_uuid is 'uuid of the log';
 create index if not exists log_faces_copy_data_index
   on log_faces (copy_data);
 
-create index if not exists log_faces_id_log_index
-  on log_faces (id_log);
-
 create index if not exists log_faces_id_vstream_log_date_index
   on log_faces (id_vstream, log_date);

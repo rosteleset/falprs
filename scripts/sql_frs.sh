@@ -50,3 +50,4 @@ psql -v ON_ERROR_STOP=1 "$PG_URI_FRS" < "$BASEDIR/../sql/frs/11_face_descriptors
 psql -v ON_ERROR_STOP=1 "$PG_URI_FRS" < "$BASEDIR/../sql/frs/12_video_streams_new_column.sql"
 psql -v ON_ERROR_STOP=1 "$PG_URI_FRS" < "$BASEDIR/../sql/frs/13_log_barcodes.sql"
 psql -v ON_ERROR_STOP=1 "$PG_URI_FRS" < "$BASEDIR/../sql/frs/14_triton_grpc_port.sql"
+psql -v ON_ERROR_STOP=1 "$PG_URI_FRS" < "$BASEDIR/../sql/frs/15_drop_log_faces_id_log_index.sql"
