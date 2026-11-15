@@ -21,7 +21,7 @@ use crate::geometry::{BBox, iou};
 use crate::imaging;
 use crate::logging::{Level, StreamLog};
 use crate::stream_log;
-use crate::{callback, converters, files};
+use crate::{callback, converters, database, files};
 use crate::{log, log_to};
 
 /// A plate ban: until `full_until` the plate is ignored anywhere; until `area_until` it is ignored
@@ -581,13 +581,18 @@ pub async fn events_log_maintenance(lprs: &Lprs) {
     let before = SystemTime::now() - settings.events_log_ttl;
     let before_date: DateTime<Utc> = before.into();
     log!(lprs.logger, Level::Debug, "delete event logs older than {before_date}");
-    if let Err(e) = lprs
-        .cluster
-        .execute(HostType::Master, "delete from events_log where log_date < $1", &[&before_date])
-        .await
-    {
+    let started = Instant::now();
+    let deleted = database::delete_outdated(&lprs.cluster, &database::EVENTS_LOG, before_date).await;
+    if let Some(e) = deleted.error {
         log!(lprs.logger, Level::Error, "{e}");
     }
+    log!(
+        lprs.logger,
+        Level::Debug,
+        "deleted {} rows from events_log in {} ms",
+        deleted.rows,
+        started.elapsed().as_millis()
+    );
     // The files are selected by their own age, not by the deleted rows: they are removed even when the
     // delete fails, so that a database that does not answer does not let the disk fill up (the C++
     // service skips them then)

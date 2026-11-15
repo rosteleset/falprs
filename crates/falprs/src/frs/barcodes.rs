@@ -3,7 +3,7 @@
 //! least as well as ZXing does, and QR codes are the only format in use.
 
 use std::path::PathBuf;
-use std::time::SystemTime;
+use std::time::{Instant, SystemTime};
 
 use anyhow::{Context, Result, bail};
 use chrono::{DateTime, Utc};
@@ -23,7 +23,7 @@ use crate::imaging;
 use crate::logging::{Level, StreamLog};
 use crate::stream_log;
 use crate::triton::{InferRequest, Tensor};
-use crate::{log, log_to};
+use crate::{database, log, log_to};
 
 /// A detected barcode: absolute x_min, y_min, x_max, y_max and confidence.
 #[derive(Debug, Clone, Copy)]
@@ -287,17 +287,18 @@ async fn add_log_barcode(frs: &Frs, id_vstream: i32, log_date: DateTime<Utc>, in
 pub async fn old_log_barcodes_maintenance(frs: &Frs) {
     log!(frs.logger, Level::Info, "Removing obsolete entries from the log_barcodes table");
     let before = SystemTime::now() - frs.local.log_barcodes_ttl;
-    let result = frs
-        .cluster
-        .execute(
-            HostType::Master,
-            "delete from log_barcodes where log_date < $1",
-            &[&DateTime::<Utc>::from(before)],
-        )
-        .await;
-    if let Err(e) = result {
+    let started = Instant::now();
+    let deleted = database::delete_outdated(&frs.cluster, &database::LOG_BARCODES, before.into()).await;
+    if let Some(e) = deleted.error {
         log_to!(frs.logger, Level::Error, "{e}");
     }
+    log!(
+        frs.logger,
+        Level::Debug,
+        "deleted {} rows from log_barcodes in {} ms",
+        deleted.rows,
+        started.elapsed().as_millis()
+    );
     // The files are selected by their own age, not by the deleted rows: they are removed even when the
     // delete fails, so that a database that does not answer does not let the disk fill up (the C++
     // service skips them then)

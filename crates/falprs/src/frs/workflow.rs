@@ -24,7 +24,7 @@ use crate::converters::format_time;
 use crate::fetch::{FetchError, decode_base64, fetch_image};
 use crate::imaging;
 use crate::logging::{Level, StreamLog};
-use crate::{callback, files};
+use crate::{callback, database, files};
 use crate::{log, log_to, stream_log};
 
 pub const MIME_IMAGE: &str = "image/jpeg";
@@ -1496,13 +1496,18 @@ pub async fn remove_old_files(frs: &Frs, dir: &str, extensions: &[&str], before:
 pub async fn old_log_faces_maintenance(frs: &Frs) {
     log!(frs.logger, Level::Info, "Removing obsolete entries from the log_faces table");
     let before = SystemTime::now() - frs.local.log_faces_ttl;
-    let result = frs
-        .cluster
-        .execute(HostType::Master, "delete from log_faces where log_date < $1", &[&DateTime::<Utc>::from(before)])
-        .await;
-    if let Err(e) = result {
+    let started = Instant::now();
+    let deleted = database::delete_outdated(&frs.cluster, &database::LOG_FACES, before.into()).await;
+    if let Some(e) = deleted.error {
         log_to!(frs.logger, Level::Error, "{e}");
     }
+    log!(
+        frs.logger,
+        Level::Debug,
+        "deleted {} rows from log_faces in {} ms",
+        deleted.rows,
+        started.elapsed().as_millis()
+    );
     // The files are selected by their own age, not by the deleted rows: they are removed even when the
     // delete fails, so that a database that does not answer does not let the disk fill up (the C++
     // service skips them then)
