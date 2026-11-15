@@ -160,7 +160,9 @@ def test_async_commit_sql():
 
 def test_allocator_env():
     environ = {"MALLOC_ARENA_MAX": "2", "GLIBC_TUNABLES": "glibc.malloc.trim_threshold=0", "PATH": "/usr/bin",
-               "MALLOC_TRIM_THRESHOLD_": "0", "LD_PRELOAD": "x.so"}
-    assert service.allocator_env(environ) == {"GLIBC_TUNABLES": "glibc.malloc.trim_threshold=0",
-                                              "MALLOC_ARENA_MAX": "2", "MALLOC_TRIM_THRESHOLD_": "0"}
+               "LD_PRELOAD": "/usr/lib/x86_64-linux-gnu/libmimalloc.so.2", "MIMALLOC_PURGE_DELAY": "0",
+               "MALLOC_CONF": "background_thread:true", "LD_LIBRARY_PATH": "/opt/lib", "MIMALLOCX": "1"}
+    assert service.allocator_env(environ) == {
+        "GLIBC_TUNABLES": "glibc.malloc.trim_threshold=0", "LD_PRELOAD": "/usr/lib/x86_64-linux-gnu/libmimalloc.so.2",
+        "MALLOC_ARENA_MAX": "2", "MALLOC_CONF": "background_thread:true", "MIMALLOC_PURGE_DELAY": "0"}
     assert service.allocator_env({"PATH": "/usr/bin"}) == {}
