@@ -1502,8 +1502,10 @@ pub async fn old_log_faces_maintenance(frs: &Frs) {
         .await;
     if let Err(e) = result {
         log_to!(frs.logger, Level::Error, "{e}");
-        return;
     }
+    // The files are selected by their own age, not by the deleted rows: they are removed even when the
+    // delete fails, so that a database that does not answer does not let the disk fill up (the C++
+    // service skips them then)
     log!(frs.logger, Level::Info, "Removing outdated face screenshots and data");
     let dir = frs.local.screenshots_path.clone();
     remove_old_files(frs, &dir, &LOG_FILE_EXTENSIONS, before).await;

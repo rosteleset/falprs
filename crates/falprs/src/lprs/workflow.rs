@@ -587,8 +587,10 @@ pub async fn events_log_maintenance(lprs: &Lprs) {
         .await
     {
         log!(lprs.logger, Level::Error, "{e}");
-        return;
     }
+    // The files are selected by their own age, not by the deleted rows: they are removed even when the
+    // delete fails, so that a database that does not answer does not let the disk fill up (the C++
+    // service skips them then)
     let failed_before = SystemTime::now() - settings.failed_ttl;
     for (directory, before) in [(&settings.screenshots_path, before), (&settings.failed_path, failed_before)] {
         for e in files::remove_old_files(Path::new(directory), &files::IMAGE_EXTENSIONS, before).await {
