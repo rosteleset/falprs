@@ -224,6 +224,7 @@ class Run:
                                       for a in ("pipelines_per_cpu", "pipelines_per_cpu_values")):
             raise EnvironmentFailure("pipelines-per-cpu is not supported by the C++ service: it rejects the key")
         self.pg_port = service.pg_port()
+        self.allocator_env = service.allocator_env()
         self.template = service.load_template(self.impl)
         self.cpus = service.service_cpus()
         self.retention = {arg: getattr(args, arg) for arg in service.RETENTION_KEYS}
@@ -246,6 +247,7 @@ class Run:
             "binary": str(self.binary),
             "pg_port": self.pg_port,
             "service_cpus": self.cpus,
+            "allocator_env": self.allocator_env,
             "started": self.started,
         }
         (self.dir / "arguments.json").write_text(json.dumps(record, indent=2) + "\n")
@@ -333,6 +335,8 @@ class Run:
             f"- Command: `{' '.join(shlex.quote(a) for a in sys.argv)}`",
             f"- Implementation: {self.impl} (`{self.binary}`)",
             f"- CPUs seen by the service: {self.cpus}",
+            "- Allocator environment: "
+            + (", ".join(f"`{k}={v}`" for k, v in self.allocator_env.items()) or "none (glibc defaults)"),
             "- PostgreSQL commits: "
             + ("asynchronous (synchronous_commit = off)" if self.args.pg_async_commit else "synchronous"),
             f"- Camera emulator: {self.emulator_url}, latency {s.get('latency', 0) * 1000:g} ms, "

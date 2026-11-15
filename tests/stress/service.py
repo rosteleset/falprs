@@ -78,6 +78,12 @@ def pg_port(environ=os.environ):
     return int(environ.get("pg_port") or 5432)
 
 
+def allocator_env(environ=os.environ):
+    """The environment variables that tune glibc malloc (MALLOC_* and GLIBC_TUNABLES), which the service inherits
+    from the runner: they change its RSS and may change its throughput, so the results record them."""
+    return {k: environ[k] for k in sorted(environ) if k.startswith("MALLOC_") or k == "GLIBC_TUNABLES"}
+
+
 def load_template(impl="rust"):
     path = TEMPLATES[impl]
     with open(path, "rb") as f:

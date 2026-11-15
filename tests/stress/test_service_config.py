@@ -156,3 +156,11 @@ def test_parse_duration():
 def test_async_commit_sql():
     assert service.async_commit_sql() == ("alter database test_frs set synchronous_commit = off;\n"
                                           "alter database test_lprs set synchronous_commit = off;\n")
+
+
+def test_allocator_env():
+    environ = {"MALLOC_ARENA_MAX": "2", "GLIBC_TUNABLES": "glibc.malloc.trim_threshold=0", "PATH": "/usr/bin",
+               "MALLOC_TRIM_THRESHOLD_": "0", "LD_PRELOAD": "x.so"}
+    assert service.allocator_env(environ) == {"GLIBC_TUNABLES": "glibc.malloc.trim_threshold=0",
+                                              "MALLOC_ARENA_MAX": "2", "MALLOC_TRIM_THRESHOLD_": "0"}
+    assert service.allocator_env({"PATH": "/usr/bin"}) == {}

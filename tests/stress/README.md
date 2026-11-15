@@ -169,9 +169,10 @@ results in `tests/stress/results/` are kept.
   `point` and `phase` (`setup`, `warmup`, `measure` or `run`) tell the rows apart. `elapsed_s` restarts at every
   sweep point.
 - `summary.md`: the sweep table or the soak verdict, with the implementation, the CPU count the service sees
-  (the cgroup quota counted) and the emulator's settings.
+  (the cgroup quota counted), the PostgreSQL commit mode, the allocator environment and the emulator's settings.
 - `config-<point>.yaml`: the rendered config of every service start. `arguments.json`: the command and all
-  arguments. `emulator.log`: the output of the emulator the runner started.
+  arguments, and the allocator environment: the `MALLOC_*` and `GLIBC_TUNABLES` variables the service inherits
+  from the runner, e.g. `MALLOC_ARENA_MAX=2 python3 tests/stress/stress.py soak` to cap the glibc malloc arenas. `emulator.log`: the output of the emulator the runner started.
 - `logs-tail/`: on failure, the tails of the service logs.
 
 In the sweep table each row is one point, with means over the measurement window. `Slots` is
