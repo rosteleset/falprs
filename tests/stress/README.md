@@ -115,7 +115,7 @@ Common to `sweep` and `soak`:
 | `--churn-interval` | `5m` | Interval between churn rounds; `0` disables churn |
 | `--churn-share` | `10%` | Streams of each subsystem removed and re-added per round |
 | `--toggle-share` | `10%` | Streams whose motion detection (FRS) or workflow (LPRS) is stopped and restarted per round |
-| `--max-rss-growth` | `20` MB/h | Largest RSS slope after warm-up |
+| `--max-rss-growth` | `20` MB/h | Largest RSS slope after warm-up, besides one step in level |
 | `--max-error-rate` | `0.1%` | Largest number of ERROR log lines per frame served |
 
 `python3 tests/stress/stress.py <mode> --help` lists all arguments.
@@ -199,7 +199,9 @@ Both modes fail when:
 
 `sweep` fails on nothing else: it only reports. `soak` also fails on:
 
-- **RSS growth**: the slope of a linear fit of RSS after warm-up is above `--max-rss-growth`;
+- **RSS growth**: the RSS slope after warm-up is above `--max-rss-growth`. The slope is fitted with one step in
+  level allowed, so a one-off step, such as a thread pool and its allocator arenas grown once in a burst, does not
+  fail the run, while steady growth or repeated steps do. The detail shows the step found;
 - **fd growth / thread growth**: open fds or OS threads keep growing after warm-up. The medians of the four time
   quarters rise every quarter, and the last exceeds the first by more than 5 fds or 2 threads, and by more than
   5 %;

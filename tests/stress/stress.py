@@ -149,7 +149,7 @@ def parse_args(argv):
                       help="share of each subsystem's streams whose motion/workflow is stopped and restarted "
                            "per round (default 10%%)")
     soak.add_argument("--max-rss-growth", type=float, default=20.0, metavar="MB_PER_H",
-                      help="largest RSS slope after warm-up (default 20 MB/h)")
+                      help="largest RSS slope after warm-up, besides one step in level (default 20 MB/h)")
     soak.add_argument("--max-error-rate", type=share_arg, default=0.001,
                       help="largest share of ERROR log lines per frame served (default 0.1%%)")
     add_run_args(soak)

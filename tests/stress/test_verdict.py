@@ -3,7 +3,21 @@
 import pytest
 
 from common import RunFailure
-from verdict import evaluate_soak, linear_slope, passed, reaches_plateau, sustained_growth
+from verdict import evaluate_soak, linear_slope, passed, reaches_plateau, slope_with_step, sustained_growth
+
+
+def test_slope_with_step():
+    xs = [float(x) for x in range(100)]
+    # A pure trend keeps its slope whatever split is picked
+    slope, _, step = slope_with_step(xs, [2 * x for x in xs])
+    assert slope == pytest.approx(2) and step == pytest.approx(0, abs=1e-6)
+    # A pure step: no slope, the step found where it is
+    slope, at, step = slope_with_step(xs, [10.0 if x >= 60 else 0.0 for x in xs])
+    assert slope == pytest.approx(0, abs=1e-9) and at == 60 and step == pytest.approx(10)
+    # A trend with a step: both found
+    slope, at, step = slope_with_step(xs, [0.5 * x + (30 if x >= 40 else 0) for x in xs])
+    assert slope == pytest.approx(0.5) and at == 40 and step == pytest.approx(30)
+    assert slope_with_step([1, 2, 3], [1, 2, 3]) == (None, None, None)
 
 
 def test_linear_slope():
@@ -70,6 +84,19 @@ def test_rss_leak_fails():
     checks = evaluate(rows(240, rss=lambda t: 500 + 30 * t / 3600))
     assert checks["RSS growth"].failed
     assert "+30.0 MB/h" in checks["RSS growth"].detail
+
+
+def test_rss_single_step_passes():
+    # A pool that grew once in a burst: +40 MB in the middle of the run, flat before and after
+    checks = evaluate(rows(60, rss=lambda t: 380 + (40 if t > 32 * 60 else 0)), warmup_end=600, plateau_start=600)
+    assert checks["RSS growth"].status == "pass", checks["RSS growth"]
+    assert "step of +40 MB at 32 min" in checks["RSS growth"].detail
+
+
+def test_rss_repeated_steps_fail():
+    # Steps again and again are growth, however it is shaped
+    checks = evaluate(rows(240, rss=lambda t: 500 + 20 * (t // 2700)))
+    assert checks["RSS growth"].failed
 
 
 def test_rss_growth_during_warmup_ignored():

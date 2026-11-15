@@ -68,6 +68,49 @@ def sustained_growth(ts, values, absolute, relative=0.05):
     return rising and medians[-1] - medians[0] > max(absolute, relative * medians[0]), medians
 
 
+def slope_with_step(xs, ys, min_points=2):
+    """Least-squares slope of ys over xs allowing one step in level: the series is split where a fit with a
+    common slope and separate levels on each side leaves the smallest residual. A steady leak keeps its full
+    slope on both sides; a one-off step, such as a thread pool and its allocator arenas grown once in a burst,
+    goes into the step. Returns (slope, step x, step size); (None, None, None) with too few points."""
+    points = [(x, y) for x, y in zip(xs, ys) if y is not None]
+    n = len(points)
+    if n < 2 * min_points:
+        return None, None, None
+    # Prefix sums: centred sums of any prefix or suffix in O(1)
+    sx, sy, sxx, sxy, syy = [0.0], [0.0], [0.0], [0.0], [0.0]
+    for x, y in points:
+        sx.append(sx[-1] + x)
+        sy.append(sy[-1] + y)
+        sxx.append(sxx[-1] + x * x)
+        sxy.append(sxy[-1] + x * y)
+        syy.append(syy[-1] + y * y)
+
+    def centred(i, j):
+        k = j - i
+        mx, my = (sx[j] - sx[i]) / k, (sy[j] - sy[i]) / k
+        return ((sxx[j] - sxx[i]) - k * mx * mx, (sxy[j] - sxy[i]) - k * mx * my, (syy[j] - syy[i]) - k * my * my,
+                my)
+
+    best = None
+    for split in range(min_points, n - min_points + 1):
+        a_xx, a_xy, a_yy, a_my = centred(0, split)
+        b_xx, b_xy, b_yy, b_my = centred(split, n)
+        sum_xx = a_xx + b_xx
+        if sum_xx <= 0:
+            continue
+        slope = (a_xy + b_xy) / sum_xx
+        residual = a_yy + b_yy - slope * slope * sum_xx
+        if best is None or residual < best[0]:
+            a_mx = (sx[split] - sx[0]) / split
+            b_mx = (sx[n] - sx[split]) / (n - split)
+            step = (b_my - slope * b_mx) - (a_my - slope * a_mx)
+            best = (residual, slope, points[split][0], step)
+    if best is None:
+        return None, None, None
+    return best[1], best[2], best[3]
+
+
 def reaches_plateau(ts, values, relative=0.1, absolute=20.0):
     """Whether a series levels off: its fitted growth over the window stays within max(`absolute`,
     `relative` of its mean). Returns (plateau, growth over the window)."""
@@ -112,12 +155,13 @@ def evaluate_soak(rows, *, warmup_end, plateau_start, max_rss_growth, max_error_
                    Check("thread growth", "skip", skip)]
     else:
         ts, rss = series(after, "service_rss_mb")
-        slope = linear_slope([t / 3600 for t in ts], rss)
+        slope, step_at, step = slope_with_step([t / 3600 for t in ts], rss)
         if slope is None:
-            checks.append(Check("RSS growth", "skip", "no RSS samples"))
+            checks.append(Check("RSS growth", "skip", "too few RSS samples"))
         else:
             checks.append(Check("RSS growth", "fail" if slope > max_rss_growth else "pass",
-                                f"{slope:+.1f} MB/h (limit {max_rss_growth:g} MB/h)"))
+                                f"{slope:+.1f} MB/h (limit {max_rss_growth:g} MB/h) besides a step of "
+                                f"{step:+.0f} MB at {step_at * 60:.0f} min"))
         for name, column, absolute in (("fd growth", "service_fds", 5), ("thread growth", "service_threads", 2)):
             grows, medians = sustained_growth(*series(after, column), absolute)
             detail = ("quarter medians " + " -> ".join(f"{m:g}" for m in medians)) if medians else "too few samples"
