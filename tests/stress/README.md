@@ -41,6 +41,9 @@ python3 tests/stress/stress.py sweep --subsystems lprs --streams 200 --pipelines
 # Soak: 4 h, 200 FRS + 200 LPRS streams, pipelines-per-cpu 16, churn every 5 min
 python3 tests/stress/stress.py soak
 
+# Soak with commits not waiting for the WAL flush, when the disk of PostgreSQL is the bottleneck
+python3 tests/stress/stress.py soak --pg-async-commit
+
 # Smoke run of the whole runner, about 3 minutes
 python3 tests/stress/stress.py soak --duration 2m --streams 10
 
@@ -87,6 +90,7 @@ Common to `sweep` and `soak`:
 | `--trace` | off | `logs-level: trace` on every stream, for `fairness.py` |
 | `--sample-interval` | `5s` | Metrics sampling interval |
 | `--min-free` | `5` GB | Disk guard: stop the run below this free space on the screenshots partition |
+| `--pg-async-commit` | off | `synchronous_commit = off` on `test_frs` and `test_lprs`: commits do not wait for the WAL flush. Use it when the disk of PostgreSQL bounds the run: the pool waits on `WALWrite`/`WalSync` in `pg_stat_activity`, and the service logs `no free connection to PostgreSQL host ...` |
 | `--log-faces-ttl`, `--log-faces-cleanup-interval`, `--events-ttl`, `--events-cleanup-interval`, `--log-barcodes-ttl`, `--log-barcodes-cleanup-interval` | `10m` / `1m` | FRS retention and cleanup intervals |
 | `--events-log-ttl`, `--events-log-cleanup-interval`, `--failed-ttl` | `10m` / `1m` / `10m` | LPRS retention and cleanup interval |
 

@@ -23,6 +23,8 @@ def test_defaults():
     assert soak.churn_interval == 300 and soak.churn_share == 0.1 and soak.max_rss_growth == 20
     assert soak.max_error_rate == 0.001 and soak.camera_latency == 0.25 and soak.add_rate == 50
     assert soak.min_free == 5 and soak.sample_interval == 5
+    assert not soak.pg_async_commit and not sweep.pg_async_commit
+    assert stress.parse_args(["sweep", "--pg-async-commit"]).pg_async_commit
     emulator = stress.parse_args(["emulator", "--port", "9999", "--camera-latency", "0"])
     assert emulator.port == 9999 and emulator.camera_latency == 0
 

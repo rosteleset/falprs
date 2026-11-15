@@ -151,3 +151,8 @@ def test_parse_duration():
     assert parse_duration("4h") == 4 * 3600
     assert parse_duration("1.5s") == 1.5
     assert parse_duration("5w") is None
+
+
+def test_async_commit_sql():
+    assert service.async_commit_sql() == ("alter database test_frs set synchronous_commit = off;\n"
+                                          "alter database test_lprs set synchronous_commit = off;\n")

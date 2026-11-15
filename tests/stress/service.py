@@ -206,10 +206,22 @@ def _run(command, **kwargs):
     return result
 
 
-def prepare_database():
-    """Recreates the test databases, as tests/test_prepare.sh does."""
+TEST_DATABASES = ("test_frs", "test_lprs")
+
+
+def async_commit_sql(databases=TEST_DATABASES):
+    """Turns off waiting for the WAL flush on commit in the test databases, for their new sessions."""
+    return "".join(f"alter database {db} set synchronous_commit = off;\n" for db in databases)
+
+
+def prepare_database(async_commit=False):
+    """Recreates the test databases, as tests/test_prepare.sh does; with async_commit, their commits do not
+    wait for the WAL flush, so that the disk of PostgreSQL does not bound the service."""
+    psql = ["sudo", "-u", "postgres", "psql", "-v", "ON_ERROR_STOP=1"]
     with open(TESTS_DIR / "prepare_data.sql", encoding="utf-8") as sql:
-        _run(["sudo", "-u", "postgres", "psql", "-v", "ON_ERROR_STOP=1"], stdin=sql)
+        _run(psql, stdin=sql)
+    if async_commit:
+        _run(psql, input=async_commit_sql())
     env_file = TESTS_DIR / ".env.tests"
     _run([REPO_DIR / "scripts" / "sql_frs.sh", env_file])
     _run([REPO_DIR / "scripts" / "sql_lprs.sh", env_file])

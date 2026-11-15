@@ -100,6 +100,11 @@ def add_run_args(parser):
     group.add_argument("--min-free", type=float, default=5.0, metavar="GB",
                        help="stop the run when the screenshots partition has less free space (default 5 GB)")
 
+    group = parser.add_argument_group("database")
+    group.add_argument("--pg-async-commit", action="store_true",
+                       help="set synchronous_commit = off on the test databases: commits do not wait for the WAL "
+                            "flush, so that the disk of PostgreSQL does not bound the service")
+
     group = parser.add_argument_group("service retention (default: the template's)")
     for arg, (subsystem, key, _) in service.RETENTION_KEYS.items():
         group.add_argument("--" + key, dest=arg, type=service_duration_arg, metavar="DURATION",
@@ -286,7 +291,7 @@ class Run:
         import service
         config = self.render(label, pipelines_per_cpu)
         print(f"Preparing the databases and starting {self.binary} ({label})")
-        await asyncio.to_thread(service.prepare_database)
+        await asyncio.to_thread(service.prepare_database, self.args.pg_async_commit)
         await asyncio.to_thread(service.clear_screenshots)
         self.service = service.Service(self.binary, config, label)
         self.log_dirs.append(self.service.log_dir)
@@ -328,6 +333,8 @@ class Run:
             f"- Command: `{' '.join(shlex.quote(a) for a in sys.argv)}`",
             f"- Implementation: {self.impl} (`{self.binary}`)",
             f"- CPUs seen by the service: {self.cpus}",
+            "- PostgreSQL commits: "
+            + ("asynchronous (synchronous_commit = off)" if self.args.pg_async_commit else "synchronous"),
             f"- Camera emulator: {self.emulator_url}, latency {s.get('latency', 0) * 1000:g} ms, "
             f"face ratio {s.get('face_ratio')}, plate ratio {s.get('plate_ratio')}",
         ]
