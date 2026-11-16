@@ -73,7 +73,7 @@ impl Lprs {
             vstreams_config,
             vstream_group,
             triton: Triton::default(),
-            http: reqwest::Client::builder().build().context("can't create HTTP client")?,
+            http: crate::fetch::http_client().context("can't create HTTP client")?,
             pipeline_slots,
             settings: config.settings.clone(),
             workflows: Workflows::default(),

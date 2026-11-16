@@ -95,7 +95,7 @@ impl Frs {
             vstream_lists: DescriptorLists::default(),
             sg_lists: DescriptorLists::default(),
             triton: Triton::default(),
-            http: reqwest::Client::builder().build().context("can't create HTTP client")?,
+            http: crate::fetch::http_client().context("can't create HTTP client")?,
             pipeline_slots,
             workflows: Workflows::default(),
         });

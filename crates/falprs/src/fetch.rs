@@ -133,12 +133,38 @@ fn digest_authorization(challenge: &HashMap<String, String>, user: &str, passwor
     header
 }
 
-/// One GET; with credentials, a `401` carrying a Digest challenge is answered once. Like libcurl
-/// with `CURLAUTH_ANYSAFE`, credentials are never sent as Basic authentication.
+/// The `Authorization` header with Basic credentials.
+fn basic_authorization(user: &str, password: &str) -> String {
+    format!("Basic {}", general_purpose::STANDARD.encode(format!("{user}:{password}")))
+}
+
+/// The HTTP client for cameras and callbacks. HTTP/1 header names are sent title-cased
+/// (`Authorization`, `Host`), since some cameras don't recognize lowercase ones.
+pub fn http_client() -> reqwest::Result<reqwest::Client> {
+    reqwest::Client::builder().http1_title_case_headers().build()
+}
+
+/// One GET; with credentials, a `401` is answered once, like libcurl with `CURLAUTH_ANY`: with
+/// Digest authentication when the server offers it, with Basic authentication otherwise, so that
+/// cameras without Digest support still work. Some Basic-only cameras send a malformed `401`
+/// (e.g. "Easy Jpeg Server" closes the connection without ending the header section), which hyper,
+/// unlike libcurl, rejects; when the request fails that way, it is repeated with Basic authentication.
 async fn get(client: &reqwest::Client, url: &str, credentials: Option<&(String, String)>, timeout: Duration) -> reqwest::Result<reqwest::Response> {
-    let response = client.get(url).timeout(timeout).send().await?;
+    let response = client.get(url).timeout(timeout).send().await;
     let Some((user, password)) = credentials else {
-        return Ok(response);
+        return response;
+    };
+    let response = match response {
+        Ok(response) => response,
+        Err(e) if e.is_timeout() || e.is_connect() => return Err(e),
+        Err(_) => {
+            return client
+                .get(url)
+                .timeout(timeout)
+                .header(reqwest::header::AUTHORIZATION, basic_authorization(user, password))
+                .send()
+                .await;
+        }
     };
     if response.status() != reqwest::StatusCode::UNAUTHORIZED {
         return Ok(response);
@@ -148,14 +174,16 @@ async fn get(client: &reqwest::Client, url: &str, credentials: Option<&(String, 
         .get_all(reqwest::header::WWW_AUTHENTICATE)
         .iter()
         .find_map(|value| parse_digest_challenge(value.to_str().ok()?));
-    let Some(challenge) = challenge else {
-        return Ok(response);
+    let authorization = match challenge {
+        Some(challenge) => {
+            let uri = match response.url().query() {
+                Some(query) => format!("{}?{query}", response.url().path()),
+                None => response.url().path().to_string(),
+            };
+            digest_authorization(&challenge, user, password, &uri)
+        }
+        None => basic_authorization(user, password),
     };
-    let uri = match response.url().query() {
-        Some(query) => format!("{}?{query}", response.url().path()),
-        None => response.url().path().to_string(),
-    };
-    let authorization = digest_authorization(&challenge, user, password, &uri);
     client
         .get(url)
         .timeout(timeout)
@@ -233,6 +261,64 @@ mod tests {
         let header = digest_authorization(&challenge, "Mufasa", "Circle Of Life", "/dir/index.html");
         assert!(header.contains(r#"uri="/dir/index.html""#) && header.contains("qop=auth, nc=00000001"));
         assert!(header.ends_with(r#"opaque="5ccc069c403ebaf9f0171e9517f40e41""#));
+    }
+
+    #[test]
+    fn basic_rfc7617_example() {
+        assert_eq!(basic_authorization("Aladdin", "open sesame"), "Basic QWxhZGRpbjpvcGVuIHNlc2FtZQ==");
+    }
+
+    /// A camera that only knows Basic authentication and only title-cased header names: it answers
+    /// requests without `Authorization: Basic dXNlcjpzZWNyZXQ=` (`user:secret`) with `unauthorized`.
+    /// Returns the port and the task giving the requests received.
+    async fn basic_camera(unauthorized: &'static str) -> (u16, tokio::task::JoinHandle<Vec<String>>) {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+        let _ = rustls::crypto::ring::default_provider().install_default();
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let server = tokio::spawn(async move {
+            let mut requests = Vec::new();
+            for _ in 0..2 {
+                let (mut socket, _) = listener.accept().await.unwrap();
+                let mut buffer = vec![0; 4096];
+                let n = socket.read(&mut buffer).await.unwrap();
+                let request = String::from_utf8_lossy(&buffer[..n]).to_string();
+                let response = if request.contains("\r\nAuthorization: Basic dXNlcjpzZWNyZXQ=\r\n") {
+                    "HTTP/1.1 200 OK\r\nContent-Length: 3\r\nConnection: close\r\n\r\njpg"
+                } else {
+                    unauthorized
+                };
+                socket.write_all(response.as_bytes()).await.unwrap();
+                requests.push(request);
+            }
+            requests
+        });
+        (port, server)
+    }
+
+    #[tokio::test]
+    async fn basic_fallback_with_title_case_headers() {
+        let (port, server) =
+            basic_camera("HTTP/1.1 401 Unauthorized\r\nWWW-Authenticate: Basic realm=\"cam\"\r\nContent-Length: 0\r\nConnection: close\r\n\r\n").await;
+        let client = http_client().unwrap();
+        let url = format!("http://user:secret@127.0.0.1:{port}/picture.jpg");
+        let body = fetch_image(&client, &url, 1, Duration::from_secs(5)).await.unwrap();
+        assert_eq!(&body[..], b"jpg");
+        let requests = server.await.unwrap();
+        assert!(requests[0].contains("\r\nHost: ") && !requests[0].contains("Authorization"));
+    }
+
+    /// "Easy Jpeg Server" closes the connection without ending the header section of its `401`.
+    #[tokio::test]
+    async fn basic_after_malformed_unauthorized() {
+        let (port, server) =
+            basic_camera("HTTP/1.0 401 Unauthorised\r\nConnection: close\r\nServer: Easy Jpeg Server\r\nWWW-Authenticate: Basic realm=\"cam\"\r\n").await;
+        let client = http_client().unwrap();
+        let url = format!("http://user:secret@127.0.0.1:{port}/picture.jpg");
+        let body = fetch_image(&client, &url, 1, Duration::from_secs(5)).await.unwrap();
+        assert_eq!(&body[..], b"jpg");
+        server.await.unwrap();
     }
 
     #[test]
