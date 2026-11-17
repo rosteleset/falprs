@@ -336,7 +336,7 @@ class Run:
             f"- Implementation: {self.impl} (`{self.binary}`)",
             f"- CPUs seen by the service: {self.cpus}",
             "- Allocator environment: "
-            + (", ".join(f"`{k}={v}`" for k, v in self.allocator_env.items()) or "none (glibc defaults)"),
+            + (", ".join(f"`{k}={v}`" for k, v in self.allocator_env.items()) or "none (the defaults of the binary)"),
             "- PostgreSQL commits: "
             + ("asynchronous (synchronous_commit = off)" if self.args.pg_async_commit else "synchronous"),
             f"- Camera emulator: {self.emulator_url}, latency {s.get('latency', 0) * 1000:g} ms, "

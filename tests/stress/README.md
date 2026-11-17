@@ -171,11 +171,14 @@ results in `tests/stress/results/` are kept.
 - `summary.md`: the sweep table or the soak verdict, with the implementation, the CPU count the service sees
   (the cgroup quota counted), the PostgreSQL commit mode, the allocator environment and the emulator's settings.
 - `config-<point>.yaml`: the rendered config of every service start. `arguments.json`: the command and all
-  arguments, and the allocator environment: the `LD_PRELOAD`, `GLIBC_TUNABLES`, `MALLOC_*` and `MIMALLOC_*`
-  variables the service inherits from the runner. E.g. `MALLOC_ARENA_MAX=2 python3 tests/stress/stress.py soak`
-  caps the glibc malloc arenas, and `LD_PRELOAD=/usr/lib/x86_64-linux-gnu/libmimalloc.so.2` (package
-  `libmimalloc2.0`) runs the same binary with mimalloc. If the preloaded library is missing, the loader only
-  prints a warning to `stdout.txt` and the service runs with glibc malloc. `emulator.log`: the output of the emulator the runner started.
+  arguments, and the allocator environment: the `_RJEM_MALLOC_CONF`, `LD_PRELOAD`, `GLIBC_TUNABLES`, `MALLOC_*`
+  and `MIMALLOC_*` variables the service inherits from the runner. The Rust service has jemalloc built in, with
+  the options of `JEMALLOC_SYS_WITH_MALLOC_CONF` in `.cargo/config.toml`; `_RJEM_MALLOC_CONF` overrides them,
+  e.g. `_RJEM_MALLOC_CONF=thp:default python3 tests/stress/stress.py soak` runs it with the jemalloc defaults.
+  Its symbols are prefixed, so `LD_PRELOAD` of another malloc, `MALLOC_ARENA_MAX` and `GLIBC_TUNABLES` affect
+  only the C code and glibc itself; they apply in full to the C++ reference. If a preloaded library is missing,
+  the loader only prints a warning to `stdout.txt`. `emulator.log`: the output of the emulator the runner
+  started.
 - `logs-tail/`: on failure, the tails of the service logs.
 
 In the sweep table each row is one point, with means over the measurement window. `Slots` is

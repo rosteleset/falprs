@@ -78,14 +78,14 @@ def pg_port(environ=os.environ):
     return int(environ.get("pg_port") or 5432)
 
 
-ALLOCATOR_PREFIXES = ("MALLOC_", "MIMALLOC_")
+ALLOCATOR_PREFIXES = ("MALLOC_", "MIMALLOC_", "_RJEM_MALLOC_")
 ALLOCATOR_NAMES = ("GLIBC_TUNABLES", "LD_PRELOAD")
 
 
 def allocator_env(environ=os.environ):
     """The environment variables that choose or tune the service's allocator, which it inherits from the runner:
-    LD_PRELOAD (e.g. libmimalloc or libjemalloc instead of glibc malloc), GLIBC_TUNABLES, MALLOC_* (glibc, and
-    MALLOC_CONF of jemalloc) and MIMALLOC_*. They change its RSS and may change its throughput, so the results
+    _RJEM_MALLOC_CONF (the jemalloc built into the Rust service), LD_PRELOAD (e.g. libmimalloc instead of the
+    malloc of glibc), GLIBC_TUNABLES, MALLOC_* (glibc, and MALLOC_CONF of a preloaded jemalloc) and MIMALLOC_*. They change its RSS and may change its throughput, so the results
     record them."""
     return {k: environ[k] for k in sorted(environ) if k.startswith(ALLOCATOR_PREFIXES) or k in ALLOCATOR_NAMES}
 
