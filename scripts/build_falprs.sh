@@ -40,7 +40,8 @@ export FALPRS_WORKDIR="${FALPRS_WORKDIR:-/opt/falprs}"
 FALPRS_BINARY="$BASEDIR/../target/release/falprs"
 echo "Building FALPRS"
 
-# The Rust build needs a C compiler only for the TLS crypto library; Rust itself is installed with rustup
+# The Rust build needs a C compiler and make only for the TLS crypto library and jemalloc; Rust itself is installed
+# with rustup
 # python3-yaml is needed to convert an old config.yaml
 APT_PACKAGES="build-essential ca-certificates curl python3-yaml"
 

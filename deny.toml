@@ -1,5 +1,5 @@
 # Dependency policy: pure Rust dependencies, no FFI wrappers over C/C++ libraries and no *-sys crates,
-# except `ring` as the TLS provider for outgoing HTTPS
+# except `ring` as the TLS provider for outgoing HTTPS and `tikv-jemalloc-sys` as the global allocator
 
 [graph]
 targets = ["x86_64-unknown-linux-gnu"]
@@ -25,7 +25,8 @@ allow-wildcard-paths = true
 [bans.build]
 # A build script is how C/C++ code gets compiled or linked (every *-sys crate has one),
 # so every crate that has one must be reviewed and listed here.
-# `ring` is the only crate allowed to build C code (TLS for outgoing HTTPS); `pulp` generates
+# `ring` (TLS for outgoing HTTPS) and `tikv-jemalloc-sys` (the global allocator) are the only crates allowed
+# to build C code; `pulp` generates
 # x86-64 assembly from Rust (`global_asm!`) for runtime SIMD dispatch, compiling no C/C++.
 include-dependencies = true
 executables = "deny"
@@ -65,4 +66,8 @@ allow-build-scripts = [
     { crate = "pulp" },
     # The only dependency with C code (and its asm), allowed as the TLS crypto provider: HTTPS cameras need outgoing TLS
     { crate = "ring" },
+    # jemalloc as the global allocator: glibc malloc fragments its arenas on many CPUs (RSS several times
+    # higher), and no pure-Rust allocator is production-ready. Its symbols are prefixed (`_rjem_`), so C code
+    # and glibc itself keep glibc malloc
+    { crate = "tikv-jemalloc-sys" },
 ]

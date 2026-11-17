@@ -90,6 +90,13 @@ async fn wait_for_termination() -> Result<()> {
     Ok(())
 }
 
+/// jemalloc instead of glibc malloc: on many CPUs the glibc arenas fragment under the frame buffers that the
+/// pipelines allocate and free on many threads (26 GB RSS on 56 CPUs within hours, 4 GB with jemalloc). Its
+/// run-time options are built in from `JEMALLOC_SYS_WITH_MALLOC_CONF` in `.cargo/config.toml`; `_RJEM_MALLOC_CONF`
+/// overrides them at run time.
+#[global_allocator]
+static GLOBAL: tikv_jemallocator::Jemalloc = tikv_jemallocator::Jemalloc;
+
 #[tokio::main]
 async fn main() -> Result<()> {
     let args = Args::parse();
