@@ -61,9 +61,12 @@ pub struct InferRequest<'a> {
 }
 
 /// HTTP/2 connections per inference server. A connection error fails every request in flight on that
-/// connection, so with several only their share fails; the large input tensors are also spread over
-/// several TCP connections and their flow-control windows.
-const CONNECTIONS_PER_ENDPOINT: usize = 4;
+/// connection, so with several only their share fails. Each connection is also driven by one task, which
+/// with the CPU saturated waits for its turn among the pipeline tasks, so more connections send the large
+/// input tensors more often. Under an overload of 400 FRS + 400 LPRS streams the error rate was 35.9 %
+/// with 1 connection, 23.9 % with 4, 17.6 % with 8 and 17.3 % with 16; without overload the throughput
+/// was the same for all of them. One connection task used half a core at most, so it is not core bound.
+const CONNECTIONS_PER_ENDPOINT: usize = 8;
 
 /// The connections to one inference server, used in turn.
 struct Connections {
