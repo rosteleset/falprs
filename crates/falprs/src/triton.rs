@@ -278,7 +278,9 @@ async fn model_infer(mut channel: Channel, chunks: Vec<Bytes>) -> Result<ModelIn
     }
     let status_code = response.status();
     let decoder = tonic_prost::ProstCodec::<ModelInferRequest, ModelInferResponse>::default().decoder();
-    let mut body = Streaming::new_response(decoder, response.into_body(), status_code, None, None);
+    // No size limit, as before with the generated client: tonic's default of 4 MB fails the outputs of the
+    // vehicle footprint detector on large frames
+    let mut body = Streaming::new_response(decoder, response.into_body(), status_code, None, Some(usize::MAX));
     let message = body.message().await?.ok_or_else(|| tonic::Status::internal("Missing response message."))?;
     // An error status in the trailers fails the call, as in tonic
     body.trailers().await?;
