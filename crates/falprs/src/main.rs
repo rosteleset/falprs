@@ -30,6 +30,7 @@ use tokio::signal::unix::{SignalKind, signal};
 use tokio::sync::watch;
 
 use falprs::{imaging, triton};
+use triton::{SharedMemory, SharedMemoryLog, SharedMemoryLogLevel};
 
 use crate::config::Config;
 use crate::logging::{Level, Loggers};
@@ -130,15 +131,29 @@ async fn run(config: &Config, loggers: &Arc<Loggers>) -> Result<()> {
     log!(logger, Level::Info, "starting service");
 
     let mut main_router = service::main_router(Some(config.static_dir.clone()));
+    // Both subsystems put their inputs into the same pool of each inference server
+    let shared_memory = {
+        let logger = logger.clone();
+        let log: SharedMemoryLog = Box::new(move |level, text| {
+            let level = match level {
+                SharedMemoryLogLevel::Info => Level::Info,
+                SharedMemoryLogLevel::Warning => Level::Warning,
+            };
+            // Written whatever the level of the default log ("error" unless configured): the messages are
+            // rare, and a fallback to gRPC must be seen
+            logger.write(level, crate::location!(), text);
+        });
+        SharedMemory::new(config.inference.shared_memory, config.inference.shared_memory_limit, config.port, log)
+    };
     let mut frs_subsystem = None;
     if let Some(lprs_config) = &config.lprs {
         let lprs_logger = loggers.get("lprs").unwrap_or_else(|| logger.clone());
-        let lprs = lprs::Lprs::start(lprs_config, lprs_logger, logger.clone()).await?;
+        let lprs = lprs::Lprs::start(lprs_config, shared_memory.clone(), lprs_logger, logger.clone()).await?;
         main_router = main_router.merge(lprs.router().layer(DefaultBodyLimit::max(config.max_request_size)));
     }
     if let Some(frs_config) = &config.frs {
         let frs_logger = loggers.get("frs").unwrap_or_else(|| logger.clone());
-        let frs = frs::Frs::start(frs_config, frs_logger, logger.clone()).await?;
+        let frs = frs::Frs::start(frs_config, shared_memory.clone(), frs_logger, logger.clone()).await?;
         main_router = main_router.merge(frs.router().layer(DefaultBodyLimit::max(config.max_request_size)));
         frs_subsystem = Some(frs);
     }
@@ -164,6 +179,7 @@ async fn run(config: &Config, loggers: &Arc<Loggers>) -> Result<()> {
     if let Some(frs) = frs_subsystem {
         frs.shutdown().await;
     }
+    shared_memory.shutdown().await;
     stopped.and(served)
 }
 

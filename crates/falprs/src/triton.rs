@@ -25,8 +25,14 @@ mod proto {
     tonic::include_proto!("inference");
 }
 
+use proto::infer_parameter::ParameterChoice;
 use proto::model_infer_request::{InferInputTensor, InferRequestedOutputTensor};
-use proto::{ModelInferRequest, ModelInferResponse};
+use proto::{InferParameter, ModelInferRequest, ModelInferResponse};
+
+mod shared_memory;
+
+use shared_memory::{Lease, is_missing_region};
+pub use shared_memory::{Level as SharedMemoryLogLevel, Log as SharedMemoryLog, SharedMemory};
 
 /// A tensor with its contents in Triton's raw little-endian layout.
 #[derive(Debug, Clone)]
@@ -109,12 +115,26 @@ impl Connections {
     }
 }
 
-#[derive(Default)]
 pub struct Triton {
     connections: Mutex<HashMap<String, Arc<Connections>>>,
+    shared_memory: Arc<SharedMemory>,
+}
+
+/// A client without shared memory.
+impl Default for Triton {
+    fn default() -> Self {
+        Self::new(SharedMemory::disabled())
+    }
 }
 
 impl Triton {
+    pub fn new(shared_memory: Arc<SharedMemory>) -> Self {
+        Self {
+            connections: Mutex::default(),
+            shared_memory,
+        }
+    }
+
     fn connections(&self, endpoint: &str) -> Result<Arc<Connections>> {
         let mut connections = self.connections.lock().unwrap_or_else(|e| e.into_inner());
         if let Some(c) = connections.get(endpoint) {
@@ -127,48 +147,48 @@ impl Triton {
 
     /// Runs an inference within the request's timeout. A request that fails because its connection failed,
     /// e.g. closed by h2 with a PROTOCOL_ERROR on frames of another stream or for too many reset streams, is
-    /// sent once more on the next connection, within the same timeout: inference has no side effects.
+    /// sent once more on the next connection, within the same timeout: inference has no side effects. So is
+    /// one whose shared memory region the server no longer knows, e.g. after a restart, once the region is
+    /// registered again.
     pub async fn infer(&self, request: InferRequest<'_>) -> Result<Vec<Tensor>> {
         let connections = self.connections(request.endpoint)?;
-        let mut raw_input_contents = Vec::with_capacity(request.inputs.len());
-        let inputs = request
-            .inputs
-            .into_iter()
-            .map(|tensor| {
-                raw_input_contents.push(tensor.data);
-                InferInputTensor {
-                    name: tensor.name,
-                    datatype: tensor.datatype,
-                    shape: tensor.shape,
-                    ..Default::default()
-                }
-            })
-            .collect();
-        let outputs = request
-            .outputs
-            .iter()
-            .map(|name| InferRequestedOutputTensor {
-                name: name.to_string(),
-                ..Default::default()
-            })
-            .collect();
-        let infer_request = ModelInferRequest {
-            model_name: request.model_name.to_string(),
-            inputs,
-            outputs,
-            ..Default::default()
+        // Only a request with one input sends it through shared memory: all models here have one, and the
+        // raw contents then need no matching with the inputs that are left
+        let lease = match &request.inputs[..] {
+            [input] if input.data.len() > shared_memory::THRESHOLD => self.shared_memory.lease(request.endpoint, &connections.next(), input.data.len()).await,
+            _ => None,
         };
-        // The chunks are `Bytes`, so the body of the second attempt shares them
-        let chunks = grpc_frame(&infer_request, &raw_input_contents)?;
+        if let (Some(lease), [input]) = (&lease, &request.inputs[..]) {
+            tokio::task::block_in_place(|| lease.write(&input.data)).context("can't write the input to shared memory")?;
+        }
+        // The chunks are `Bytes`, so the body of another attempt shares them
+        let chunks = infer_chunks(&request, lease.as_ref().map(Lease::name))?;
 
         let response = tokio::time::timeout(request.timeout, async {
-            match model_infer(connections.next(), chunks.clone()).await {
-                Err(status) if is_connection_error(&status) => model_infer(connections.next(), chunks).await,
+            let attempt = |chunks| call::<ModelInferResponse>(connections.next(), MODEL_INFER, chunks);
+            match attempt(chunks.clone()).await {
+                Err(status) if is_connection_error(&status) => attempt(chunks).await,
+                Err(status)
+                    if is_missing_region(&status)
+                        && let Some(lease) = &lease =>
+                {
+                    match lease.register_again().await {
+                        Ok(()) => attempt(chunks).await,
+                        // E.g. Triton recreated without --ipc=host: this server gets its inputs over gRPC again
+                        Err(error) if !is_connection_error(&error) => {
+                            self.shared_memory.fall_back(request.endpoint, &error);
+                            let chunks = infer_chunks(&request, None).map_err(|e| tonic::Status::internal(format!("{e:#}")))?;
+                            attempt(chunks).await
+                        }
+                        Err(error) => Err(error),
+                    }
+                }
                 result => result,
             }
         })
         .await
         .context("inference timed out")??;
+        drop(lease);
         if response.outputs.len() > response.raw_output_contents.len() {
             bail!("inference response has fewer raw contents than outputs");
         }
@@ -186,6 +206,60 @@ impl Triton {
     }
 }
 
+/// The body of an inference request: its one input in the shared memory region `region` if given, otherwise
+/// every input as raw contents.
+fn infer_chunks(request: &InferRequest<'_>, region: Option<&str>) -> Result<Vec<Bytes>> {
+    let mut raw_input_contents = Vec::with_capacity(request.inputs.len());
+    let inputs = request
+        .inputs
+        .iter()
+        .map(|tensor| {
+            let parameters = match region {
+                Some(region) => shared_memory_parameters(region, tensor.data.len()),
+                None => {
+                    raw_input_contents.push(tensor.data.clone());
+                    HashMap::new()
+                }
+            };
+            InferInputTensor {
+                name: tensor.name.clone(),
+                datatype: tensor.datatype.clone(),
+                shape: tensor.shape.clone(),
+                parameters,
+                contents: None,
+            }
+        })
+        .collect();
+    let outputs = request
+        .outputs
+        .iter()
+        .map(|name| InferRequestedOutputTensor {
+            name: name.to_string(),
+            ..Default::default()
+        })
+        .collect();
+    let infer_request = ModelInferRequest {
+        model_name: request.model_name.to_string(),
+        inputs,
+        outputs,
+        ..Default::default()
+    };
+    grpc_frame(&infer_request, &raw_input_contents)
+}
+
+/// The parameters of an input of `len` bytes at the start of the shared memory region `region`.
+fn shared_memory_parameters(region: &str, len: usize) -> HashMap<String, InferParameter> {
+    let parameter = |choice| InferParameter {
+        parameter_choice: Some(choice),
+    };
+    HashMap::from([
+        ("shared_memory_region".to_string(), parameter(ParameterChoice::StringParam(region.to_string()))),
+        ("shared_memory_byte_size".to_string(), parameter(ParameterChoice::Int64Param(len as i64))),
+    ])
+}
+
+const MODEL_INFER: &str = "/inference.GRPCInferenceService/ModelInfer";
+
 /// Field number of `ModelInferRequest.raw_input_contents`, the last field of the message.
 const RAW_INPUT_CONTENTS_FIELD: u32 = 7;
 
@@ -194,8 +268,8 @@ const RAW_INPUT_CONTENTS_FIELD: u32 = 7;
 /// next. The contents are not copied: prost, through tonic's encoder, copied them into one buffer of the
 /// whole message, a few megabytes per frame, fresh from the allocator each time. Prost writes the fields in
 /// field-number order and the contents are the last field, so the bytes are the same as prost's.
-fn grpc_frame(request: &ModelInferRequest, contents: &[Bytes]) -> Result<Vec<Bytes>> {
-    debug_assert!(request.raw_input_contents.is_empty());
+/// Other messages are framed with no contents.
+fn grpc_frame(request: &impl Message, contents: &[Bytes]) -> Result<Vec<Bytes>> {
     let content_prefix_len = |c: &Bytes| key_len(RAW_INPUT_CONTENTS_FIELD) + encoded_len_varint(c.len() as u64);
     let message_len = request.encoded_len() + contents.iter().map(|c| content_prefix_len(c) + c.len()).sum::<usize>();
     let Ok(message_len) = u32::try_from(message_len) else {
@@ -246,13 +320,19 @@ impl http_body::Body for Chunks {
     }
 }
 
-/// `ModelInfer` with a body made of `chunks`, handled as tonic's generated client handles a unary call.
+/// A unary call with no raw contents, such as the shared memory calls.
+async fn unary<Response: Message + Default + Send + 'static>(channel: Channel, path: &'static str, request: &impl Message) -> Result<Response, tonic::Status> {
+    let chunks = grpc_frame(request, &[]).map_err(|e| tonic::Status::internal(format!("{e:#}")))?;
+    call(channel, path, chunks).await
+}
+
+/// A unary call of `path` with a body made of `chunks`, handled as tonic's generated client handles one.
 ///
 /// The timeout stays on the client: a request that runs out of time is cancelled with RST_STREAM. It is not
 /// sent as `grpc-timeout`, because when that deadline expires on Triton while the input is still arriving,
 /// Triton ends the stream twice, with DEADLINE_EXCEEDED and then with INTERNAL "Unable to parse request",
 /// and h2 closes the whole connection on the second trailers.
-async fn model_infer(mut channel: Channel, chunks: Vec<Bytes>) -> Result<ModelInferResponse, tonic::Status> {
+async fn call<Response: Message + Default + Send + 'static>(mut channel: Channel, path: &'static str, chunks: Vec<Bytes>) -> Result<Response, tonic::Status> {
     std::future::poll_fn(|cx| channel.poll_ready(cx))
         .await
         .map_err(|e| tonic::Status::unknown(format!("Service was not ready: {e}")))?;
@@ -263,7 +343,7 @@ async fn model_infer(mut channel: Channel, chunks: Vec<Bytes>) -> Result<ModelIn
     };
     let mut request = http::Request::new(tonic::body::Body::new(body));
     *request.method_mut() = http::Method::POST;
-    *request.uri_mut() = http::Uri::from_static("/inference.GRPCInferenceService/ModelInfer");
+    *request.uri_mut() = http::Uri::from_static(path);
     *request.version_mut() = http::Version::HTTP_2;
     request.headers_mut().insert(header::TE, HeaderValue::from_static("trailers"));
     request.headers_mut().insert(header::CONTENT_TYPE, HeaderValue::from_static("application/grpc"));
@@ -277,7 +357,7 @@ async fn model_infer(mut channel: Channel, chunks: Vec<Bytes>) -> Result<ModelIn
         return Err(tonic::Status::internal("Missing response message."));
     }
     let status_code = response.status();
-    let decoder = tonic_prost::ProstCodec::<ModelInferRequest, ModelInferResponse>::default().decoder();
+    let decoder = tonic_prost::ProstCodec::<Response, Response>::default().decoder();
     // No size limit, as before with the generated client: tonic's default of 4 MB fails the outputs of the
     // vehicle footprint detector on large frames
     let mut body = Streaming::new_response(decoder, response.into_body(), status_code, None, Some(usize::MAX));
@@ -344,6 +424,33 @@ mod tests {
         assert_eq!(framed[0], 0);
         assert_eq!(u32::from_be_bytes(framed[1..5].try_into().unwrap()) as usize, message.len());
         assert_eq!(framed[5..], message[..]);
+    }
+
+    #[test]
+    fn shared_memory_inputs_name_their_region_and_have_no_raw_contents() {
+        let request = ModelInferRequest {
+            model_name: "scrfd".to_string(),
+            inputs: vec![InferInputTensor {
+                name: "input.1".to_string(),
+                datatype: "FP32".to_string(),
+                shape: vec![1, 3, 640, 640],
+                parameters: shared_memory_parameters("falprs-9051-7-0", 4_915_200),
+                contents: None,
+            }],
+            ..Default::default()
+        };
+        let framed: Vec<u8> = grpc_frame(&request, &[]).unwrap().concat();
+        let decoded = ModelInferRequest::decode(&framed[5..]).unwrap();
+        assert!(decoded.raw_input_contents.is_empty());
+        let parameters = &decoded.inputs[0].parameters;
+        assert_eq!(
+            parameters["shared_memory_region"].parameter_choice,
+            Some(ParameterChoice::StringParam("falprs-9051-7-0".to_string()))
+        );
+        assert_eq!(
+            parameters["shared_memory_byte_size"].parameter_choice,
+            Some(ParameterChoice::Int64Param(4_915_200))
+        );
     }
 
     #[test]

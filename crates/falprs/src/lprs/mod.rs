@@ -18,7 +18,7 @@ use crate::config::{LprsConfig, LprsSettings};
 use crate::config_schema::StoredConfigWarnings;
 use crate::logging::{Level, Logger};
 use crate::pipeline_slots::PipelineSlots;
-use crate::triton::Triton;
+use crate::triton::{SharedMemory, Triton};
 use caches::{GroupsData, VStreamGroupData, VStreamsConfigData};
 use workflow::Workflows;
 
@@ -40,7 +40,7 @@ pub struct Lprs {
 
 impl Lprs {
     /// Starts the subsystem; `default_logger` gets the messages of its database cluster.
-    pub async fn start(config: &LprsConfig, logger: Arc<Logger>, default_logger: Arc<Logger>) -> Result<Arc<Self>> {
+    pub async fn start(config: &LprsConfig, shared_memory: Arc<SharedMemory>, logger: Arc<Logger>, default_logger: Arc<Logger>) -> Result<Arc<Self>> {
         let cluster = crate::database::connect(&config.database, default_logger)
             .await
             .context("can't connect to the LPRS database")?;
@@ -72,7 +72,7 @@ impl Lprs {
             groups,
             vstreams_config,
             vstream_group,
-            triton: Triton::default(),
+            triton: Triton::new(shared_memory),
             http: crate::fetch::http_client().context("can't create HTTP client")?,
             pipeline_slots,
             settings: config.settings.clone(),

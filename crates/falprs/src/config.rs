@@ -25,8 +25,28 @@ pub struct Config {
     pub static_dir: PathBuf,
     /// The largest API request body accepted, in bytes.
     pub max_request_size: usize,
+    pub inference: InferenceConfig,
     pub lprs: Option<LprsConfig>,
     pub frs: Option<FrsConfig>,
+}
+
+/// The `[inference]` settings: how the inputs are sent to the inference servers.
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[serde(default, deny_unknown_fields, rename_all = "kebab-case")]
+pub struct InferenceConfig {
+    /// Large inputs go through Triton system shared memory when the inference server can register it.
+    pub shared_memory: bool,
+    /// The most shared memory used for the inputs of one inference server, in bytes.
+    pub shared_memory_limit: u64,
+}
+
+impl Default for InferenceConfig {
+    fn default() -> Self {
+        Self {
+            shared_memory: true,
+            shared_memory_limit: 2 * 1024 * 1024 * 1024,
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -240,6 +260,7 @@ fn host_type<'de, D: Deserializer<'de>>(deserializer: D) -> Result<Option<HostTy
 struct File {
     server: ServerFile,
     logging: LoggingFile,
+    inference: InferenceConfig,
     lprs: Option<LprsSettings>,
     frs: Option<FrsSettings>,
 }
@@ -498,6 +519,9 @@ impl Config {
         if file.server.max_request_size == 0 {
             bail!("server.max-request-size must be positive");
         }
+        if file.inference.shared_memory_limit == 0 {
+            bail!("inference.shared-memory-limit must be positive; shared-memory = false turns shared memory off");
+        }
         let logging = file.logging;
         let loggers = HashMap::from([
             ("default".to_string(), logging.default.resolve("default", "/var/log/falprs/log.txt", "error")?),
@@ -510,6 +534,7 @@ impl Config {
             loggers,
             static_dir: file.server.static_dir,
             max_request_size: file.server.max_request_size,
+            inference: file.inference,
             lprs: file.lprs.map(LprsConfig::resolve).transpose()?,
             frs: file.frs.map(FrsConfig::resolve).transpose()?,
         })
@@ -601,6 +626,8 @@ mod tests {
         assert_eq!((config.port, config.monitor_port), (9051, 9052));
         assert_eq!(config.static_dir, Path::new("/opt/falprs/static/"));
         assert_eq!(config.max_request_size, 5_242_880);
+        assert!(config.inference.shared_memory);
+        assert_eq!(config.inference.shared_memory_limit, 2_147_483_648);
         assert_eq!(config.loggers["default"].file_path, "/var/log/falprs/log.txt");
         assert_eq!(config.loggers["default"].level, "error");
         assert_eq!(config.loggers["frs"].file_path, "/var/log/falprs/frs-log.txt");
@@ -686,9 +713,23 @@ mod tests {
             "[frs]\nevents-ttl = \"30 days\"\n[frs.database]\ndsn = \"x\"\n",
             "[logging.lprs]\nlevel = \"verbose\"\n",
             "[server]\nmax-request-size = 0\n",
+            "[inference]\nshared-memory-limit = 0\n",
+            "[inference]\nshared-memory = \"yes\"\n",
         ] {
             assert!(Config::parse(text).is_err(), "{text}");
         }
+    }
+
+    #[test]
+    fn inference_settings() {
+        let config = Config::parse("[inference]\nshared-memory = false\nshared-memory-limit = 1048576\n").unwrap();
+        assert_eq!(
+            config.inference,
+            InferenceConfig {
+                shared_memory: false,
+                shared_memory_limit: 1_048_576,
+            }
+        );
     }
 
     #[test]

@@ -11,6 +11,12 @@ monitor-port = 9052                             # Port of the service endpoints 
 static-dir = "/opt/falprs/static/"              # Directory served as static files
 max-request-size = 5242880                      # The largest API request body accepted, in bytes
 
+# Detector inputs go to an inference server on the same host through Triton system shared memory
+# (Triton's container must run with --ipc=host); a server that can't register it gets them over gRPC
+[inference]
+shared-memory = true
+shared-memory-limit = 2147483648                # The most shared memory for the inputs of one inference server, in bytes
+
 # Log levels: trace, debug, info, warning, error, critical, none
 [logging.default]
 file = "/var/log/falprs/log.txt"
