@@ -62,7 +62,7 @@ pub struct SharedMemory {
     run_prefix: String,
     next_region: AtomicUsize,
     pools: Mutex<HashMap<String, Arc<Pool>>>,
-    log: Option<Log>,
+    log: Log,
 }
 
 impl SharedMemory {
@@ -78,7 +78,7 @@ impl SharedMemory {
             instance_prefix,
             next_region: AtomicUsize::new(0),
             pools: Mutex::default(),
-            log: Some(log),
+            log,
         };
         if enabled {
             shared_memory.remove_files(Path::new(SHM_DIR));
@@ -95,14 +95,8 @@ impl SharedMemory {
             run_prefix: String::new(),
             next_region: AtomicUsize::new(0),
             pools: Mutex::default(),
-            log: None,
+            log: Box::new(|_, _| {}),
         })
-    }
-
-    fn log(&self, level: Level, text: std::fmt::Arguments<'_>) {
-        if let Some(log) = &self.log {
-            log(level, text);
-        }
     }
 
     /// Removes the files in `dir` of this service instance's earlier runs.
@@ -114,7 +108,7 @@ impl SharedMemory {
             if entry.file_name().to_str().is_some_and(|name| name.starts_with(&self.instance_prefix))
                 && let Err(e) = std::fs::remove_file(entry.path())
             {
-                self.log(
+                (self.log)(
                     Level::Warning,
                     format_args!("can't remove the old shared memory region {}: {e}", entry.path().display()),
                 );
@@ -129,11 +123,12 @@ impl SharedMemory {
             .or_insert_with(|| {
                 Arc::new(Pool {
                     endpoint: endpoint.to_string(),
+                    limit: self.limit,
                     state: Mutex::new(PoolState {
                         mode: Mode::Untried,
                         free: Vec::new(),
                         names: Vec::new(),
-                        total: 0,
+                        reserved_bytes: 0,
                         region_size: 0,
                         channel: None,
                         fallback_warned: false,
@@ -154,17 +149,16 @@ impl SharedMemory {
         }
         let pool = self.pool(endpoint);
         let mode = pool.state().mode;
-        match mode {
-            Mode::Active => {}
-            Mode::Fallback { retry_at } if Instant::now() < retry_at => return None,
-            Mode::Untried | Mode::Fallback { .. } => {
-                if let Some(lease) = self.activate(&pool, channel, len).await {
-                    return Some(lease);
-                }
-                // Activated by another request meanwhile, or not available
-                if !matches!(pool.state().mode, Mode::Active) {
-                    return None;
-                }
+        if !matches!(mode, Mode::Active) {
+            if !mode.activation_due() {
+                return None;
+            }
+            if let Some(lease) = self.activate(&pool, channel, len).await {
+                return Some(lease);
+            }
+            // Activated by another request meanwhile, or not available
+            if !matches!(pool.state().mode, Mode::Active) {
+                return None;
             }
         }
         let (taken, size) = {
@@ -175,7 +169,7 @@ impl SharedMemory {
         let region = match taken {
             Some(region) if region.size >= size => region,
             Some(region) => {
-                if !self.reserve(&pool, size - region.size) {
+                if !pool.reserve(size - region.size, &self.log) {
                     pool.state().free.push(region);
                     return None;
                 }
@@ -183,17 +177,17 @@ impl SharedMemory {
                     Ok(region) => region,
                     Err((region, e)) => {
                         let _ = unregister(channel, &region.name).await;
-                        self.log(
+                        (self.log)(
                             Level::Warning,
                             format_args!("can't grow shared memory region {} of {}: {e:#}", region.name, pool.endpoint),
                         );
-                        self.discard(&pool, region, size);
+                        pool.discard(region, size);
                         return None;
                     }
                 }
             }
             None => {
-                if !self.reserve(&pool, size) {
+                if !pool.reserve(size, &self.log) {
                     return None;
                 }
                 match self.create(size, channel).await {
@@ -202,8 +196,8 @@ impl SharedMemory {
                         region
                     }
                     Err(e) => {
-                        self.log(Level::Warning, format_args!("can't add a shared memory region for {}: {e:#}", pool.endpoint));
-                        pool.state().total -= size;
+                        (self.log)(Level::Warning, format_args!("can't add a shared memory region for {}: {e:#}", pool.endpoint));
+                        pool.state().reserved_bytes -= size;
                         return None;
                     }
                 }
@@ -216,49 +210,14 @@ impl SharedMemory {
         })
     }
 
-    /// Takes `bytes` more of the pool's limit, or warns, at most once a minute, that the limit is reached.
-    fn reserve(&self, pool: &Pool, bytes: u64) -> bool {
-        let mut state = pool.state();
-        if state.total + bytes <= self.limit {
-            state.total += bytes;
-            return true;
-        }
-        let now = Instant::now();
-        if state.limit_warned_at.is_none_or(|at| now.duration_since(at) >= LIMIT_WARNING_INTERVAL) {
-            state.limit_warned_at = Some(now);
-            drop(state);
-            self.log(
-                Level::Warning,
-                format_args!(
-                    "shared memory of {} reached inference.shared-memory-limit = {} bytes, more inputs go over gRPC",
-                    pool.endpoint, self.limit
-                ),
-            );
-        }
-        false
-    }
-
-    /// Drops a region that could not be registered at `size` bytes, which the pool had reserved.
-    fn discard(&self, pool: &Pool, region: Region, size: u64) {
-        {
-            let mut state = pool.state();
-            state.total -= size;
-            state.names.retain(|name| *name != region.name);
-        }
-        let _ = std::fs::remove_file(region.path());
-    }
-
     /// Removes the registrations earlier runs left on the server and registers the first region. A server
     /// that refuses is used over gRPC and tried again in an hour; one that can't be reached is tried again
     /// with the next input.
     async fn activate(&self, pool: &Arc<Pool>, channel: &Channel, len: usize) -> Option<Lease> {
         let _activation = pool.activation.lock().await;
         // Another request may have activated the pool meanwhile
-        let mode = pool.state().mode;
-        match mode {
-            Mode::Active => return None,
-            Mode::Fallback { retry_at } if Instant::now() < retry_at => return None,
-            Mode::Untried | Mode::Fallback { .. } => {}
+        if !pool.state().mode.activation_due() {
+            return None;
         }
         let size = len as u64;
         let result = async {
@@ -276,7 +235,7 @@ impl SharedMemory {
                     .downcast_ref::<tonic::Status>()
                     .is_some_and(|status| is_connection_error(status) || status.code() == tonic::Code::Unavailable);
                 if !unreachable {
-                    self.fall_back_pool(pool, &e);
+                    pool.fall_back(&e, &self.log);
                 }
                 return None;
             }
@@ -287,11 +246,11 @@ impl SharedMemory {
             // A later fallback is reported again; the hourly retries of one fallback are not
             state.fallback_warned = false;
             state.names.push(region.name.clone());
-            state.total += size;
+            state.reserved_bytes += size;
             state.region_size = state.region_size.max(size);
             state.channel = Some(channel.clone());
         }
-        self.log(Level::Info, format_args!("shared memory enabled for {}", pool.endpoint));
+        (self.log)(Level::Info, format_args!("shared memory enabled for {}", pool.endpoint));
         Some(Lease {
             pool: pool.clone(),
             region: Some(region),
@@ -302,24 +261,7 @@ impl SharedMemory {
     /// Sends the inputs of `endpoint` over gRPC from now on, e.g. after the server refused to register a
     /// region again; shared memory is tried again in an hour.
     pub(super) fn fall_back(&self, endpoint: &str, error: &tonic::Status) {
-        self.fall_back_pool(&self.pool(endpoint), &anyhow::anyhow!("{error}"));
-    }
-
-    fn fall_back_pool(&self, pool: &Pool, error: &anyhow::Error) {
-        let mut state = pool.state();
-        state.mode = Mode::Fallback {
-            retry_at: Instant::now() + RETRY_INTERVAL,
-        };
-        if !std::mem::replace(&mut state.fallback_warned, true) {
-            drop(state);
-            self.log(
-                Level::Warning,
-                format_args!(
-                    "no shared memory for {}, its inputs go over gRPC; tried again once an hour: {error:#}",
-                    pool.endpoint
-                ),
-            );
-        }
+        self.pool(endpoint).fall_back(&anyhow::anyhow!("{error}"), &self.log);
     }
 
     /// Unregisters the regions of this service instance's earlier runs.
@@ -336,7 +278,7 @@ impl SharedMemory {
     /// A new region file of `size` bytes, registered with the server.
     async fn create(&self, size: u64, channel: &Channel) -> Result<Region> {
         let name = format!("{}{}", self.run_prefix, self.next_region.fetch_add(1, Ordering::Relaxed));
-        let path = Path::new(SHM_DIR).join(&name);
+        let path = region_path(&name);
         let file = OpenOptions::new()
             .read(true)
             .write(true)
@@ -390,10 +332,14 @@ impl SharedMemory {
                 }
             }
             for name in &names {
-                let _ = std::fs::remove_file(Path::new(SHM_DIR).join(name));
+                let _ = std::fs::remove_file(region_path(name));
             }
         }
     }
+}
+
+fn region_path(name: &str) -> PathBuf {
+    Path::new(SHM_DIR).join(name)
 }
 
 async fn register(channel: &Channel, name: &str, size: u64) -> Result<(), tonic::Status> {
@@ -418,8 +364,15 @@ pub(super) fn is_missing_region(status: &tonic::Status) -> bool {
     status.message().contains("Unable to find shared memory region")
 }
 
+/// Whether Triton refused to register a region because it already has one of that name.
+fn is_already_registered(status: &tonic::Status) -> bool {
+    status.message().contains("already in manager")
+}
+
 struct Pool {
     endpoint: String,
+    /// Bytes the regions of the pool may take at most.
+    limit: u64,
     state: Mutex<PoolState>,
     /// Held while the pool is activated, so that one request does it.
     activation: tokio::sync::Mutex<()>,
@@ -429,6 +382,56 @@ impl Pool {
     fn state(&self) -> std::sync::MutexGuard<'_, PoolState> {
         self.state.lock().unwrap_or_else(|e| e.into_inner())
     }
+
+    /// Takes `bytes` more of the limit, or warns, at most once a minute, that the limit is reached.
+    fn reserve(&self, bytes: u64, log: &Log) -> bool {
+        let mut state = self.state();
+        if state.reserved_bytes + bytes <= self.limit {
+            state.reserved_bytes += bytes;
+            return true;
+        }
+        let now = Instant::now();
+        if state.limit_warned_at.is_none_or(|at| now.duration_since(at) >= LIMIT_WARNING_INTERVAL) {
+            state.limit_warned_at = Some(now);
+            drop(state);
+            log(
+                Level::Warning,
+                format_args!(
+                    "shared memory of {} reached inference.shared-memory-limit = {} bytes, more inputs go over gRPC",
+                    self.endpoint, self.limit
+                ),
+            );
+        }
+        false
+    }
+
+    /// Drops a region that could not be registered at `size` bytes, which the pool had reserved.
+    fn discard(&self, region: Region, size: u64) {
+        {
+            let mut state = self.state();
+            state.reserved_bytes -= size;
+            state.names.retain(|name| *name != region.name);
+        }
+        let _ = std::fs::remove_file(region_path(&region.name));
+    }
+
+    /// Sends the inputs over gRPC for an hour, warning once until shared memory works again.
+    fn fall_back(&self, error: &anyhow::Error, log: &Log) {
+        let mut state = self.state();
+        state.mode = Mode::Fallback {
+            retry_at: Instant::now() + RETRY_INTERVAL,
+        };
+        if !std::mem::replace(&mut state.fallback_warned, true) {
+            drop(state);
+            log(
+                Level::Warning,
+                format_args!(
+                    "no shared memory for {}, its inputs go over gRPC; tried again once an hour: {error:#}",
+                    self.endpoint
+                ),
+            );
+        }
+    }
 }
 
 struct PoolState {
@@ -436,8 +439,8 @@ struct PoolState {
     free: Vec<Region>,
     /// All regions of the pool, free or leased.
     names: Vec<String>,
-    /// Bytes of all regions of the pool.
-    total: u64,
+    /// Bytes of all regions of the pool, counted against its limit.
+    reserved_bytes: u64,
     /// The size of the largest input so far, which every region of the pool grows to when it is taken.
     region_size: u64,
     /// A connection the regions were registered through, to unregister them at shutdown.
@@ -453,16 +456,21 @@ enum Mode {
     Fallback { retry_at: Instant },
 }
 
+impl Mode {
+    /// Whether the pool is to be activated now: never tried, or its hour of fallback is over.
+    fn activation_due(self) -> bool {
+        match self {
+            Mode::Untried => true,
+            Mode::Active => false,
+            Mode::Fallback { retry_at } => Instant::now() >= retry_at,
+        }
+    }
+}
+
 struct Region {
     name: String,
     file: File,
     size: u64,
-}
-
-impl Region {
-    fn path(&self) -> PathBuf {
-        Path::new(SHM_DIR).join(&self.name)
-    }
 }
 
 /// A region taken from a pool for one request; it goes back to the pool when dropped.
@@ -490,7 +498,7 @@ impl Lease {
     pub(super) async fn register_again(&self) -> Result<(), tonic::Status> {
         let region = self.region();
         match register(&self.channel, &region.name, region.size).await {
-            Err(status) if !status.message().contains("already in manager") => Err(status),
+            Err(status) if !is_already_registered(&status) => Err(status),
             _ => Ok(()),
         }
     }
@@ -514,6 +522,16 @@ mod tests {
             "Unable to find shared memory region: 'falprs-9051-7-0'"
         )));
         assert!(!is_missing_region(&tonic::Status::invalid_argument("unexpected shape for input 'input.1'")));
+    }
+
+    #[test]
+    fn registered_regions_are_told_from_other_errors() {
+        assert!(is_already_registered(&tonic::Status::already_exists(
+            "shared memory region 'falprs-9051-7-0' already in manager"
+        )));
+        assert!(!is_already_registered(&tonic::Status::internal(
+            "Unable to open shared memory region: 'falprs-9051-7-0'"
+        )));
     }
 
     #[test]

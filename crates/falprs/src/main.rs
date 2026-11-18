@@ -98,6 +98,9 @@ async fn wait_for_termination() -> Result<()> {
 #[global_allocator]
 static GLOBAL: tikv_jemallocator::Jemalloc = tikv_jemallocator::Jemalloc;
 
+// The runtime is always multi-threaded: CPU work of about 100 µs and more (preparing tensors, decoding and
+// encoding images, writing inputs to shared memory, building cache snapshots) runs in `block_in_place`, which
+// panics on a current-thread runtime. A test that reaches such code uses `#[tokio::test(flavor = "multi_thread")]`.
 #[tokio::main]
 async fn main() -> Result<()> {
     let args = Args::parse();

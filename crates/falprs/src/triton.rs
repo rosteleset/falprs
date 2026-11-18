@@ -165,7 +165,7 @@ impl Triton {
         let chunks = infer_chunks(&request, lease.as_ref().map(Lease::name))?;
 
         let response = tokio::time::timeout(request.timeout, async {
-            let attempt = |chunks| call::<ModelInferResponse>(connections.next(), MODEL_INFER, chunks);
+            let attempt = |chunks| call_chunked::<ModelInferResponse>(connections.next(), MODEL_INFER, chunks);
             match attempt(chunks.clone()).await {
                 Err(status) if is_connection_error(&status) => attempt(chunks).await,
                 Err(status)
@@ -294,12 +294,12 @@ fn grpc_frame(request: &impl Message, contents: &[Bytes]) -> Result<Vec<Bytes>> 
 }
 
 /// A request body of ready chunks.
-struct Chunks {
+struct ChunkedBody {
     chunks: std::vec::IntoIter<Bytes>,
     remaining: u64,
 }
 
-impl http_body::Body for Chunks {
+impl http_body::Body for ChunkedBody {
     type Data = Bytes;
     type Error = Infallible;
 
@@ -323,7 +323,7 @@ impl http_body::Body for Chunks {
 /// A unary call with no raw contents, such as the shared memory calls.
 async fn unary<Response: Message + Default + Send + 'static>(channel: Channel, path: &'static str, request: &impl Message) -> Result<Response, tonic::Status> {
     let chunks = grpc_frame(request, &[]).map_err(|e| tonic::Status::internal(format!("{e:#}")))?;
-    call(channel, path, chunks).await
+    call_chunked(channel, path, chunks).await
 }
 
 /// A unary call of `path` with a body made of `chunks`, handled as tonic's generated client handles one.
@@ -332,12 +332,16 @@ async fn unary<Response: Message + Default + Send + 'static>(channel: Channel, p
 /// sent as `grpc-timeout`, because when that deadline expires on Triton while the input is still arriving,
 /// Triton ends the stream twice, with DEADLINE_EXCEEDED and then with INTERNAL "Unable to parse request",
 /// and h2 closes the whole connection on the second trailers.
-async fn call<Response: Message + Default + Send + 'static>(mut channel: Channel, path: &'static str, chunks: Vec<Bytes>) -> Result<Response, tonic::Status> {
+async fn call_chunked<Response: Message + Default + Send + 'static>(
+    mut channel: Channel,
+    path: &'static str,
+    chunks: Vec<Bytes>,
+) -> Result<Response, tonic::Status> {
     std::future::poll_fn(|cx| channel.poll_ready(cx))
         .await
         .map_err(|e| tonic::Status::unknown(format!("Service was not ready: {e}")))?;
     let remaining = chunks.iter().map(|c| c.len() as u64).sum();
-    let body = Chunks {
+    let body = ChunkedBody {
         chunks: chunks.into_iter(),
         remaining,
     };
