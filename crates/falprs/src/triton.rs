@@ -31,7 +31,7 @@ use proto::{InferParameter, ModelInferRequest, ModelInferResponse};
 
 mod shared_memory;
 
-use shared_memory::{Lease, is_missing_region};
+use shared_memory::{Lease, is_missing_region, is_unreachable};
 pub use shared_memory::{Level as SharedMemoryLogLevel, Log as SharedMemoryLog, SharedMemory};
 
 /// A tensor with its contents in Triton's raw little-endian layout.
@@ -145,28 +145,30 @@ impl Triton {
         Ok(c)
     }
 
-    /// Runs an inference within the request's timeout. A request that fails because its connection failed,
-    /// e.g. closed by h2 with a PROTOCOL_ERROR on frames of another stream or for too many reset streams, is
-    /// sent once more on the next connection, within the same timeout: inference has no side effects. So is
-    /// one whose shared memory region the server no longer knows, e.g. after a restart, once the region is
-    /// registered again.
+    /// Runs an inference within the request's timeout, taking the shared memory region included. A request
+    /// that fails because its connection failed, e.g. closed by h2 with a PROTOCOL_ERROR on frames of another
+    /// stream or for too many reset streams, is sent once more on the next connection, within the same
+    /// timeout: inference has no side effects. So is one whose shared memory region the server no longer
+    /// knows, e.g. after a restart, once the region is registered again.
     pub async fn infer(&self, request: InferRequest<'_>) -> Result<Vec<Tensor>> {
         let connections = self.connections(request.endpoint)?;
-        // Only a request with one input sends it through shared memory: all models here have one, and the
-        // raw contents then need no matching with the inputs that are left
-        let lease = match &request.inputs[..] {
-            [input] if input.data.len() > shared_memory::THRESHOLD => self.shared_memory.lease(request.endpoint, &connections.next(), input.data.len()).await,
-            _ => None,
-        };
-        if let (Some(lease), [input]) = (&lease, &request.inputs[..]) {
-            tokio::task::block_in_place(|| lease.write(&input.data)).context("can't write the input to shared memory")?;
-        }
-        // The chunks are `Bytes`, so the body of another attempt shares them
-        let chunks = infer_chunks(&request, lease.as_ref().map(Lease::name))?;
-
         let response = tokio::time::timeout(request.timeout, async {
+            // Only a request with one input sends it through shared memory: all models here have one, and the
+            // raw contents then need no matching with the inputs that are left
+            let lease = match &request.inputs[..] {
+                [input] if input.data.len() > shared_memory::THRESHOLD => {
+                    let lease = self.shared_memory.lease(request.endpoint, &connections.next(), input.data.len()).await;
+                    if let Some(lease) = &lease {
+                        tokio::task::block_in_place(|| lease.write(&input.data)).context("can't write the input to shared memory")?;
+                    }
+                    lease
+                }
+                _ => None,
+            };
+            // The chunks are `Bytes`, so the body of another attempt shares them
+            let chunks = infer_chunks(&request, lease.as_ref().map(Lease::name))?;
             let attempt = |chunks| call_chunked::<ModelInferResponse>(connections.next(), MODEL_INFER, chunks);
-            match attempt(chunks.clone()).await {
+            let response = match attempt(chunks.clone()).await {
                 Err(status) if is_connection_error(&status) => attempt(chunks).await,
                 Err(status)
                     if is_missing_region(&status)
@@ -175,20 +177,21 @@ impl Triton {
                     match lease.register_again().await {
                         Ok(()) => attempt(chunks).await,
                         // E.g. Triton recreated without --ipc=host: this server gets its inputs over gRPC again
-                        Err(error) if !is_connection_error(&error) => {
+                        Err(error) if !is_unreachable(&error) => {
                             self.shared_memory.fall_back(request.endpoint, &error);
-                            let chunks = infer_chunks(&request, None).map_err(|e| tonic::Status::internal(format!("{e:#}")))?;
-                            attempt(chunks).await
+                            attempt(infer_chunks(&request, None)?).await
                         }
                         Err(error) => Err(error),
                     }
                 }
                 result => result,
-            }
+            };
+            // The region goes back to the pool here, once the response is in or the request failed
+            drop(lease);
+            anyhow::Ok(response?)
         })
         .await
         .context("inference timed out")??;
-        drop(lease);
         if response.outputs.len() > response.raw_output_contents.len() {
             bail!("inference response has fewer raw contents than outputs");
         }

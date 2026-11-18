@@ -17,6 +17,7 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use anyhow::{Context, Result};
+use prost::Message;
 use tonic::transport::Channel;
 
 use super::proto::{
@@ -45,6 +46,10 @@ const RETRY_INTERVAL: Duration = Duration::from_secs(3600);
 
 /// How often a pool that reached its limit says so.
 const LIMIT_WARNING_INTERVAL: Duration = Duration::from_secs(60);
+
+/// How long a shared memory call may wait for the server's answer. The calls that make and grow regions run
+/// apart from the request they serve, so this, not the request's timeout, ends them when the server hangs.
+const CALL_TIMEOUT: Duration = Duration::from_secs(5);
 
 const SHM_DIR: &str = "/dev/shm";
 
@@ -149,11 +154,30 @@ impl SharedMemory {
         }
         let pool = self.pool(endpoint);
         let mode = pool.state().mode;
+        if matches!(mode, Mode::Active) {
+            if let Some(region) = pool.take_free(len) {
+                return Some(Lease {
+                    pool,
+                    region: Some(region),
+                    channel: channel.clone(),
+                });
+            }
+        } else if !mode.activation_due() {
+            return None;
+        }
+        // The calls to the server run in a task of their own, so that a request that times out meanwhile
+        // leaves no region half made or half counted: a lease whose request is gone goes back to the pool
+        tokio::spawn(self.clone().lease_through_server(pool, channel.clone(), len)).await.ok().flatten()
+    }
+
+    /// The part of [`Self::lease`] that calls the server: activating the pool, growing a region or adding one.
+    async fn lease_through_server(self: Arc<Self>, pool: Arc<Pool>, channel: Channel, len: usize) -> Option<Lease> {
+        let mode = pool.state().mode;
         if !matches!(mode, Mode::Active) {
             if !mode.activation_due() {
                 return None;
             }
-            if let Some(lease) = self.activate(&pool, channel, len).await {
+            if let Some(lease) = self.activate(&pool, &channel, len).await {
                 return Some(lease);
             }
             // Activated by another request meanwhile, or not available
@@ -173,14 +197,11 @@ impl SharedMemory {
                     pool.state().free.push(region);
                     return None;
                 }
-                match self.grow(region, size, channel).await {
+                match self.grow(region, size, &channel).await {
                     Ok(region) => region,
                     Err((region, e)) => {
-                        let _ = unregister(channel, &region.name).await;
-                        (self.log)(
-                            Level::Warning,
-                            format_args!("can't grow shared memory region {} of {}: {e:#}", region.name, pool.endpoint),
-                        );
+                        let _ = unregister(&channel, &region.name).await;
+                        pool.failed(&e.context(format!("can't grow shared memory region {}", region.name)), &self.log);
                         pool.discard(region, size);
                         return None;
                     }
@@ -190,14 +211,14 @@ impl SharedMemory {
                 if !pool.reserve(size, &self.log) {
                     return None;
                 }
-                match self.create(size, channel).await {
+                match self.create(size, &channel).await {
                     Ok(region) => {
                         pool.state().names.push(region.name.clone());
                         region
                     }
                     Err(e) => {
-                        (self.log)(Level::Warning, format_args!("can't add a shared memory region for {}: {e:#}", pool.endpoint));
                         pool.state().reserved_bytes -= size;
+                        pool.failed(&e.context("can't add a shared memory region"), &self.log);
                         return None;
                     }
                 }
@@ -206,7 +227,7 @@ impl SharedMemory {
         Some(Lease {
             pool,
             region: Some(region),
-            channel: channel.clone(),
+            channel,
         })
     }
 
@@ -231,12 +252,7 @@ impl SharedMemory {
         let region = match result {
             Ok(region) => region,
             Err(e) => {
-                let unreachable = e
-                    .downcast_ref::<tonic::Status>()
-                    .is_some_and(|status| is_connection_error(status) || status.code() == tonic::Code::Unavailable);
-                if !unreachable {
-                    pool.fall_back(&e, &self.log);
-                }
+                pool.failed(&e, &self.log);
                 return None;
             }
         };
@@ -266,7 +282,7 @@ impl SharedMemory {
 
     /// Unregisters the regions of this service instance's earlier runs.
     async fn remove_stale_registrations(&self, channel: &Channel) -> Result<()> {
-        let status: SystemSharedMemoryStatusResponse = unary(channel.clone(), STATUS, &SystemSharedMemoryStatusRequest::default()).await?;
+        let status: SystemSharedMemoryStatusResponse = timed_call(channel, STATUS, &SystemSharedMemoryStatusRequest::default()).await?;
         for name in status.regions.into_keys() {
             if name.starts_with(&self.instance_prefix) && !name.starts_with(&self.run_prefix) {
                 unregister(channel, &name).await?;
@@ -342,6 +358,17 @@ fn region_path(name: &str) -> PathBuf {
     Path::new(SHM_DIR).join(name)
 }
 
+/// A shared memory call that fails with `DEADLINE_EXCEEDED` when the server does not answer in time.
+async fn timed_call<Response: Message + Default + Send + 'static>(
+    channel: &Channel,
+    path: &'static str,
+    request: &impl Message,
+) -> Result<Response, tonic::Status> {
+    tokio::time::timeout(CALL_TIMEOUT, unary(channel.clone(), path, request))
+        .await
+        .unwrap_or_else(|_| Err(tonic::Status::deadline_exceeded(format!("no answer to {path} in {CALL_TIMEOUT:?}"))))
+}
+
 async fn register(channel: &Channel, name: &str, size: u64) -> Result<(), tonic::Status> {
     let request = SystemSharedMemoryRegisterRequest {
         name: name.to_string(),
@@ -349,14 +376,20 @@ async fn register(channel: &Channel, name: &str, size: u64) -> Result<(), tonic:
         offset: 0,
         byte_size: size,
     };
-    let _: SystemSharedMemoryRegisterResponse = unary(channel.clone(), REGISTER, &request).await?;
+    let _: SystemSharedMemoryRegisterResponse = timed_call(channel, REGISTER, &request).await?;
     Ok(())
 }
 
 async fn unregister(channel: &Channel, name: &str) -> Result<(), tonic::Status> {
     let request = SystemSharedMemoryUnregisterRequest { name: name.to_string() };
-    let _: SystemSharedMemoryUnregisterResponse = unary(channel.clone(), UNREGISTER, &request).await?;
+    let _: SystemSharedMemoryUnregisterResponse = timed_call(channel, UNREGISTER, &request).await?;
     Ok(())
+}
+
+/// Whether a call failed because the server could not be reached or did not answer, rather than because it
+/// refused: such a server is tried again with the next large input instead of falling back for an hour.
+pub(super) fn is_unreachable(status: &tonic::Status) -> bool {
+    is_connection_error(status) || matches!(status.code(), tonic::Code::Unavailable | tonic::Code::DeadlineExceeded)
 }
 
 /// Whether Triton failed a request because it does not know a region it names, e.g. after a restart.
@@ -381,6 +414,18 @@ struct Pool {
 impl Pool {
     fn state(&self) -> std::sync::MutexGuard<'_, PoolState> {
         self.state.lock().unwrap_or_else(|e| e.into_inner())
+    }
+
+    /// A free region that holds `len` bytes without growing, the usual case: no call to the server.
+    fn take_free(&self, len: usize) -> Option<Region> {
+        let mut state = self.state();
+        state.region_size = state.region_size.max(len as u64);
+        let size = state.region_size;
+        if state.free.last().is_some_and(|region| region.size >= size) {
+            state.free.pop()
+        } else {
+            None
+        }
     }
 
     /// Takes `bytes` more of the limit, or warns, at most once a minute, that the limit is reached.
@@ -430,6 +475,14 @@ impl Pool {
                     self.endpoint
                 ),
             );
+        }
+    }
+
+    /// After a shared memory call failed: a server that refused falls back to gRPC, one that could not be
+    /// reached is tried again with the next large input.
+    fn failed(&self, error: &anyhow::Error, log: &Log) {
+        if !error.downcast_ref::<tonic::Status>().is_some_and(is_unreachable) {
+            self.fall_back(error, log);
         }
     }
 }
@@ -532,6 +585,25 @@ mod tests {
         assert!(!is_already_registered(&tonic::Status::internal(
             "Unable to open shared memory region: 'falprs-9051-7-0'"
         )));
+    }
+
+    #[test]
+    fn unanswered_calls_are_unreachable_and_refusals_are_not() {
+        assert!(is_unreachable(&tonic::Status::unavailable("connection refused")));
+        assert!(is_unreachable(&tonic::Status::deadline_exceeded("no answer")));
+        assert!(!is_unreachable(&tonic::Status::internal("Unable to open shared memory region")));
+    }
+
+    #[test]
+    fn only_a_refusal_falls_back() {
+        let shared_memory = SharedMemory::new(false, 1, 9051, Box::new(|_, _| {}));
+        let pool = shared_memory.pool("127.0.0.1:1");
+        let unreachable = anyhow::Error::new(tonic::Status::unavailable("connection refused")).context("can't add a shared memory region");
+        pool.failed(&unreachable, &shared_memory.log);
+        assert!(matches!(pool.state().mode, Mode::Untried));
+        let refused = anyhow::Error::new(tonic::Status::internal("Unable to open shared memory region")).context("can't add a shared memory region");
+        pool.failed(&refused, &shared_memory.log);
+        assert!(matches!(pool.state().mode, Mode::Fallback { .. }));
     }
 
     #[test]
