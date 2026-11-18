@@ -24,6 +24,8 @@ deadpool-postgres = { version = "0.14", default-features = false, features = ["r
 futures = "0.3"
 # The HTTP/2 errors of tonic, to tell connection errors from request errors
 h2 = "0.4"
+# The body of inference requests, sent in chunks that share the input tensors
+http-body = "1"
 hex = "0.4"
 hyper = { version = "1", default-features = false }
 image = { version = "0.25", default-features = false, features = ["bmp", "jpeg", "png", "pnm", "tiff", "webp"] }

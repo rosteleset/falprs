@@ -18,6 +18,7 @@ chrono.workspace = true
 clap.workspace = true
 futures.workspace = true
 h2.workspace = true
+http-body.workspace = true
 hex.workspace = true
 hyper.workspace = true
 image.workspace = true

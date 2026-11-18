@@ -617,6 +617,7 @@ dependencies = [
  "futures",
  "h2",
  "hex",
+ "http-body",
  "hyper",
  "image",
  "md-5 0.10.6",

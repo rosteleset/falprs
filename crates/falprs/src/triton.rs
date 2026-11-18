@@ -1,22 +1,30 @@
-//! Triton Inference Server gRPC client.
+//! Triton Inference Server gRPC client: tonic's channels, with the inference requests framed by hand.
 
 use std::collections::HashMap;
+use std::convert::Infallible;
 use std::error::Error as StdError;
+use std::pin::Pin;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
+use std::task::{Context as TaskContext, Poll};
 use std::time::Duration;
 
 use anyhow::{Context, Result, bail};
-use bytes::Bytes;
+use bytes::{BufMut, Bytes, BytesMut};
+use http_body::{Frame, SizeHint};
+use prost::Message;
+use prost::encoding::{WireType, encode_key, encode_varint, encoded_len_varint, key_len};
+use tonic::codec::{Codec, Streaming};
+use tonic::codegen::Service;
+use tonic::codegen::http::{self, HeaderValue, header};
 use tonic::transport::{Channel, Endpoint};
 
-// Generated from the Triton protos, whose names the lints have no say over
-#[allow(clippy::all)]
+// Generated from the Triton protos, whose names the lints have no say over; only the inference messages are used
+#[allow(clippy::all, dead_code)]
 mod proto {
     tonic::include_proto!("inference");
 }
 
-use proto::grpc_inference_service_client::GrpcInferenceServiceClient;
 use proto::model_infer_request::{InferInputTensor, InferRequestedOutputTensor};
 use proto::{ModelInferRequest, ModelInferResponse};
 
@@ -144,18 +152,18 @@ impl Triton {
                 ..Default::default()
             })
             .collect();
-        // The raw contents are `Bytes`, so a copy of the request for the second attempt shares them
         let infer_request = ModelInferRequest {
             model_name: request.model_name.to_string(),
             inputs,
             outputs,
-            raw_input_contents,
             ..Default::default()
         };
+        // The chunks are `Bytes`, so the body of the second attempt shares them
+        let chunks = grpc_frame(&infer_request, &raw_input_contents)?;
 
         let response = tokio::time::timeout(request.timeout, async {
-            match model_infer(connections.next(), infer_request.clone()).await {
-                Err(status) if is_connection_error(&status) => model_infer(connections.next(), infer_request).await,
+            match model_infer(connections.next(), chunks.clone()).await {
+                Err(status) if is_connection_error(&status) => model_infer(connections.next(), chunks).await,
                 result => result,
             }
         })
@@ -172,21 +180,109 @@ impl Triton {
                 name: output.name,
                 datatype: output.datatype,
                 shape: output.shape,
-                data: Bytes::from(data),
+                data,
             })
             .collect())
     }
 }
 
+/// Field number of `ModelInferRequest.raw_input_contents`, the last field of the message.
+const RAW_INPUT_CONTENTS_FIELD: u32 = 7;
+
+/// The gRPC message of `request` with `raw_input_contents` appended, as chunks of the request body: the
+/// length-prefixed message up to the first content, then each content and the field key and length of the
+/// next. The contents are not copied: prost, through tonic's encoder, copied them into one buffer of the
+/// whole message, a few megabytes per frame, fresh from the allocator each time. Prost writes the fields in
+/// field-number order and the contents are the last field, so the bytes are the same as prost's.
+fn grpc_frame(request: &ModelInferRequest, contents: &[Bytes]) -> Result<Vec<Bytes>> {
+    debug_assert!(request.raw_input_contents.is_empty());
+    let content_prefix_len = |c: &Bytes| key_len(RAW_INPUT_CONTENTS_FIELD) + encoded_len_varint(c.len() as u64);
+    let message_len = request.encoded_len() + contents.iter().map(|c| content_prefix_len(c) + c.len()).sum::<usize>();
+    let Ok(message_len) = u32::try_from(message_len) else {
+        bail!("inference request of {message_len} bytes is too large for gRPC");
+    };
+    let mut chunks = Vec::with_capacity(2 * contents.len() + 1);
+    let mut head = BytesMut::with_capacity(5 + request.encoded_len() + contents.first().map_or(0, content_prefix_len));
+    // Not compressed, then the message length in big-endian
+    head.put_u8(0);
+    head.put_u32(message_len);
+    request.encode(&mut head).expect("the buffer has the encoded length");
+    for content in contents {
+        encode_key(RAW_INPUT_CONTENTS_FIELD, WireType::LengthDelimited, &mut head);
+        encode_varint(content.len() as u64, &mut head);
+        chunks.push(head.split().freeze());
+        chunks.push(content.clone());
+    }
+    if !head.is_empty() {
+        chunks.push(head.freeze());
+    }
+    Ok(chunks)
+}
+
+/// A request body of ready chunks.
+struct Chunks {
+    chunks: std::vec::IntoIter<Bytes>,
+    remaining: u64,
+}
+
+impl http_body::Body for Chunks {
+    type Data = Bytes;
+    type Error = Infallible;
+
+    fn poll_frame(mut self: Pin<&mut Self>, _: &mut TaskContext<'_>) -> Poll<Option<Result<Frame<Bytes>, Infallible>>> {
+        let chunk = self.chunks.next();
+        if let Some(chunk) = &chunk {
+            self.remaining -= chunk.len() as u64;
+        }
+        Poll::Ready(chunk.map(|chunk| Ok(Frame::data(chunk))))
+    }
+
+    fn is_end_stream(&self) -> bool {
+        self.remaining == 0
+    }
+
+    fn size_hint(&self) -> SizeHint {
+        SizeHint::with_exact(self.remaining)
+    }
+}
+
+/// `ModelInfer` with a body made of `chunks`, handled as tonic's generated client handles a unary call.
+///
 /// The timeout stays on the client: a request that runs out of time is cancelled with RST_STREAM. It is not
 /// sent as `grpc-timeout`, because when that deadline expires on Triton while the input is still arriving,
 /// Triton ends the stream twice, with DEADLINE_EXCEEDED and then with INTERNAL "Unable to parse request",
 /// and h2 closes the whole connection on the second trailers.
-async fn model_infer(channel: Channel, request: ModelInferRequest) -> Result<ModelInferResponse, tonic::Status> {
-    let mut client = GrpcInferenceServiceClient::new(channel)
-        .max_decoding_message_size(usize::MAX)
-        .max_encoding_message_size(usize::MAX);
-    Ok(client.model_infer(request).await?.into_inner())
+async fn model_infer(mut channel: Channel, chunks: Vec<Bytes>) -> Result<ModelInferResponse, tonic::Status> {
+    std::future::poll_fn(|cx| channel.poll_ready(cx))
+        .await
+        .map_err(|e| tonic::Status::unknown(format!("Service was not ready: {e}")))?;
+    let remaining = chunks.iter().map(|c| c.len() as u64).sum();
+    let body = Chunks {
+        chunks: chunks.into_iter(),
+        remaining,
+    };
+    let mut request = http::Request::new(tonic::body::Body::new(body));
+    *request.method_mut() = http::Method::POST;
+    *request.uri_mut() = http::Uri::from_static("/inference.GRPCInferenceService/ModelInfer");
+    *request.version_mut() = http::Version::HTTP_2;
+    request.headers_mut().insert(header::TE, HeaderValue::from_static("trailers"));
+    request.headers_mut().insert(header::CONTENT_TYPE, HeaderValue::from_static("application/grpc"));
+
+    let response = channel.call(request).await.map_err(|e| tonic::Status::from_error(e.into()))?;
+    // A trailers-only response carries its status in the headers
+    if let Some(status) = tonic::Status::from_header_map(response.headers()) {
+        if status.code() != tonic::Code::Ok {
+            return Err(status);
+        }
+        return Err(tonic::Status::internal("Missing response message."));
+    }
+    let status_code = response.status();
+    let decoder = tonic_prost::ProstCodec::<ModelInferRequest, ModelInferResponse>::default().decoder();
+    let mut body = Streaming::new_response(decoder, response.into_body(), status_code, None, None);
+    let message = body.message().await?.ok_or_else(|| tonic::Status::internal("Missing response message."))?;
+    // An error status in the trailers fails the call, as in tonic
+    body.trailers().await?;
+    Ok(message)
 }
 
 /// Whether a request failed because its HTTP/2 connection failed or was closed, not because of the request:
@@ -219,6 +315,33 @@ mod tests {
         let expected: Vec<u8> = values.iter().flat_map(|v| v.to_le_bytes()).collect();
         assert_eq!(tensor.data, expected);
         assert_eq!(tensor.as_f32(), values);
+    }
+
+    #[test]
+    fn grpc_frames_are_prosts_encoding() {
+        let request = ModelInferRequest {
+            model_name: "scrfd".to_string(),
+            inputs: vec![InferInputTensor {
+                name: "input.1".to_string(),
+                datatype: "FP32".to_string(),
+                shape: vec![1, 3, 2, 2],
+                ..Default::default()
+            }],
+            outputs: vec![InferRequestedOutputTensor {
+                name: "448".to_string(),
+                ..Default::default()
+            }],
+            ..Default::default()
+        };
+        // Lengths with one- and two-byte varints, and an empty content
+        let contents = [Bytes::from(vec![7u8; 48]), Bytes::from(vec![9u8; 300]), Bytes::new()];
+        let framed: Vec<u8> = grpc_frame(&request, &contents).unwrap().concat();
+        let mut whole = request.clone();
+        whole.raw_input_contents = contents.iter().map(|c| c.to_vec()).collect();
+        let message = whole.encode_to_vec();
+        assert_eq!(framed[0], 0);
+        assert_eq!(u32::from_be_bytes(framed[1..5].try_into().unwrap()) as usize, message.len());
+        assert_eq!(framed[5..], message[..]);
     }
 
     #[test]
