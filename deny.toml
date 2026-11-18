@@ -9,6 +9,9 @@ version = 2
 ignore = [
     # `paste` is unmaintained; a compile-time macro of `pulp` with no runtime code
     { id = "RUSTSEC-2024-0436", reason = "unmaintained compile-time macro of pulp" },
+    # `chrono` is unmaintained, with no known vulnerability; rxing depends on it unconditionally, so
+    # moving our own code to jiff or time would not remove it from the tree
+    { id = "RUSTSEC-2026-0543", reason = "unmaintained, no vulnerability; a required dependency of rxing" },
 ]
 
 [licenses]
