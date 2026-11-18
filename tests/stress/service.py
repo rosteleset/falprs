@@ -140,10 +140,12 @@ def databases(config):
     return {subsystem: (config[subsystem]["database"], "dsn") for subsystem in SUBSYSTEMS}
 
 
-def render_config(template, *, impl, port=5432, pipelines_per_cpu=None, retention=None, log_dir=LOGS_DIR):
+def render_config(template, *, impl, port=5432, pipelines_per_cpu=None, retention=None, log_dir=LOGS_DIR,
+                  shared_memory=True):
     """The service config for one start of the service.
 
     `retention` maps keys of RETENTION_KEYS to duration strings; None values keep the template's.
+    `shared_memory=False` sends every input to Triton over gRPC (the Rust service only).
     """
     config = copy.deepcopy(template)
     for database, key in databases(config).values():
@@ -166,7 +168,31 @@ def render_config(template, *, impl, port=5432, pipelines_per_cpu=None, retentio
             raise EnvironmentFailure("--pipelines-per-cpu must be at least 1")
         for subsystem in SUBSYSTEMS:
             workflow_config(config, subsystem)["pipelines-per-cpu"] = pipelines_per_cpu
+    if not shared_memory:
+        if impl == "cpp":
+            raise EnvironmentFailure("--no-shared-memory is not supported by the C++ service: it has no shared memory")
+        config.setdefault("inference", {})["shared-memory"] = False
     return config
+
+
+def shared_memory_state(log_dirs):
+    """How the service of a run sent the inputs to Triton, from the lines of its default logs."""
+    enabled, unavailable = [], []
+    for log_dir in log_dirs:
+        path = Path(log_dir) / "log.txt"
+        if not path.exists():
+            continue
+        for line in path.read_text(errors="replace").splitlines():
+            text = line.split("text=", 1)[-1]
+            if text.startswith("shared memory enabled for "):
+                enabled.append(text.removeprefix("shared memory enabled for "))
+            elif text.startswith("no shared memory for "):
+                unavailable.append(text)
+    if unavailable:
+        return "unavailable, inputs over gRPC: " + "; ".join(dict.fromkeys(unavailable))
+    if enabled:
+        return "on for " + ", ".join(dict.fromkeys(enabled))
+    return "not used (no input reached an inference server through it)"
 
 
 def retention_of(config):

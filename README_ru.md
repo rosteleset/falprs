@@ -266,6 +266,7 @@ sudo ~/falprs/scripts/tensorrt_plans.sh
 ```bash
 sudo ~/falprs/scripts/triton_service.sh
 ```
+Скрипт запускает контейнер с именем *falprs-triton* и параметром *--ipc=host*: тогда сервис передаёт входы детекторов в Triton через системную разделяемую память, а не по сети, и тратит на это меньше CPU. Это настраивается в секции *[inference]* файла *config.toml* и включено по умолчанию. Если Triton работает на другом хосте или в контейнере без *--ipc=host*, сервис отправляет входы по gRPC и пишет предупреждение в лог.
 Для создания сервиса **falprs** и ротации логов выполните команду:
 ```bash
 sudo ~/falprs/scripts/falprs_service.sh
@@ -288,6 +289,12 @@ sudo python3 ~/falprs/scripts/convert_config.py config.yaml config.toml
 sudo mv config.yaml config.yaml.bak
 ```
 и замените *config.yaml* на *config.toml* в файле */etc/systemd/system/falprs.service*.
+
+**Важно:** у контейнера Triton, запущенного старой версией *triton_service.sh*, нет *--ipc=host*, поэтому сервис отправляет ему входы по gRPC и пишет в лог предупреждение *no shared memory for ...*. Пересоздайте контейнер один раз (модели берутся из того же места; по умолчанию *TRITON_VERSION* — версия существующего контейнера):
+```bash
+sudo ~/falprs/scripts/triton_recreate.sh
+```
+Сервис сам снова зарегистрирует разделяемую память, не позже чем через час после того, как Triton снова доступен.
 
 Обновите репозиторий и запустите скрипт **scripts/update_falprs.sh**:
 ```bash

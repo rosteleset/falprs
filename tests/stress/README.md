@@ -17,7 +17,9 @@ samples the service, the system, the GPU and the emulator, prints a live line an
   `tests/test_prepare.sh` does, so `sudo -u postgres psql` must work without a password. `pg_port` sets the port,
   as in the functional tests.
 - Triton with the models, configured in the databases as for the functional tests. It may run on another host;
-  the GPU and Triton columns are then left empty.
+  the GPU and Triton columns are then left empty. Started with `--ipc=host` on the local host (as
+  `scripts/triton_service.sh` does), it gets the detector inputs through system shared memory, as in
+  production; otherwise the service falls back to gRPC. The summary says which one the run used.
 - The service binary: `target/release/falprs` (`FALPRS_IMPL=rust`, the default). `FALPRS_BIN` points to
   another binary; `FALPRS_IMPL=cpp` needs it, set to the C++ binary built from the `main` branch.
 - Python packages: `pip install -r tests/requirements.txt`, or with apt:
@@ -90,6 +92,7 @@ Common to `sweep` and `soak`:
 | `--trace` | off | `logs-level: trace` on every stream, for `fairness.py` |
 | `--sample-interval` | `5s` | Metrics sampling interval |
 | `--min-free` | `5` GB | Disk guard: stop the run below this free space on the screenshots partition |
+| `--no-shared-memory` | off | `inference.shared-memory = false`: every input goes to Triton over gRPC. For comparisons with the default, where the detector inputs go through Triton system shared memory when Triton runs locally with `--ipc=host`; run both against the same binary. Not for the C++ service |
 | `--pg-async-commit` | off | `synchronous_commit = off` on `test_frs` and `test_lprs`: commits do not wait for the WAL flush. Use it when the disk of PostgreSQL bounds the run: the pool waits on `WALWrite`/`WalSync` in `pg_stat_activity`, and the service logs `no free connection to PostgreSQL host ...` |
 | `--log-faces-ttl`, `--log-faces-cleanup-interval`, `--events-ttl`, `--events-cleanup-interval`, `--log-barcodes-ttl`, `--log-barcodes-cleanup-interval` | `10m` / `1m` | FRS retention and cleanup intervals |
 | `--events-log-ttl`, `--events-log-cleanup-interval`, `--failed-ttl` | `10m` / `1m` / `10m` | LPRS retention and cleanup interval |
@@ -169,7 +172,9 @@ results in `tests/stress/results/` are kept.
   `point` and `phase` (`setup`, `warmup`, `measure` or `run`) tell the rows apart. `elapsed_s` restarts at every
   sweep point.
 - `summary.md`: the sweep table or the soak verdict, with the implementation, the CPU count the service sees
-  (the cgroup quota counted), the PostgreSQL commit mode, the allocator environment and the emulator's settings.
+  (the cgroup quota counted), the PostgreSQL commit mode, the allocator environment, the emulator's settings and
+  how the inputs went to Triton: `Triton shared memory: on for <server>`, `off (--no-shared-memory)`, or
+  `unavailable` with the service's warning, e.g. for a Triton container without `--ipc=host`.
 - `config-<point>.yaml`: the rendered config of every service start. `arguments.json`: the command and all
   arguments, and the allocator environment: the `_RJEM_MALLOC_CONF`, `LD_PRELOAD`, `GLIBC_TUNABLES`, `MALLOC_*`
   and `MIMALLOC_*` variables the service inherits from the runner. The Rust service has jemalloc built in, with

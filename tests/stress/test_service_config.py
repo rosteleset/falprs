@@ -8,7 +8,7 @@ import yaml
 
 import service
 from common import EnvironmentFailure, parse_duration
-from service import load_template, render_config, retention_of, workflow_config
+from service import load_template, render_config, retention_of, shared_memory_state, workflow_config
 
 
 @pytest.fixture(scope="module", params=["rust", "cpp"])
@@ -168,3 +168,22 @@ def test_allocator_env():
         "MALLOC_ARENA_MAX": "2", "MALLOC_CONF": "background_thread:true", "MIMALLOC_PURGE_DELAY": "0",
         "_RJEM_MALLOC_CONF": "thp:never"}
     assert service.allocator_env({"PATH": "/usr/bin"}) == {}
+
+
+def test_shared_memory_switched_off():
+    assert "inference" not in render_config(load_template("rust"), impl="rust")
+    config = render_config(load_template("rust"), impl="rust", shared_memory=False)
+    assert config["inference"]["shared-memory"] is False
+    with pytest.raises(EnvironmentFailure):
+        render_config(load_template("cpp"), impl="cpp", shared_memory=False)
+
+
+def test_shared_memory_state_from_the_logs(tmp_path):
+    assert shared_memory_state([tmp_path]).startswith("not used")
+    (tmp_path / "log.txt").write_text(
+        "tskv\ttimestamp=2026-11-18T10:53:47\tlevel=INFO\tmodule=run ( main.rs:142 )\t"
+        "text=shared memory enabled for 127.0.0.1:8001\n")
+    assert shared_memory_state([tmp_path]) == "on for 127.0.0.1:8001"
+    with (tmp_path / "log.txt").open("a") as log:
+        log.write("tskv\tlevel=WARNING\ttext=no shared memory for 10.0.0.2:8001, its inputs go over gRPC\n")
+    assert shared_memory_state([tmp_path]).startswith("unavailable, inputs over gRPC: no shared memory for 10.0.0.2:8001")

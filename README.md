@@ -266,6 +266,7 @@ To start the container with **Triton Inference Server**, execute the command:
 ```bash
 sudo ~/falprs/scripts/triton_service.sh
 ```
+The script starts the container named *falprs-triton* with *--ipc=host*: the service then passes the detector inputs to Triton through system shared memory instead of sending them over the network, which takes less CPU. It is set in the *[inference]* section of *config.toml* and is on by default. With Triton on another host, or in a container started without *--ipc=host*, the service sends the inputs over gRPC and writes a warning to its log.
 To create the **falprs** service and log rotation, execute the command:
 ```bash
 sudo ~/falprs/scripts/falprs_service.sh
@@ -288,6 +289,12 @@ sudo python3 ~/falprs/scripts/convert_config.py config.yaml config.toml
 sudo mv config.yaml config.yaml.bak
 ```
 and replace *config.yaml* with *config.toml* in the */etc/systemd/system/falprs.service* file.
+
+**Important:** a Triton container started by an older *triton_service.sh* has no *--ipc=host*, so the service sends it the inputs over gRPC, with the warning *no shared memory for ...* in its log. Recreate the container once (the models are taken from the same place; *TRITON_VERSION* defaults to the version of the existing container):
+```bash
+sudo ~/falprs/scripts/triton_recreate.sh
+```
+The service registers its shared memory again on its own, at most an hour after Triton is back.
 
 Update the repository and run the **scripts/update_falprs.sh** script:
 ```bash

@@ -105,6 +105,11 @@ def add_run_args(parser):
                        help="set synchronous_commit = off on the test databases: commits do not wait for the WAL "
                             "flush, so that the disk of PostgreSQL does not bound the service")
 
+    group = parser.add_argument_group("inference")
+    group.add_argument("--no-shared-memory", action="store_true",
+                       help="send every input to Triton over gRPC (inference.shared-memory = false), to compare "
+                            "with the default, where the detector inputs go through Triton system shared memory")
+
     group = parser.add_argument_group("service retention (default: the template's)")
     for arg, (subsystem, key, _) in service.RETENTION_KEYS.items():
         group.add_argument("--" + key, dest=arg, type=service_duration_arg, metavar="DURATION",
@@ -223,6 +228,8 @@ class Run:
         if self.impl == "cpp" and any(getattr(args, a, None) is not None
                                       for a in ("pipelines_per_cpu", "pipelines_per_cpu_values")):
             raise EnvironmentFailure("pipelines-per-cpu is not supported by the C++ service: it rejects the key")
+        if self.impl == "cpp" and args.no_shared_memory:
+            raise EnvironmentFailure("--no-shared-memory is not supported by the C++ service: it has no shared memory")
         self.pg_port = service.pg_port()
         self.allocator_env = service.allocator_env()
         self.template = service.load_template(self.impl)
@@ -285,7 +292,8 @@ class Run:
         import service
         config = service.render_config(self.template, impl=self.impl, port=self.pg_port,
                                        pipelines_per_cpu=pipelines_per_cpu, retention=self.retention,
-                                       log_dir=service.LOGS_DIR / label)
+                                       log_dir=service.LOGS_DIR / label,
+                                       shared_memory=not self.args.no_shared_memory)
         service.write_config(config, self.dir / f"config-{label}{service.config_suffix(config)}")
         return config
 
@@ -326,6 +334,14 @@ class Run:
                     (target / f"{log_dir.name}-{path.name}").write_text(text + "\n")
         print(f"The tails of the service logs are in {target}")
 
+    def shared_memory_state(self):
+        import service
+        if self.impl == "cpp":
+            return "none (the C++ service sends the inputs over gRPC)"
+        if self.args.no_shared_memory:
+            return "off (--no-shared-memory), inputs over gRPC"
+        return service.shared_memory_state(self.log_dirs)
+
     def header(self, title):
         s = self.emulator_settings or {}
         lines = [
@@ -337,6 +353,7 @@ class Run:
             f"- CPUs seen by the service: {self.cpus}",
             "- Allocator environment: "
             + (", ".join(f"`{k}={v}`" for k, v in self.allocator_env.items()) or "none (the defaults of the binary)"),
+            f"- Triton shared memory: {self.shared_memory_state()}",
             "- PostgreSQL commits: "
             + ("asynchronous (synchronous_commit = off)" if self.args.pg_async_commit else "synchronous"),
             f"- Camera emulator: {self.emulator_url}, latency {s.get('latency', 0) * 1000:g} ms, "
