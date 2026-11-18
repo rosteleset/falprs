@@ -26,23 +26,33 @@ pub struct Tensor {
     pub name: String,
     pub datatype: String,
     pub shape: Vec<i64>,
-    pub data: Vec<u8>,
+    pub data: Bytes,
+}
+
+/// Floats in little-endian byte order, viewed as their bytes.
+struct LittleEndianFloats(Vec<f32>);
+
+impl AsRef<[u8]> for LittleEndianFloats {
+    fn as_ref(&self) -> &[u8] {
+        bytemuck::cast_slice(&self.0)
+    }
 }
 
 impl Tensor {
-    pub fn fp32(name: &str, shape: Vec<i64>, values: &[f32]) -> Self {
+    /// Takes the floats over as the tensor's bytes, without copying them on little-endian targets: a
+    /// copy of a detector input (about 5 MB) into a new zero-filled buffer cost a memset, a copy and,
+    /// for a buffer the allocator took fresh from the kernel, a page fault per page, on every frame.
+    pub fn fp32(name: &str, shape: Vec<i64>, mut values: Vec<f32>) -> Self {
+        if cfg!(target_endian = "big") {
+            for v in &mut values {
+                *v = f32::from_bits(v.to_bits().to_le());
+            }
+        }
         Self {
             name: name.to_string(),
             datatype: "FP32".to_string(),
             shape,
-            data: {
-                // Whole 4-byte chunks, which the compiler copies in bulk on little-endian targets
-                let mut data = vec![0; values.len() * 4];
-                for (bytes, v) in data.as_chunks_mut::<4>().0.iter_mut().zip(values) {
-                    *bytes = v.to_le_bytes();
-                }
-                data
-            },
+            data: Bytes::from_owner(LittleEndianFloats(values)),
         }
     }
 
@@ -117,7 +127,7 @@ impl Triton {
             .inputs
             .into_iter()
             .map(|tensor| {
-                raw_input_contents.push(Bytes::from(tensor.data));
+                raw_input_contents.push(tensor.data);
                 InferInputTensor {
                     name: tensor.name,
                     datatype: tensor.datatype,
@@ -162,7 +172,7 @@ impl Triton {
                 name: output.name,
                 datatype: output.datatype,
                 shape: output.shape,
-                data,
+                data: Bytes::from(data),
             })
             .collect())
     }
@@ -205,7 +215,7 @@ mod tests {
     #[test]
     fn fp32_tensors_hold_little_endian_floats() {
         let values = [1.0f32, -2.5, f32::MIN_POSITIVE, 0.1];
-        let tensor = Tensor::fp32("input", vec![1, 4], &values);
+        let tensor = Tensor::fp32("input", vec![1, 4], values.to_vec());
         let expected: Vec<u8> = values.iter().flat_map(|v| v.to_le_bytes()).collect();
         assert_eq!(tensor.data, expected);
         assert_eq!(tensor.as_f32(), values);

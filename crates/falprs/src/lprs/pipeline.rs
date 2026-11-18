@@ -64,9 +64,8 @@ fn request<'a>(model: &'a ModelConfig, input: Tensor, config: &VStreamConfig) ->
     }
 }
 
-/// The model's input as sent to Triton. Built where the input is prepared, off the async threads,
-/// so that only the bytes live on while the inference runs.
-fn input_tensor(model: &ModelConfig, values: &[f32]) -> Tensor {
+/// The model's input as sent to Triton: the floats become the request bytes without a copy.
+fn input_tensor(model: &ModelConfig, values: Vec<f32>) -> Tensor {
     let shape = vec![1, 3, model.input_height as i64, model.input_width as i64];
     Tensor::fp32(&model.input_tensor_name, shape, values)
 }
@@ -83,7 +82,7 @@ fn prepare_yolo_tensor(model: &ModelConfig, image: &RgbImage) -> (Tensor, Letter
         shift: input.shift,
         scale: input.scale,
     };
-    (input_tensor(model, &input.tensor), letterbox)
+    (input_tensor(model, input.tensor), letterbox)
 }
 
 /// Runs the requests of the items that have one concurrently and returns the first output of each
@@ -231,7 +230,7 @@ pub async fn classify_special(
             .enumerate()
             .map(|(vindex, crop)| {
                 stream_log!(log, Level::Trace, "before preprocess image {vindex} for VcNet");
-                let tensor = input_tensor(model, &prepare_vc(crop, model.input_width, model.input_height));
+                let tensor = input_tensor(model, prepare_vc(crop, model.input_width, model.input_height));
                 stream_log!(log, Level::Trace, "after preprocess image {vindex} for VcNet");
                 tensor
             })
@@ -475,7 +474,7 @@ pub async fn classify_plates(triton: &Triton, image: &RgbImage, config: &VStream
             .enumerate()
             .map(|(pindex, p)| {
                 stream_log!(log, Level::Trace, "before preprocess image {pindex} for LpcNet");
-                let tensor = input_tensor(model, &prepare_lpc(&roi(image, &p.bbox)?, model.input_width, model.input_height));
+                let tensor = input_tensor(model, prepare_lpc(&roi(image, &p.bbox)?, model.input_width, model.input_height));
                 stream_log!(log, Level::Trace, "after preprocess image {pindex} for LpcNet");
                 Ok(tensor)
             })
@@ -759,7 +758,7 @@ mod tests {
 
     #[test]
     fn a_response_without_outputs_skips_only_its_item() {
-        let tensor = Tensor::fp32("output", vec![2], &[1.5, -2.0]);
+        let tensor = Tensor::fp32("output", vec![2], vec![1.5, -2.0]);
         let outputs = first_outputs(&[Some(vec![tensor.clone()]), Some(Vec::new()), None, Some(vec![tensor])]);
         assert_eq!(outputs, [Some(vec![1.5, -2.0]), None, None, Some(vec![1.5, -2.0])]);
     }

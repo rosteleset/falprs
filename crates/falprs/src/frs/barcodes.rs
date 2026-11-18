@@ -52,7 +52,7 @@ async fn detect_barcodes(frs: &Frs, frame: &RgbImage, common: &CommonConfig, con
     let (width, height) = (model.input_width, model.input_height);
     let (input, shift, scale) = tokio::task::block_in_place(|| {
         let input = imaging::prepare_yolo(frame, width, height);
-        let tensor = Tensor::fp32(&model.input_tensor_name, vec![1, 3, height as i64, width as i64], &input.tensor);
+        let tensor = Tensor::fp32(&model.input_tensor_name, vec![1, 3, height as i64, width as i64], input.tensor);
         (tensor, input.shift, input.scale)
     });
     stream_log!(log, Level::Trace, "after image preprocessing for face detection");

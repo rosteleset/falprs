@@ -85,14 +85,14 @@ pub async fn detect(triton: &Triton, image: &RgbImage, config: &VStreamConfig, l
     let model = &config.uod_net;
     let target_size = input_size(model.input_width, model.input_height);
     stream_log!(log, Level::Trace, "before preprocess image for UODNet");
-    let letterbox = tokio::task::block_in_place(|| letterbox_yolo(image, target_size));
+    let mut letterbox = tokio::task::block_in_place(|| letterbox_yolo(image, target_size));
     stream_log!(log, Level::Trace, "after preprocess image for UODNet");
     let shape = vec![1, 3, letterbox.height as i64, letterbox.width as i64];
     let outputs = triton
         .infer(InferRequest {
             endpoint: &model.inference_server,
             model_name: &model.model_name,
-            inputs: vec![Tensor::fp32(&model.input_tensor_name, shape, &letterbox.tensor)],
+            inputs: vec![Tensor::fp32(&model.input_tensor_name, shape, std::mem::take(&mut letterbox.tensor))],
             outputs: vec![&model.output_tensor_name],
             timeout: config.inference_timeout,
         })

@@ -15,6 +15,8 @@ unsafe_code = "forbid"
 anyhow = "1"
 axum = "0.8"
 base64 = "0.23"
+# Safe views of float tensors as bytes, so that model inputs are sent without a copy
+bytemuck = "1"
 bytes = "1"
 chrono = { version = "0.4", default-features = false, features = ["clock", "std"] }
 clap = { version = "4", features = ["derive"] }

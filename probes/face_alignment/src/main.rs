@@ -59,7 +59,7 @@ async fn detect_faces(triton: &Triton, image: &RgbImage) -> Result<Vec<Face>> {
         .infer(InferRequest {
             endpoint: TRITON,
             model_name: "scrfd",
-            inputs: vec![Tensor::fp32("input.1", vec![1, 3, SIZE as i64, SIZE as i64], &tensor)],
+            inputs: vec![Tensor::fp32("input.1", vec![1, 3, SIZE as i64, SIZE as i64], tensor)],
             outputs: names.iter().flatten().copied().collect(),
             timeout: TIMEOUT,
         })
@@ -112,7 +112,7 @@ async fn descriptor(triton: &Triton, face: &RgbImage) -> Result<Vec<f32>> {
         .infer(InferRequest {
             endpoint: TRITON,
             model_name: "arcface",
-            inputs: vec![Tensor::fp32("input.1", vec![1, 3, FACE_SIZE as i64, FACE_SIZE as i64], &tensor)],
+            inputs: vec![Tensor::fp32("input.1", vec![1, 3, FACE_SIZE as i64, FACE_SIZE as i64], tensor)],
             outputs: vec!["683"],
             timeout: TIMEOUT,
         })

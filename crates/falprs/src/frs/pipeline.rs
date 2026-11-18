@@ -124,10 +124,10 @@ pub async fn detect_faces(triton: &Triton, frame: &RgbImage, common: &CommonConf
     let model = &common.fd_net;
     let (width, height) = (model.input_width, model.input_height);
     stream_log!(log, Level::Trace, "before image preprocessing for face detection");
-    // The input converted to bytes off the async thread too, and the floats dropped before the inference
+    // The input is prepared off the async thread; its floats become the request bytes without a copy
     let (input, scale) = tokio::task::block_in_place(|| {
         let (tensor, scale) = imaging::prepare_scrfd(frame, width, height);
-        (Tensor::fp32(&model.input_tensor_name, vec![1, 3, height as i64, width as i64], &tensor), scale)
+        (Tensor::fp32(&model.input_tensor_name, vec![1, 3, height as i64, width as i64], tensor), scale)
     });
     stream_log!(log, Level::Trace, "after image preprocessing for face detection");
     stream_log!(log, Level::Trace, "before inference face detection");
@@ -218,7 +218,7 @@ pub async fn infer_face_class(
     let (width, height) = (model.input_width, model.input_height);
     let input = tokio::task::block_in_place(|| {
         let tensor = imaging::prepare_genet(aligned_face, width, height);
-        Tensor::fp32(&model.input_tensor_name, vec![1, 3, height as i64, width as i64], &tensor)
+        Tensor::fp32(&model.input_tensor_name, vec![1, 3, height as i64, width as i64], tensor)
     });
     stream_log!(log, Level::Trace, "before inference face class");
     let outputs = triton
@@ -253,7 +253,7 @@ pub async fn extract_face_descriptor(
     let (width, height) = (model.input_width, model.input_height);
     let input = tokio::task::block_in_place(|| {
         let tensor = imaging::prepare_arcface(aligned_face, width, height);
-        Tensor::fp32(&model.input_tensor_name, vec![1, 3, height as i64, width as i64], &tensor)
+        Tensor::fp32(&model.input_tensor_name, vec![1, 3, height as i64, width as i64], tensor)
     });
     stream_log!(log, Level::Trace, "before inference for extracting descriptor");
     let outputs = triton
