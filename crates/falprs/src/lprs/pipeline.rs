@@ -565,15 +565,9 @@ fn check_ru(number: &str) -> Option<String> {
 }
 
 /// Drops leading non-digits down to 7 characters.
-fn trim_to_seven(number: &str) -> Option<String> {
-    let mut number = number.to_string();
-    while number.len() > 7 {
-        if number.starts_with(|c: char| c.is_ascii_digit()) {
-            return None;
-        }
-        number.remove(0);
-    }
-    (number.len() == 7).then_some(number)
+fn trim_to_seven(number: &str) -> Option<&str> {
+    let number = number.trim_start_matches(|c: char| !c.is_ascii_digit());
+    number.get(..7)
 }
 
 /// Belarusian format `NNNN LL N`.
@@ -583,7 +577,7 @@ fn check_by(number: &str) -> Option<String> {
         4 | 5 => BY_LETTERS.contains(c),
         _ => c.is_ascii_digit(),
     });
-    valid.then_some(number)
+    valid.then(|| number.to_string())
 }
 
 /// Armenian format `NN LL NNN` or `NNN LL NN`, checked as loosely as the C++ service does.
@@ -594,7 +588,7 @@ fn check_am(number: &str) -> Option<String> {
         3 => c.is_ascii_uppercase(),
         _ => true,
     });
-    valid.then_some(number)
+    valid.then(|| number.to_string())
 }
 
 /// Normalises a number to a supported format and sets its plate class; false if none fits.
