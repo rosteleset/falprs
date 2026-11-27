@@ -14,7 +14,7 @@ const MODELS: [(&str, &str, i64, i64, &str, &str); 6] = [
     ("vd-net", "vdnet_yolo", 640, 640, "images", "output0"),
     ("vc-net", "vcnet_vit", 224, 224, "input", "output"),
     ("lpd-net", "lpdnet_yolo", 640, 640, "images", "output0"),
-    ("lpc-net", "lpcnet_vit", 224, 224, "input", "output"),
+    ("lpc-net", "lpcnet_vit", 256, 256, "input", "output"),
     ("lpr-net", "lprnet_yolo", 320, 320, "images", "output0"),
     ("uod-net", "uodnet", 640, 640, "images", "output0"),
 ];
@@ -218,6 +218,7 @@ mod tests {
     fn defaults() {
         let config = VStreamConfig::from_json(&json!({}));
         assert_eq!(config.vd_net.model_name, "vdnet_yolo");
+        assert_eq!((config.lpc_net.input_width, config.lpc_net.input_height), (256, 256));
         assert_eq!(config.lpr_net.input_width, 320);
         assert_eq!(config.uod_net.model_name, "uodnet");
         assert_eq!((config.uod_net.input_width, config.uod_net.input_height), (640, 640));

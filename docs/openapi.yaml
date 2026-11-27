@@ -1996,7 +1996,7 @@ paths:
                                   description: Confidence of the vehicle
                                   type: number
                                 plates:
-                                  description: Information about recognized license plate numbers
+                                  description: Recognized readings. A plate classified as Armenian can also have a Russian reading when Armenian validation removes a prefix.
                                   type: array
                                   items:
                                     type: object
@@ -2009,7 +2009,7 @@ paths:
                                       type:
                                         description: Type of the license plate
                                         type: string
-                                        enum: [ "ru_1", "ru_1a" ]
+                                        enum: [ "ru_1", "ru_1a", "by", "am", "am_2" ]
                                       kpts:
                                         description: Coordinates of the four key points of the license plate
                                         type: array
@@ -2107,9 +2107,9 @@ paths:
                   inference-timeout: 1s
                   logs-level: info
                   lpc-net-inference-server: '127.0.0.1:8001'
-                  lpc-net-input-height: 224
+                  lpc-net-input-height: 256
                   lpc-net-input-tensor-name: input
-                  lpc-net-input-width: 224
+                  lpc-net-input-width: 256
                   lpc-net-model-name: lpcnet_vit
                   lpc-net-output-tensor-name: output
                   lpd-net-inference-server: '127.0.0.1:8001'
@@ -2474,7 +2474,7 @@ paths:
                   type: integer
                   format: int64
                 plates:
-                  description: Short information about recognized license plate numbers
+                  description: Recognized readings, including both Armenian and Russian readings when applicable.
                   type: array
                   items:
                     type: object
@@ -2482,7 +2482,7 @@ paths:
                        type:
                          description: Type of the license plate
                          type: string
-                         enum: [ "ru_1", "ru_1a" ]
+                         enum: [ "ru_1", "ru_1a", "by", "am", "am_2" ]
                        number:
                          description: Recognized number
                          type: string
@@ -3015,7 +3015,7 @@ components:
         lpc-net-input-height:
           type: integer
           minimum: 1
-          default: 224
+          default: 256
           description: 'LPCNet: input image height'
         lpc-net-input-tensor-name:
           type: string
@@ -3024,7 +3024,7 @@ components:
         lpc-net-input-width:
           type: integer
           minimum: 1
-          default: 224
+          default: 256
           description: 'LPCNet: input image width'
         lpc-net-model-name:
           type: string

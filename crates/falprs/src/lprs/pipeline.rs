@@ -16,11 +16,12 @@ use crate::logging::{Level, StreamLog};
 use crate::stream_log;
 use crate::triton::{InferRequest, Tensor, Triton};
 
-pub const PLATE_CLASSES: [&str; 4] = ["ru_1", "ru_1a", "by", "am"];
+pub const PLATE_CLASSES: [&str; 5] = ["ru_1", "ru_1a", "by", "am", "am_2"];
 const PLATE_CLASS_RU_1: i32 = 0;
 const PLATE_CLASS_RU_1A: i32 = 1;
 const PLATE_CLASS_BY: i32 = 2;
 const PLATE_CLASS_AM: i32 = 3;
+const PLATE_CLASS_AM_2: i32 = 4;
 
 #[derive(Debug, Clone)]
 pub struct PlateNumber {
@@ -517,7 +518,7 @@ struct CharData {
 
 /// Reading order of characters: left to right, and top line first on two-line plates.
 fn char_precedes(a: &CharData, b: &CharData) -> bool {
-    if a.plate_class == PLATE_CLASS_RU_1A {
+    if matches!(a.plate_class, PLATE_CLASS_RU_1A | PLATE_CLASS_AM_2) {
         let (ymin, ymax) = (1, 3);
         if a.bbox[ymax] < b.bbox[ymin] {
             return true;
@@ -591,38 +592,47 @@ fn check_am(number: &str) -> Option<String> {
     valid.then(|| number.to_string())
 }
 
-/// Normalises a number to a supported format and sets its plate class; false if none fits.
-fn validate_plate_number(plate: &mut PlateNumber) -> bool {
-    if plate.number.is_empty() {
-        return false;
-    }
-    if let Some(number) = check_ru(&plate.number) {
-        plate.number = number;
-        if plate.plate_class != PLATE_CLASS_RU_1 && plate.plate_class != PLATE_CLASS_RU_1A {
-            plate.plate_class = PLATE_CLASS_RU_1;
+/// Tries the predicted class first, preserving the row layout when falling back to another country.
+fn validate_plate_number(plate: &PlateNumber) -> Vec<PlateNumber> {
+    let classes = match plate.plate_class {
+        PLATE_CLASS_RU_1A => [PLATE_CLASS_RU_1A, PLATE_CLASS_AM_2, PLATE_CLASS_BY],
+        PLATE_CLASS_AM_2 => [PLATE_CLASS_AM_2, PLATE_CLASS_RU_1A, PLATE_CLASS_BY],
+        PLATE_CLASS_AM => [PLATE_CLASS_AM, PLATE_CLASS_RU_1, PLATE_CLASS_BY],
+        PLATE_CLASS_BY => [PLATE_CLASS_BY, PLATE_CLASS_RU_1, PLATE_CLASS_AM],
+        _ => [PLATE_CLASS_RU_1, PLATE_CLASS_BY, PLATE_CLASS_AM],
+    };
+    let reading = |plate_class, number| PlateNumber {
+        plate_class,
+        number,
+        score: plate.score,
+    };
+    for class in classes {
+        let number = match class {
+            PLATE_CLASS_RU_1 | PLATE_CLASS_RU_1A => check_ru(&plate.number),
+            PLATE_CLASS_BY => check_by(&plate.number),
+            PLATE_CLASS_AM | PLATE_CLASS_AM_2 => check_am(&plate.number),
+            _ => unreachable!(),
+        };
+        let Some(number) = number else { continue };
+        let mut readings = vec![reading(class, number)];
+        // A leading letter discarded by the Armenian check can belong to a valid Russian number.
+        if class == plate.plate_class
+            && matches!(class, PLATE_CLASS_AM | PLATE_CLASS_AM_2)
+            && !plate.number.starts_with(|c: char| c.is_ascii_digit())
+            && let Some(number) = check_ru(&plate.number)
+        {
+            let ru_class = if class == PLATE_CLASS_AM_2 { PLATE_CLASS_RU_1A } else { PLATE_CLASS_RU_1 };
+            readings.push(reading(ru_class, number));
         }
-        return true;
+        return readings;
     }
-    if let Some(number) = check_by(&plate.number) {
-        plate.number = number;
-        plate.plate_class = PLATE_CLASS_BY;
-        return true;
-    }
-    if let Some(number) = check_am(&plate.number) {
-        plate.number = number;
-        plate.plate_class = PLATE_CLASS_AM;
-        return true;
-    }
-    false
+    Vec::new()
 }
 
 const LABELS: [&str; 37] = [
     "0", "1", "2", "3", "4", "5", "6", "7", "8", "9", "A", "B", "C", "D", "E", "F", "G", "H", "I", "J", "K", "L", "M", "N", "O", "P", "Q", "R", "S", "T", "U",
     "V", "W", "X", "Y", "Z", "",
 ];
-
-/// Height to width ratio of the straightened plate image, by plate class.
-const HEIGHT_RATIO_BY_PLATE_CLASS: [f32; 4] = [112.0 / 520.0, 170.0 / 290.0, 112.0 / 520.0, 112.0 / 520.0];
 
 /// Every reading of the plate: overlapping characters at one position branch the number.
 fn assemble_numbers(chars: &[CharData], plate_class: i32, char_iou_threshold: f32) -> Vec<PlateNumber> {
@@ -670,9 +680,13 @@ pub async fn recognize_plates(triton: &Triton, image: &RgbImage, config: &VStrea
             .enumerate()
             .map(|(pindex, plate)| {
                 stream_log!(log, Level::Trace, "before preprocess image {pindex} for LPRNet");
-                let class = plate.plate_class_common.clamp(0, HEIGHT_RATIO_BY_PLATE_CLASS.len() as i32 - 1) as usize;
                 let width = model.input_width as f32;
-                let height = width * HEIGHT_RATIO_BY_PLATE_CLASS[class];
+                let ratio = match plate.plate_class_common {
+                    PLATE_CLASS_RU_1A => 170.0 / 290.0,
+                    PLATE_CLASS_AM_2 => 160.0 / 320.0,
+                    _ => 112.0 / 520.0,
+                };
+                let height = width * ratio;
                 let dst = [[0.0, 0.0], [width - 1.0, 0.0], [width - 1.0, height - 1.0], [0.0, height - 1.0]];
                 // Unlike the C++ service, which reads a plate filled with one pixel of the frame
                 // there, a plate with degenerate corners is not recognised
@@ -731,14 +745,14 @@ pub async fn recognize_plates(triton: &Triton, image: &RgbImage, config: &VStrea
         stream_log!(log, Level::Trace, "after nms_chars count (pindex = {pindex}): {}", chars.len());
         sort_chars(&mut chars);
 
-        let mut numbers = assemble_numbers(&chars, plate.plate_class_common, config.char_iou_threshold);
-        numbers.retain_mut(|number| {
-            let is_valid = validate_plate_number(number);
-            if !is_valid {
-                stream_log!(log, Level::Trace, "invalid plate number: {}", number.number);
+        let mut numbers = Vec::new();
+        for candidate in assemble_numbers(&chars, plate.plate_class_common, config.char_iou_threshold) {
+            let readings = validate_plate_number(&candidate);
+            if readings.is_empty() {
+                stream_log!(log, Level::Trace, "invalid plate number: {}", candidate.number);
             }
-            is_valid
-        });
+            numbers.extend(readings);
+        }
         numbers.sort_by(|a, b| b.score.total_cmp(&a.score));
         plate.numbers = numbers;
         is_ok = true;
@@ -757,37 +771,41 @@ mod tests {
         assert_eq!(outputs, [Some(vec![1.5, -2.0]), None, None, Some(vec![1.5, -2.0])]);
     }
 
-    fn number(text: &str, plate_class: i32) -> PlateNumber {
-        PlateNumber {
-            plate_class,
-            number: text.to_string(),
-            score: 1.0,
-        }
-    }
-
     #[test]
     fn plate_number_formats() {
-        let mut ru = number("O588OA68", PLATE_CLASS_BY);
-        assert!(validate_plate_number(&mut ru));
-        assert_eq!((ru.number.as_str(), ru.plate_class), ("O588OA68", PLATE_CLASS_RU_1));
+        let check = |text: &str, predicted, expected: &[(&str, i32)]| {
+            let plate = PlateNumber {
+                plate_class: predicted,
+                number: text.into(),
+                score: 0.75,
+            };
+            let readings = validate_plate_number(&plate);
+            let results: Vec<_> = readings.iter().map(|r| (r.number.as_str(), r.plate_class)).collect();
+            assert_eq!(results, expected, "{text} (class {predicted})");
+            assert!(readings.iter().all(|r| r.score == plate.score));
+        };
 
-        let mut too_long = number("XO588OA168", PLATE_CLASS_RU_1A);
-        assert!(!validate_plate_number(&mut too_long));
+        check("O588OA68", PLATE_CLASS_BY, &[("O588OA68", PLATE_CLASS_RU_1)]);
+        check("O588OA68", PLATE_CLASS_RU_1A, &[("O588OA68", PLATE_CLASS_RU_1A)]);
+        check("O588-OA68", PLATE_CLASS_RU_1A, &[("O588OA68", PLATE_CLASS_RU_1A)]);
+        check("1234AB7", PLATE_CLASS_RU_1, &[("1234AB7", PLATE_CLASS_BY)]);
+        check("1234AB7", PLATE_CLASS_AM_2, &[("1234AB7", PLATE_CLASS_BY)]);
+        check("12AB345", PLATE_CLASS_RU_1, &[("12AB345", PLATE_CLASS_AM)]);
+        check("12AB345", PLATE_CLASS_RU_1A, &[("12AB345", PLATE_CLASS_AM_2)]);
+        check("O588-OA68", PLATE_CLASS_AM_2, &[("O588OA68", PLATE_CLASS_RU_1A)]);
 
-        let mut with_noise = number("O588-OA68", PLATE_CLASS_RU_1A);
-        assert!(validate_plate_number(&mut with_noise));
-        assert_eq!((with_noise.number.as_str(), with_noise.plate_class), ("O588OA68", PLATE_CLASS_RU_1A));
+        check("16PP777", PLATE_CLASS_AM_2, &[("16PP777", PLATE_CLASS_AM_2)]);
+        check("333MM37", PLATE_CLASS_AM_2, &[("333MM37", PLATE_CLASS_AM_2)]);
+        check("O588OA68", PLATE_CLASS_AM, &[("588OA68", PLATE_CLASS_AM), ("O588OA68", PLATE_CLASS_RU_1)]);
+        check("O588OA68", PLATE_CLASS_AM_2, &[("588OA68", PLATE_CLASS_AM_2), ("O588OA68", PLATE_CLASS_RU_1A)]);
+        check("AM16PP777", PLATE_CLASS_AM_2, &[("16PP777", PLATE_CLASS_AM_2)]);
+        // Too long for RU, but stripping the prefix leaves a valid seven-character AM reading.
+        assert!(check_ru("XO588OA168").is_none());
+        check("XO588OA168", PLATE_CLASS_RU_1A, &[("588OA16", PLATE_CLASS_AM_2)]);
 
-        let mut by = number("1234AB7", PLATE_CLASS_RU_1);
-        assert!(validate_plate_number(&mut by));
-        assert_eq!((by.number.as_str(), by.plate_class), ("1234AB7", PLATE_CLASS_BY));
-
-        let mut am = number("12AB345", PLATE_CLASS_RU_1);
-        assert!(validate_plate_number(&mut am));
-        assert_eq!(am.plate_class, PLATE_CLASS_AM);
-
-        assert!(!validate_plate_number(&mut number("", PLATE_CLASS_RU_1)));
-        assert!(!validate_plate_number(&mut number("ABC", PLATE_CLASS_RU_1)));
+        check("16PP777", -1, &[("16PP777", PLATE_CLASS_AM)]);
+        check("", PLATE_CLASS_RU_1, &[]);
+        check("ABC", PLATE_CLASS_AM_2, &[]);
     }
 
     #[test]
@@ -808,16 +826,18 @@ mod tests {
 
     #[test]
     fn two_line_reading_order() {
-        let char_at = |x: f32, y: f32| CharData {
-            bbox: [x, y, x + 10.0, y + 20.0],
-            confidence: 1.0,
-            char_class: 0,
-            plate_class: PLATE_CLASS_RU_1A,
-        };
-        let mut chars = vec![char_at(30.0, 40.0), char_at(0.0, 40.0), char_at(50.0, 0.0), char_at(10.0, 0.0)];
-        sort_chars(&mut chars);
-        let order: Vec<(f32, f32)> = chars.iter().map(|c| (c.bbox[0], c.bbox[1])).collect();
-        assert_eq!(order, vec![(10.0, 0.0), (50.0, 0.0), (0.0, 40.0), (30.0, 40.0)]);
+        for plate_class in [PLATE_CLASS_RU_1A, PLATE_CLASS_AM_2] {
+            let char_at = |x: f32, y: f32| CharData {
+                bbox: [x, y, x + 10.0, y + 20.0],
+                confidence: 1.0,
+                char_class: 0,
+                plate_class,
+            };
+            let mut chars = vec![char_at(30.0, 40.0), char_at(0.0, 40.0), char_at(50.0, 0.0), char_at(10.0, 0.0)];
+            sort_chars(&mut chars);
+            let order: Vec<(f32, f32)> = chars.iter().map(|c| (c.bbox[0], c.bbox[1])).collect();
+            assert_eq!(order, vec![(10.0, 0.0), (50.0, 0.0), (0.0, 40.0), (30.0, 40.0)]);
+        }
     }
 
     fn plate(x: f32, id: f32) -> LicensePlate {

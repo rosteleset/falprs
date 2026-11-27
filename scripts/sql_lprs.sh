@@ -42,3 +42,4 @@ psql -v ON_ERROR_STOP=1 "$PG_URI_LPRS" < "$BASEDIR/../sql/lprs/03_events_log.sql
 psql -v ON_ERROR_STOP=1 "$PG_URI_LPRS" < "$BASEDIR/../sql/lprs/04_default_vstream_config.sql"
 psql -v ON_ERROR_STOP=1 "$PG_URI_LPRS" < "$BASEDIR/../sql/lprs/05_vstreams_new_columns.sql"
 psql -v ON_ERROR_STOP=1 "$PG_URI_LPRS" < "$BASEDIR/../sql/lprs/06_triton_grpc_port.sql"
+psql -v ON_ERROR_STOP=1 "$PG_URI_LPRS" < "$BASEDIR/../sql/lprs/07_lpcnet_fastvit.sql"
